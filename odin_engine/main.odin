@@ -16,8 +16,8 @@ CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter
 
 Finding :: struct {
     rule_id: string,
-    line:    int,
-    column:  int,
+    line: int,
+    column: int,
     message: string,
     subject: string,
     operation: string,
@@ -48,20 +48,20 @@ Declaration_Symbol :: struct {
 }
 
 File_Summary :: struct {
-    path:            string,
-    parsed:          bool,
-    syntax_errors:   int,
+    path: string,
+    parsed: bool,
+    syntax_errors: int,
     syntax_warnings: int,
-    struct_count:    int,
-    findings:        [dynamic]Finding,
-    procedures:      [dynamic]Procedure_Metric,
-    symbols:         [dynamic]Declaration_Symbol,
+    struct_count: int,
+    findings: [dynamic]Finding,
+    procedures: [dynamic]Procedure_Metric,
+    symbols: [dynamic]Declaration_Symbol,
 }
 
 Engine_Response :: struct {
     schema_version: string,
     engine_version: string,
-    files:          []File_Summary,
+    files: []File_Summary,
 }
 
 Parenthesis_Frame :: struct {
@@ -80,6 +80,13 @@ Analysis_Visitor_Data :: struct {
     procedure_scopes: ^[dynamic]Procedure_Scope,
     procedures: ^[dynamic]Procedure_Metric,
     symbols: ^[dynamic]Declaration_Symbol,
+}
+
+// Configure optional metadata for one allocation finding.
+Allocation_Finding_Options :: struct {
+    allocator: ^ast.Expr,
+    certainty: string,
+    target: string,
 }
 
 // Record one identifier declaration for policy evaluation by the Julia adapter.
@@ -339,13 +346,6 @@ positional_allocator :: proc(call: ^ast.Call_Expr, operation: string) -> ^ast.Ex
         }
     }
     return nil
-}
-
-// Configure optional metadata for one allocation finding.
-Allocation_Finding_Options :: struct {
-    allocator: ^ast.Expr,
-    certainty: string,
-    target: string,
 }
 
 // Record an allocation finding for the current call expression.
