@@ -59,7 +59,7 @@ project-specific trusted extensions.
 | Analysis schema | `3.8.0` |
 | Extension API | `1.0.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 50 |
+| Built-in rules | 52 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -228,14 +228,14 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 50 built-in rules. Every configured rule has an enablement flag and
+The registry contains 52 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
 | --- | ---: | --- |
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
-| Julia core and metrics | 14 | Syntax, closing delimiters, naming, globals, tuples, parameters, documentation, function lines, cyclomatic complexity, and JET |
-| Odin core, metrics, builds, and allocations | 25 | Syntax, naming, globals, tuples, parameters, documentation, metrics, compiler builds, allocator source, growth, and hidden allocation |
+| Julia core and metrics | 15 | Syntax, closing delimiters, declaration order, naming, globals, tuples, parameters, documentation, function lines, cyclomatic complexity, and JET |
+| Odin core, metrics, builds, and allocations | 26 | Syntax, declaration order, naming, globals, tuples, parameters, documentation, metrics, compiler builds, allocator source, growth, and hidden allocation |
 | Generic policy drift | 2 | Reviewed function-metric and naming policies remain exact and active |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 

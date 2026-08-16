@@ -28,6 +28,10 @@ const RULE_REGISTRY = Dict(
     "JULIA-NONCONST-GLOBAL" => RuleDefinition(
         "JULIA-NONCONST-GLOBAL", "julia", "Global Rules > Mutable Globals",
         "mature", "stable", "warning", false),
+    "JULIA-DECLARATION-ORDER" => RuleDefinition(
+        "JULIA-DECLARATION-ORDER", "julia",
+        "Global Rules > Declaration Order",
+        "mature", "stable", "warning", false),
     "JULIA-RETURN-TUPLE" => RuleDefinition(
         "JULIA-RETURN-TUPLE", "julia", "Global Rules > Return Tuples",
         "mature", "stable", "error", false),
@@ -73,6 +77,10 @@ const RULE_REGISTRY = Dict(
         "mature", "stable", "report", false),
     "ODIN-NONCONST-GLOBAL" => RuleDefinition(
         "ODIN-NONCONST-GLOBAL", "odin", "Global Rules > Mutable Globals",
+        "mature", "stable", "warning", false),
+    "ODIN-DECLARATION-ORDER" => RuleDefinition(
+        "ODIN-DECLARATION-ORDER", "odin",
+        "Global Rules > Declaration Order",
         "mature", "stable", "warning", false),
     "ODIN-RETURN-TUPLE" => RuleDefinition(
         "ODIN-RETURN-TUPLE", "odin", "Global Rules > Return Tuples",

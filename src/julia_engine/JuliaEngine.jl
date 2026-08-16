@@ -37,7 +37,111 @@ function check(
     append!(diagnostics, check_nonconst_globals(path, source, configuration))
     append!(diagnostics, check_return_tuples(path, source, configuration))
     append!(diagnostics, check_parameter_counts(path, source, configuration))
+    append!(diagnostics, check_declaration_order(path, source, configuration))
     return diagnostics
+end
+
+"""Report top-level constants and structs declared after ordinary functions."""
+function check_declaration_order(path, source, configuration)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    diagnostics = Diagnostic[]
+    collect_declaration_order!(diagnostics, tree, path, offsets, configuration)
+    return diagnostics
+end
+
+"""Check each top-level or module statement list independently."""
+function collect_declaration_order!(diagnostics, node, path, offsets, configuration)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :toplevel
+        check_statement_order!(diagnostics, children, path, offsets, configuration)
+    elseif kind == :module && length(children) >= 2
+        body = children[end]
+        statements = something(JuliaSyntax.children(body), ())
+        check_statement_order!(diagnostics, statements, path, offsets, configuration)
+    end
+    for child in children
+        collect_declaration_order!(diagnostics, child, path, offsets, configuration)
+    end
+end
+
+"""Enforce the declaration section before the ordinary-function section."""
+function check_statement_order!(diagnostics, statements, path, offsets, configuration)
+    struct_names = Set{String}()
+    function_section = false
+    for statement in statements
+        kind = Symbol(JuliaSyntax.kind(statement))
+        if kind == :struct
+            append_declaration_order_diagnostic!(
+                diagnostics,
+                statement,
+                function_section,
+                "struct",
+                path,
+                offsets,
+                configuration)
+            name = declaration_name(statement)
+            isempty(name) || push!(struct_names, name)
+        elseif kind == :const
+            append_declaration_order_diagnostic!(
+                diagnostics,
+                statement,
+                function_section,
+                "constant",
+                path,
+                offsets,
+                configuration)
+        elseif kind == :function
+            name = declaration_name(statement)
+            name in struct_names || (function_section = true)
+        end
+    end
+end
+
+"""Return the declared struct or function name represented by a syntax node."""
+function declaration_name(node)
+    children = something(JuliaSyntax.children(node), ())
+    isempty(children) && return ""
+    signature = children[1]
+    while true
+        kind = Symbol(JuliaSyntax.kind(signature))
+        kind == :Identifier && return String(JuliaSyntax.sourcetext(signature))
+        kind in (:where, :(::), :curly, :(=), :call) || return ""
+        nested = something(JuliaSyntax.children(signature), ())
+        isempty(nested) && return ""
+        signature = nested[1]
+    end
+end
+
+"""Append one configured Julia declaration-order finding."""
+function append_declaration_order_diagnostic!(
+    diagnostics,
+    node,
+    misplaced,
+    declaration_kind,
+    path,
+    offsets,
+    configuration)
+    misplaced || return
+    byte_offset = JuliaSyntax.first_byte(node)
+    line = metric_line_for_offset(offsets, byte_offset)
+    diagnostic = Diagnostic(
+        "JULIA-DECLARATION-ORDER",
+        Ignore,
+        path,
+        line,
+        byte_offset - offsets[line] + 1,
+        "Julia $(declaration_kind) declarations must appear before ordinary functions.",
+        nothing,
+        nothing,
+        "julia-syntax",
+        declaration_name(node),
+        "declaration-order",
+        nothing,
+        "stable")
+    configured = configured_diagnostic(configuration, diagnostic)
+    configured === nothing || push!(diagnostics, configured)
 end
 
 """Report Julia functions above the configured positional parameter maximum."""

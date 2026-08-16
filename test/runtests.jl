@@ -899,6 +899,48 @@ end
                 "fixture.jl", source, disabled)))
     end
 
+    @testset "Julia declaration order" begin
+        configuration = OdinJuliaAnalysis.load_settings()
+        valid_source = """
+            struct Widget
+                value::Int
+            end
+            Widget(value) = Widget(value)
+            const LIMIT = 1
+            struct Box{T}
+                value::T
+            end
+            Box{T}(value) where {T} = Box{T}(value)
+            run() = LIMIT
+            """
+        @test isempty(filter(
+            item -> item.rule_id == "JULIA-DECLARATION-ORDER",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "valid.jl", valid_source, configuration)))
+
+        invalid_source = """
+            run() = 1
+            struct Widget
+                value::Int
+            end
+            const LIMIT = 1
+            """
+        diagnostics = filter(
+            item -> item.rule_id == "JULIA-DECLARATION-ORDER",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "invalid.jl", invalid_source, configuration))
+        @test [item.subject for item in diagnostics] == ["Widget", "LIMIT"]
+        @test all(item -> item.response == Warn, diagnostics)
+
+        disabled = with_rules(configuration, Dict(
+            "JULIA-DECLARATION-ORDER" => RuleSetting(
+                "JULIA-DECLARATION-ORDER", false, Warn)))
+        @test isempty(filter(
+            item -> item.rule_id == "JULIA-DECLARATION-ORDER",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "invalid.jl", invalid_source, disabled)))
+    end
+
     @testset "Julia return tuples" begin
         configuration = OdinJuliaAnalysis.load_settings()
         source = """
@@ -1380,6 +1422,40 @@ end
                     "ODIN-NONCONST-GLOBAL", false, Fail)))
             @test isempty(filter(
                 item -> item.rule_id == "ODIN-NONCONST-GLOBAL",
+                OdinJuliaAnalysis.OdinEngine.analyze(
+                    root, [path], disabled).diagnostics))
+        end
+    end
+
+    @testset "Odin declaration order" begin
+        mktempdir() do root
+            path = joinpath(root, "fixture.odin")
+            write(path, """
+                package fixture
+
+                first :: proc() {
+                    LOCAL_CONSTANT :: 1
+                }
+
+                Later :: struct {
+                    value: int,
+                }
+                AFTER :: 2
+                """)
+            configuration = OdinJuliaAnalysis.load_settings()
+            diagnostics = filter(
+                item -> item.rule_id == "ODIN-DECLARATION-ORDER",
+                OdinJuliaAnalysis.OdinEngine.analyze(
+                    root, [path], configuration).diagnostics)
+
+            @test [item.subject for item in diagnostics] == ["Later", "AFTER"]
+            @test all(item -> item.response == Warn, diagnostics)
+
+            disabled = with_rules(configuration, Dict(
+                "ODIN-DECLARATION-ORDER" => RuleSetting(
+                    "ODIN-DECLARATION-ORDER", false, Warn)))
+            @test isempty(filter(
+                item -> item.rule_id == "ODIN-DECLARATION-ORDER",
                 OdinJuliaAnalysis.OdinEngine.analyze(
                     root, [path], disabled).diagnostics))
         end

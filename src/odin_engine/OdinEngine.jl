@@ -127,7 +127,63 @@ function append_summary_analysis!(diagnostics, functions, root, summary, configu
     append!(diagnostics, naming_diagnostics(root, summary, configuration))
     append!(diagnostics, return_tuple_diagnostics(root, summary, configuration))
     append!(diagnostics, parameter_count_diagnostics(root, summary, configuration))
+    append!(diagnostics, declaration_order_diagnostics(root, summary, configuration))
     append!(functions, backend_functions(root, summary))
+end
+
+"""Report package constants and structs declared after a procedure."""
+function declaration_order_diagnostics(root, summary, configuration)
+    diagnostics = Diagnostic[]
+    procedure_section = false
+    for symbol in sort(summary.symbols; by=item -> (item.line, item.column))
+        kind = String(symbol.kind)
+        top_level = kind == "procedure" ? top_level_procedure(symbol, summary) :
+            !inside_procedure(symbol, summary)
+        top_level || continue
+        if kind == "procedure"
+            procedure_section = true
+        elseif procedure_section && (kind == "constant" || Bool(symbol.is_struct))
+            name = String(symbol.name)
+            declaration_kind = Bool(symbol.is_struct) ? "struct" : "constant"
+            diagnostic = Diagnostic(
+                "ODIN-DECLARATION-ORDER",
+                Ignore,
+                relpath(String(summary.path), root),
+                Int(symbol.line),
+                Int(symbol.column),
+                "Odin $(declaration_kind) declarations must appear before procedures.",
+                nothing,
+                nothing,
+                "odin-ast",
+                name,
+                "declaration-order",
+                nothing,
+                "stable")
+            configured = configured_diagnostic(configuration, diagnostic)
+            configured === nothing || push!(diagnostics, configured)
+        end
+    end
+    return diagnostics
+end
+
+"""Return whether a symbol is inside any parser-reported procedure body."""
+function inside_procedure(symbol, summary)
+    line = Int(symbol.line)
+    return any(metric -> Int(metric.start_line) <= line <= Int(metric.end_line),
+        summary.procedures)
+end
+
+"""Return whether a procedure symbol identifies a package-level procedure."""
+function top_level_procedure(symbol, summary)
+    name = String(symbol.name)
+    line = Int(symbol.line)
+    metric = findfirst(item ->
+        String(item.name) == name && Int(item.start_line) == line,
+        summary.procedures)
+    metric === nothing && return false
+    return !any(enclosing ->
+        Int(enclosing.start_line) < line <= Int(enclosing.end_line),
+        summary.procedures)
 end
 
 """Convert neutral Odin parameter counts into one configured severity tier."""
