@@ -58,6 +58,8 @@ AnalysisSettings(
         RuleSetting("MARKDOWN-SINGLE-H1", true, Warn),
         RuleSetting("MARKDOWN-HEADING-LEVELS", true, Warn),
         RuleSetting("MARKDOWN-CODE-FENCE-LANGUAGE", true, Warn),
+        RuleSetting("MARKDOWN-RELATIVE-LINK", true, Warn),
+        RuleSetting("MARKDOWN-IMAGE-ALT-TEXT", true, Warn),
     ],
     NamingSettings(
         default_naming_settings().conventions,

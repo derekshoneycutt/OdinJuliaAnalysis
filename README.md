@@ -45,7 +45,7 @@ project-specific trusted extensions.
 | --- | --- | --- |
 | Julia analysis | JuliaSyntax, CodeComplexity, and JET | Syntax, declarations, metrics, naming, and inference findings |
 | Odin analysis | Native Odin AST helper | Syntax, declarations, metrics, naming, and allocation evidence |
-| Markdown analysis | Structure-aware Julia engine | Heading and fenced-code policy |
+| Markdown analysis | MarkdownAST-backed Julia engine | Structure, links, and image accessibility policy |
 | Cross-language policy | Canonical repository model and extensions | One rule registry, response model, report, and exit code |
 | Build validation | Configured analytical Odin builds | Compiler commands, streams, artifacts, and failure diagnostics |
 | Policy exceptions | Exact reviewed policies | Reasoned exceptions with bounded drift enforcement |
@@ -59,7 +59,7 @@ project-specific trusted extensions.
 | Analysis schema | `3.8.0` |
 | Extension API | `1.0.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 48 |
+| Built-in rules | 50 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -228,7 +228,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 48 built-in rules. Every configured rule has an enablement flag and
+The registry contains 50 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -237,7 +237,7 @@ one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 | Julia core and metrics | 14 | Syntax, closing delimiters, naming, globals, tuples, parameters, documentation, function lines, cyclomatic complexity, and JET |
 | Odin core, metrics, builds, and allocations | 25 | Syntax, naming, globals, tuples, parameters, documentation, metrics, compiler builds, allocator source, growth, and hidden allocation |
 | Generic policy drift | 2 | Reviewed function-metric and naming policies remain exact and active |
-| Markdown structure | 3 | Single H1, heading progression, and fenced-code language tags |
+| Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
 

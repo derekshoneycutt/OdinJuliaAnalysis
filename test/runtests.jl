@@ -1563,6 +1563,55 @@ end
             "## Section\n",
             configuration)
         @test any(item -> item.rule_id == "MARKDOWN-SINGLE-H1", missing_h1)
+
+        mktempdir() do root
+            write(joinpath(root, "existing.md"), "# Existing\n")
+            link_source = """
+                # Links and Images
+
+                [Existing](existing.md#section)
+                [Missing](missing.md)
+                [Web](https://example.com)
+                [Email](mailto:docs@example.com)
+                [Section](#links-and-images)
+
+                ![**Useful** description](image.png)
+                ![](empty.png)
+                """
+            path = joinpath(root, "guide.md")
+            diagnostics = OdinJuliaAnalysis.MarkdownEngine.check(
+                "guide.md",
+                link_source,
+                configuration;
+                filesystem_path=path)
+            @test count(
+                item -> item.rule_id == "MARKDOWN-RELATIVE-LINK",
+                diagnostics) == 1
+            @test count(
+                item -> item.rule_id == "MARKDOWN-IMAGE-ALT-TEXT",
+                diagnostics) == 1
+            @test only(filter(
+                item -> item.rule_id == "MARKDOWN-RELATIVE-LINK",
+                diagnostics)).line == 4
+            @test only(filter(
+                item -> item.rule_id == "MARKDOWN-IMAGE-ALT-TEXT",
+                diagnostics)).line == 10
+
+            disabled = with_rules(configuration, Dict(
+                "MARKDOWN-RELATIVE-LINK" => RuleSetting(
+                    "MARKDOWN-RELATIVE-LINK", false, Warn),
+                "MARKDOWN-IMAGE-ALT-TEXT" => RuleSetting(
+                    "MARKDOWN-IMAGE-ALT-TEXT", false, Warn)))
+            disabled_diagnostics = OdinJuliaAnalysis.MarkdownEngine.check(
+                "guide.md",
+                link_source,
+                disabled;
+                filesystem_path=path)
+            @test all(
+                item -> item.rule_id ∉ (
+                    "MARKDOWN-RELATIVE-LINK", "MARKDOWN-IMAGE-ALT-TEXT"),
+                disabled_diagnostics)
+        end
     end
 
     @testset "repository check" begin

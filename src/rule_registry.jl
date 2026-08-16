@@ -164,4 +164,12 @@ const RULE_REGISTRY = Dict(
     "MARKDOWN-CODE-FENCE-LANGUAGE" => RuleDefinition(
         "MARKDOWN-CODE-FENCE-LANGUAGE", "markdown",
         "Documentation Rules > Markdown Structure",
+        "mature", "stable", "warning", false),
+    "MARKDOWN-RELATIVE-LINK" => RuleDefinition(
+        "MARKDOWN-RELATIVE-LINK", "markdown",
+        "Documentation Rules > Markdown Links",
+        "mature", "stable", "warning", false),
+    "MARKDOWN-IMAGE-ALT-TEXT" => RuleDefinition(
+        "MARKDOWN-IMAGE-ALT-TEXT", "markdown",
+        "Documentation Rules > Markdown Accessibility",
         "mature", "stable", "warning", false))

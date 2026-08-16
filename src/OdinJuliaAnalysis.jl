@@ -236,7 +236,11 @@ function analyze_source_files!(diagnostics, functions, root, files, configuratio
         elseif endswith(path, ".md")
             append!(
                 diagnostics,
-                MarkdownEngine.check(relative_path, source, configuration))
+                MarkdownEngine.check(
+                    relative_path,
+                    source,
+                    configuration;
+                    filesystem_path=path))
         end
     end
 end
