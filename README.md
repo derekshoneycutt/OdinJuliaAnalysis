@@ -1,0 +1,671 @@
+# Odin/Julia Analysis
+
+Static analysis and policy enforcement for codebases that combine Odin, Julia, and their
+supporting Markdown documentation.
+
+`OdinJuliaAnalysis` provides one repository-level view across both programming languages:
+parser-backed source checks, function metrics, JET inference, analytical Odin builds,
+allocation evidence, policy exceptions with drift detection, repository statistics, and
+project-specific trusted extensions.
+
+## Table of Contents
+
+- [At a Glance](#at-a-glance)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Command-Line Interface](#command-line-interface)
+- [Architecture](#architecture)
+  - [Component Map](#component-map)
+  - [Analysis Pipeline](#analysis-pipeline)
+  - [Project Layout](#project-layout)
+- [Analysis Capabilities](#analysis-capabilities)
+  - [Rule Families](#rule-families)
+  - [Repository Statistics](#repository-statistics)
+  - [Analytical Odin Builds](#analytical-odin-builds)
+- [Configuration](#configuration)
+  - [Settings Model](#settings-model)
+  - [Responses and Exit Behavior](#responses-and-exit-behavior)
+  - [Profiles and Exclusions](#profiles-and-exclusions)
+  - [JET Entry Points](#jet-entry-points)
+  - [Reviewed Policies](#reviewed-policies)
+- [Trusted Extensions](#trusted-extensions)
+  - [Extension Contract](#extension-contract)
+  - [Lifecycle and Dependencies](#lifecycle-and-dependencies)
+  - [Result Contract](#result-contract)
+- [Reports and Artifacts](#reports-and-artifacts)
+- [Using the Sample](#using-the-sample)
+- [Testing the Analyzer](#testing-the-analyzer)
+- [Integration Guide](#integration-guide)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+## At a Glance
+
+| Capability | Implementation | Result |
+| --- | --- | --- |
+| Julia analysis | JuliaSyntax, CodeComplexity, and JET | Syntax, declarations, metrics, naming, and inference findings |
+| Odin analysis | Native Odin AST helper | Syntax, declarations, metrics, naming, and allocation evidence |
+| Markdown analysis | Structure-aware Julia engine | Heading and fenced-code policy |
+| Cross-language policy | Canonical repository model and extensions | One rule registry, response model, report, and exit code |
+| Build validation | Configured analytical Odin builds | Compiler commands, streams, artifacts, and failure diagnostics |
+| Policy exceptions | Exact reviewed policies | Reasoned exceptions with bounded drift enforcement |
+| Reporting | Text, JSON, and Markdown | Human feedback, machine contract, and audit artifact |
+| Extensibility | Trusted in-process Julia extensions | Project rules without modifying analyzer internals |
+
+| Project contract | Current value |
+| --- | --- |
+| Package | `OdinJuliaAnalysis` |
+| Package version | `0.1.0` |
+| Analysis schema | `3.8.0` |
+| Extension API | `1.0.0` |
+| Julia compatibility | `1.12` |
+| Built-in rules | 48 |
+| Source types | `.jl`, `.odin`, `.md` |
+| License | The Unlicense |
+
+## Requirements
+
+| Requirement | Purpose |
+| --- | --- |
+| Julia 1.12 | Analyzer orchestration, Julia parsing, JET, policy, and reporting |
+| Odin compiler on `PATH` | Native Odin analysis engine and analytical builds |
+| Git checkout or package installation | Analyzer source, default settings, and Odin helper source |
+
+Install Julia dependencies from the project directory:
+
+```sh
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+Confirm both toolchains:
+
+```sh
+julia --version
+odin version
+```
+
+## Quick Start
+
+Analyze the current directory with the packaged settings:
+
+```sh
+julia --project=. analyze.jl check .
+```
+
+Analyze another repository with its own settings:
+
+```sh
+julia --project=. analyze.jl check /path/to/project \
+  --settings=/path/to/project/analysis_settings.jl
+```
+
+Write machine output and a complete Markdown audit report:
+
+```sh
+julia --project=. analyze.jl check /path/to/project \
+  --settings=/path/to/project/analysis_settings.jl \
+  --format=json \
+  --progress=always \
+  --report=/path/to/project/.build/reports/analysis.md
+```
+
+> The packaged [`settings.jl`](settings.jl) is the analyzer's self-analysis policy. A
+> consuming repository should own a settings file tailored to its entry points, build
+> targets, responses, reviewed policies, and extensions. The [`sample/`](sample/)
+> project is the reference consumer.
+
+## Command-Line Interface
+
+```text
+julia analyze.jl check [PATH] [OPTIONS]
+```
+
+`PATH` defaults to the current directory. Only the `check` command is currently
+implemented.
+
+| Option | Values | Default | Purpose |
+| --- | --- | --- | --- |
+| `--format` | `text`, `json` | `text` | Select terminal or canonical machine output |
+| `--color` | `auto`, `always`, `never` | `auto` | Control ANSI styling in text output |
+| `--progress` | `auto`, `always`, `never` | `auto` | Control milestones written to stderr |
+| `--settings` | File path | Packaged `settings.jl` | Load an `AnalysisSettings` value |
+| `--report` | File path | None | Write the comprehensive Markdown artifact |
+| `-h`, `--help` | - | - | Show command help |
+
+Progress always uses stderr. Text or JSON report data always uses stdout, so machine
+consumers can safely redirect stdout while retaining live progress.
+
+| Exit code | Meaning | Typical cause |
+| ---: | --- | --- |
+| `0` | Analysis completed and policy passed | No finding met the configured failure threshold |
+| `1` | Analysis completed and policy failed | A finding met or exceeded the failure threshold |
+| `2` | Analysis was incomplete or invocation was invalid | Engine failure, extension failure, bad settings, or bad CLI usage |
+
+## Architecture
+
+### Component Map
+
+```mermaid
+flowchart LR
+    CLI[analyze.jl CLI] --> Settings[Settings loader and validator]
+    CLI --> Pipeline[Repository pipeline]
+    Settings --> Registry[Built-in and extension rule registry]
+    Registry --> Pipeline
+
+    Pipeline --> Common[Common rules]
+    Pipeline --> Julia[JuliaSyntax and CodeComplexity]
+    Pipeline --> JET[JET callable roots]
+    Pipeline --> OdinBridge[Julia Odin-engine adapter]
+    OdinBridge --> OdinNative[Native Odin AST engine]
+    Pipeline --> Markdown[Markdown engine]
+    Pipeline --> Builds[Analytical Odin builds]
+    Pipeline --> Extensions[Trusted Julia extensions]
+
+    Common --> Model[Canonical diagnostics and inventories]
+    Julia --> Model
+    JET --> Model
+    OdinNative --> Model
+    Markdown --> Model
+    Builds --> Model
+    Extensions --> Model
+
+    Model --> Policy[Response remapping and reviewed policies]
+    Policy --> Statistics[Repository statistics]
+    Statistics --> Report[AnalysisReport schema 3.8.0]
+    Report --> Text[Text report]
+    Report --> JSON[JSON report]
+    Report --> MD[Markdown audit report]
+```
+
+The Julia package owns orchestration and policy. The native Odin executable owns
+parser-backed Odin facts. Engines do not independently decide the final process result;
+they contribute canonical diagnostics and status records to one report.
+
+### Analysis Pipeline
+
+```mermaid
+flowchart TD
+    Start[Load and validate settings] --> Discover[Discover supported source files]
+    Discover --> Phase1[Extensions: AfterDiscovery]
+    Phase1 --> FileChecks[Common, Julia, and Markdown checks]
+    FileChecks --> Jet[JET entry-point analysis]
+    Jet --> Odin[Native Odin AST analysis]
+    Odin --> Phase2[Extensions: AfterLanguageAnalysis]
+    Phase2 --> Builds[Configured analytical Odin builds]
+    Builds --> Metrics[Function metrics and reviewed-policy drift]
+    Metrics --> Inventory[File, function, struct, and allocation inventories]
+    Inventory --> Stats[Repository, COCOMO, and LOCOMO statistics]
+    Stats --> Phase3[Extensions: AfterRepositoryAnalysis]
+    Phase3 --> Finalize[Sort findings, retain ignored evidence, summarize rules]
+    Finalize --> Exit{Engine complete and policy passing?}
+    Exit -->|Yes| Pass[Exit 0]
+    Exit -->|Policy finding| PolicyFail[Exit 1]
+    Exit -->|Incomplete| Incomplete[Exit 2]
+```
+
+### Project Layout
+
+| Path | Responsibility |
+| --- | --- |
+| [`analyze.jl`](analyze.jl) | Activates the package and invokes the CLI |
+| [`settings.jl`](settings.jl) | Self-analysis policy and complete configuration example |
+| [`src/OdinJuliaAnalysis.jl`](src/OdinJuliaAnalysis.jl) | Public module, CLI parsing, and canonical pipeline |
+| [`src/settings_types.jl`](src/settings_types.jl) | Public settings, thresholds, and reviewed-policy types |
+| [`src/settings_loader.jl`](src/settings_loader.jl) | Settings validation, rule merging, and extension ordering |
+| [`src/model.jl`](src/model.jl) | Canonical diagnostics, inventories, results, and report schema |
+| [`src/julia_engine/`](src/julia_engine/) | JuliaSyntax-backed analysis and metrics |
+| [`src/jet_engine/`](src/jet_engine/) | JET callable-root analysis |
+| [`src/odin_engine/`](src/odin_engine/) | Julia adapter for the native Odin engine |
+| [`odin_engine/`](odin_engine/) | Native Odin parser, analyzer, and native tests |
+| [`src/markdown_engine/`](src/markdown_engine/) | Markdown structure checks |
+| [`src/extension_api.jl`](src/extension_api.jl) | Trusted extension contract and execution |
+| [`src/reporting.jl`](src/reporting.jl) | Text and JSON output |
+| [`src/markdown_report.jl`](src/markdown_report.jl) | Comprehensive Markdown renderer |
+| [`test/`](test/) | Analyzer regression suite |
+| [`sample/`](sample/) | Standalone Odin/Julia consumer and integration example |
+
+## Analysis Capabilities
+
+### Rule Families
+
+The registry contains 48 built-in rules. Every configured rule has an enablement flag and
+one response: `Ignore`, `Report`, `Warn`, or `Fail`.
+
+| Family | Rules | Evidence and intent |
+| --- | ---: | --- |
+| Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
+| Julia core and metrics | 14 | Syntax, closing delimiters, naming, globals, tuples, parameters, documentation, function lines, cyclomatic complexity, and JET |
+| Odin core, metrics, builds, and allocations | 25 | Syntax, naming, globals, tuples, parameters, documentation, metrics, compiler builds, allocator source, growth, and hidden allocation |
+| Generic policy drift | 2 | Reviewed function-metric and naming policies remain exact and active |
+| Markdown structure | 3 | Single H1, heading progression, and fenced-code language tags |
+
+Representative rule IDs:
+
+| Concern | Julia | Odin | Shared or Markdown |
+| --- | --- | --- | --- |
+| Syntax | `JULIA-SYNTAX` | `ODIN-SYNTAX` | - |
+| Naming | `JULIA-NAMING` | `ODIN-NAMING` | `NAMING-POLICY-DRIFT` |
+| Function size | `JULIA-FUNCTION-LINES-*` | `ODIN-FUNCTION-LINES-*` | `FUNCTION-METRIC-POLICY-DRIFT` |
+| Complexity | `JULIA-CYCLOMATIC-*` | `ODIN-CYCLOMATIC-*` | - |
+| Parameters | `JULIA-PARAMETERS-FAIL` | `ODIN-PARAMETERS-WARN`, `ODIN-PARAMETERS-FAIL` | - |
+| Tuple returns | `JULIA-RETURN-TUPLE` | `ODIN-RETURN-TUPLE` | - |
+| Documentation | `JULIA-DOC-MISSING` | `ODIN-DOC-MISSING` | `MARKDOWN-*` |
+| Static inference | `JULIA-JET-POSSIBLE-ERROR` | - | - |
+| Allocation | - | `ODIN-ALLOCATION-*` | `ODIN-ALLOCATION-POLICY-DRIFT` |
+| Build health | - | `ODIN-BUILD-FAILED` | - |
+
+The `*-REPORT`, `*-WARN`, and `*-FAIL` metric rules use exact, increasing thresholds.
+This preserves low-severity visibility without making every review signal block a build.
+
+### Repository Statistics
+
+The report includes parser-backed totals rather than filename-only estimates.
+
+| Statistic | Scope |
+| --- | --- |
+| Files | Julia and Odin source counts by language |
+| Functions | Julia functions and Odin procedures |
+| Structs | Julia and Odin struct declarations |
+| Lines | Physical, blank, comment, and code lines |
+| Complexity | Aggregate cyclomatic complexity and complexity per code line |
+| COCOMO | Organic-model effort, schedule, staffing, and cost estimate |
+| LOCOMO | Token, generation-cycle, generation-time, review-time, and cost estimate |
+
+Markdown files are analyzed for policy but excluded from programming-language code totals.
+
+### Analytical Odin Builds
+
+`OdinBuildSettings` defines compiler invocations that are part of analysis but independent
+from an application's normal build system.
+
+```julia
+OdinBuildSettings([
+    OdinBuildTarget(
+        "application",
+        "src",
+        "application-analysis",
+        ["-vet", "-strict-style", "-disallow-do", "-warnings-as-errors"]),
+])
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable report identity |
+| `input` | Target-root-relative Odin package or source file |
+| `output_name` | Artifact filename beneath `.build/analysis/odin/` |
+| `flags` | Compiler policy applied to the analytical build |
+
+The report retains the complete command, exit code, stdout, stderr, and artifact path.
+A failed build emits `ODIN-BUILD-FAILED` using its configured response.
+
+## Configuration
+
+### Settings Model
+
+A settings file is Julia source whose final value is `AnalysisSettings`. It is evaluated
+inside an isolated module, validated completely, and resolved into `EffectiveSettings`
+before source discovery begins.
+
+| `AnalysisSettings` field | Controls |
+| --- | --- |
+| `profile` | Initially selected scan profile |
+| `failure_threshold` | Minimum response that produces exit code 1 |
+| `thresholds` | Common line and legacy metric thresholds |
+| `profiles` | Named path-exclusion sets |
+| `rules` | Rule enablement and response remapping |
+| `naming` | Language conventions and exact reviewed exceptions |
+| `jet` | Callable roots and representative argument types |
+| `odin_build` | Analytical compiler targets |
+| `return_tuples` | Julia and Odin tuple-return maximums |
+| `parameter_counts` | Language-specific parameter limits |
+| `function_metrics` | Per-language line and cyclomatic response tiers |
+| `allocations` | Known allocators, source patterns, and reviewed evidence |
+| `report` | Text finding limits and color default |
+| `extensions` | Ordered trusted extension values |
+
+Settings validation rejects malformed thresholds, duplicate profile names, unknown rules,
+duplicate rule IDs, invalid reviewed policies, invalid build targets, extension API
+mismatches, unknown extension dependencies, and dependency cycles.
+
+### Responses and Exit Behavior
+
+```mermaid
+flowchart LR
+    Finding[Engine finding] --> Enabled{Rule enabled?}
+    Enabled -->|No| Suppress[Not emitted]
+    Enabled -->|Yes| Remap[Apply configured response]
+    Remap --> Ignore[Ignore: retain in ignored evidence]
+    Remap --> Report[Report: informational]
+    Remap --> Warn[Warn: actionable warning]
+    Remap --> Fail[Fail: blocking severity]
+    Report --> Threshold{Meets failure threshold?}
+    Warn --> Threshold
+    Fail --> Threshold
+    Threshold -->|No| Exit0[Policy can pass]
+    Threshold -->|Yes| Exit1[Policy exits 1]
+```
+
+`Ignore` does not erase evidence: ignored diagnostics and per-rule counts remain in the
+canonical report. Engine failures and incomplete extension results always produce exit
+code 2, independent of the policy threshold.
+
+### Profiles and Exclusions
+
+A `ScanProfile` selects target-root-relative files or directory prefixes to exclude from
+enforcement:
+
+```julia
+ScanProfile(:default, ["vendor", "generated/api.jl"])
+```
+
+Discovery recursively includes `.jl`, `.odin`, and `.md` files. The following directories
+are always skipped:
+
+| Directory | Reason |
+| --- | --- |
+| `.git` | Version-control internals |
+| `.build` | Generated analyzer and project artifacts |
+| `bin` | Built application output |
+
+Exclusions are normalized path-prefix matches. They are not regular expressions or glob
+patterns.
+
+### JET Entry Points
+
+JET runs against configured callable roots, not every Julia file in isolation:
+
+```julia
+JetSettings([
+    JetEntryPoint(
+        "application-main",
+        "src/Application.jl",
+        Application.main,
+        (Vector{String},)),
+])
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable entry-point identity |
+| `path` | Owning source path for diagnostics |
+| `callable` | Julia function analyzed with `report_call` |
+| `argument_types` | Representative positional argument-type tuple |
+
+Choose application, service, callback, and CLI boundaries whose transitive call graphs
+represent real execution. Dependency-internal findings are not promoted as repository
+findings.
+
+### Reviewed Policies
+
+Reviewed policies make deliberate exceptions visible and drift checked.
+
+| Policy | Exact match dimensions | Drift rule |
+| --- | --- | --- |
+| `ReviewedNamingPolicy` | Path, language, declaration kind, and name | `NAMING-POLICY-DRIFT` |
+| `ReviewedComplexity` | Path, language, function, and metric | `FUNCTION-METRIC-POLICY-DRIFT` |
+| `ReviewedAllocationPolicy` | Path, procedure, category, operation, target, source, and certainty | `ODIN-ALLOCATION-POLICY-DRIFT` |
+
+Every policy records a stable ID, reason, response, and minimum/maximum match count.
+Missing, excessive, or ambiguous matches become blocking drift findings instead of
+silently preserving stale exceptions.
+
+## Trusted Extensions
+
+Extensions are Julia values loaded by the consuming project's environment. They run
+inside the analyzer process with full Julia and OS permissions, so package installation
+and dependency review are part of the trust boundary.
+
+### Extension Contract
+
+```julia
+struct ProjectExtension <: AnalysisExtension end
+
+extension_id(::ProjectExtension) = "project-policy"
+extension_api_version(::ProjectExtension) = EXTENSION_API_VERSION
+extension_phases(::ProjectExtension) = Set((AfterRepositoryAnalysis,))
+extension_dependencies(::ProjectExtension) = String[]
+
+function extension_rules(::ProjectExtension)
+    return RuleDefinition[
+        RuleDefinition(
+            "PROJECT-ARCHITECTURE",
+            "common",
+            "Project Architecture",
+            "repository inventory",
+            "high",
+            "default",
+            false),
+    ]
+end
+
+function analyze_extension(extension::ProjectExtension, context, prior_results)
+    return ExtensionResult(extension_id(extension), context.phase)
+end
+```
+
+| Method | Required behavior |
+| --- | --- |
+| `extension_id` | Return a globally unique, stable, nonempty ID |
+| `extension_api_version` | Return the exact supported API version |
+| `extension_rules` | Declare every rule the extension may emit |
+| `extension_phases` | Select at least one supported lifecycle phase |
+| `extension_dependencies` | Name extensions whose results may be consumed |
+| `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
+
+Default methods provide API version `1.0.0`, repository phase, no rules, and no
+dependencies. `extension_id` and `analyze_extension` must be implemented.
+
+### Lifecycle and Dependencies
+
+| Phase | Available context | Typical use |
+| --- | --- | --- |
+| `AfterDiscovery` | Root, profile, phase, and normalized source paths | Layout and path policy |
+| `AfterLanguageAnalysis` | Paths plus file and function inventories and interim statistics | Declaration and metric policy |
+| `AfterRepositoryAnalysis` | Final core inventories and repository statistics | Cross-file and cross-language policy |
+
+```mermaid
+flowchart LR
+  Configure[Configured extension order]
+  Validate[Validate IDs, API, rules, and dependencies]
+  Configure --> Validate
+    Validate --> Sort[Stable topological order]
+    Sort --> Discovery[AfterDiscovery]
+    Discovery --> Language[AfterLanguageAnalysis]
+    Language --> Repository[AfterRepositoryAnalysis]
+    Repository --> Aggregate[Aggregate engine status and canonical report]
+
+    Dependency[Declared predecessor result] --> Analyze[analyze_extension]
+    Context[Immutable AnalysisContext] --> Analyze
+    Analyze --> Result[ExtensionResult]
+    Result --> Aggregate
+```
+
+Configured order is the tie-breaker between independent extensions. A dependent receives
+only results from dependencies it explicitly names. Self-dependencies, unknown IDs, and
+cycles reject configuration before analysis.
+
+### Result Contract
+
+| `ExtensionResult` field | Contract |
+| --- | --- |
+| `extension_id` | Must match the executing extension |
+| `phase` | Must match the current lifecycle phase |
+| `status` | `complete`, `incomplete`, `failed`, or `not-applicable` |
+| `diagnostics` | May use only rule IDs owned by the extension |
+| `artifacts` | Must be a `Dict{String, Any}` containing JSON-serializable values |
+| `message` | Optional status or unresolved-analysis evidence |
+
+Core owns response remapping, ignored-finding retention, sorting, serialization,
+rendering, and exit semantics. Extensions must not write directly to text, JSON, or
+Markdown reports.
+
+Thrown exceptions and invalid results are converted to failed extension results. A
+`failed` or `incomplete` extension makes the complete analysis incomplete and exits 2.
+
+See [`sample/analysis_extension.jl`](sample/analysis_extension.jl) for a working rule,
+artifact, settings registration, and dynamically loaded extension.
+
+## Reports and Artifacts
+
+JSON is the canonical machine-readable representation. Text and Markdown are renderings
+of the same analysis state.
+
+| Output | Invocation | Intended consumer | Completeness |
+| --- | --- | --- | --- |
+| Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.8.0 |
+| Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
+
+The canonical report includes:
+
+| Section | Contents |
+| --- | --- |
+| Metadata | Schema, tool version, root, profile, thresholds, and exit code |
+| Files | Language, line classes, parse state, function count, and struct count |
+| Functions | Location, physical/executable lines, parameters, returns, and complexity |
+| Statistics | Language totals, complexity density, COCOMO, and LOCOMO |
+| Diagnostics | Visible and ignored findings with evidence and reviewed-policy metadata |
+| Engines | Completion status and failure messages |
+| Rules | Response, evaluation status, files checked, and finding count |
+| Odin builds | Commands, flags, streams, artifacts, status, and exit codes |
+| Extensions | Phase results, status, messages, diagnostics, and generic artifacts |
+
+| Generated path | Owner | Contents |
+| --- | --- | --- |
+| `.build/odin-engine` | Analyzer package | Cached native Odin analysis executable |
+| `<target>/.build/analysis/odin/` | Analyzed repository | Configured analytical Odin build artifacts |
+| User-selected `--report` path | Caller | Comprehensive Markdown report |
+
+Generated `.build` directories are excluded from source discovery.
+
+## Using the Sample
+
+[`sample/`](sample/) is a complete minimal consumer with Odin and Julia hello-world
+programs, native tests, an analytical Odin build, a JET root, custom settings, and a
+trusted extension.
+
+```sh
+cd sample
+./make.jl build
+./make.jl run
+./make.jl unit
+./make.jl check
+./make.jl test --report=.build/reports/analysis.md
+```
+
+The sample verification gate mirrors a production repository driver:
+
+```text
+VERIFICATION PROGRESS
+  [1/3] Build Odin and Julia hello programs
+  [2/3] Run Odin and Julia unit tests
+  [3/3] Analyze the sample repository
+```
+
+| Sample file | Demonstrates |
+| --- | --- |
+| [`sample/make.jl`](sample/make.jl) | Repository command dispatch |
+| [`sample/tools/verify.jl`](sample/tools/verify.jl) | Structured build, test, and analysis gate |
+| [`sample/analysis_settings.jl`](sample/analysis_settings.jl) | Consumer-owned settings composition |
+| [`sample/analysis_extension.jl`](sample/analysis_extension.jl) | Trusted extension rule and artifact |
+| [`sample/src/main.odin`](sample/src/main.odin) | Odin source and native entry point |
+| [`sample/src/HelloWorldSample.jl`](sample/src/HelloWorldSample.jl) | Julia package source and JET callable |
+| [`sample/test/runtests.jl`](sample/test/runtests.jl) | Julia unit tests |
+
+When the sample lives outside this checkout, point it to the analyzer project:
+
+```sh
+ODIN_JULIA_ANALYSIS_PROJECT=/path/to/OdinJuliaAnalysis ./make.jl test
+```
+
+## Testing the Analyzer
+
+Run the package regression suite:
+
+```sh
+julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+Run the native Odin engine tests directly:
+
+```sh
+odin test odin_engine \
+  -vet \
+  -strict-style \
+  -disallow-do \
+  -warnings-as-errors
+```
+
+Analyze the analyzer with its packaged policy:
+
+```sh
+julia --project=. analyze.jl check . \
+  --settings=settings.jl \
+  --report=.build/reports/self-analysis.md
+```
+
+| Test surface | Coverage |
+| --- | --- |
+| Julia regression suite | Settings, engines, metrics, reports, policies, CLI, and extensions |
+| Native Odin tests | Odin parser facts, syntax failures, metrics, naming, and allocations |
+| Self-analysis | The analyzer's own Julia, Odin, and Markdown source |
+| Sample gate | External consumer workflow and settings-loaded extension dispatch |
+
+## Integration Guide
+
+A practical adoption sequence:
+
+1. Instantiate the analyzer and ensure `odin` is on `PATH`.
+2. Copy the structural pattern from [`sample/`](sample/), not the analyzer's
+   self-analysis settings verbatim.
+3. Define one profile and explicitly configure every built-in rule response.
+4. Add real Julia callable roots with `JetSettings`.
+5. Add strict analytical Odin targets with `OdinBuildSettings`.
+6. Run text output locally and archive JSON or Markdown in CI.
+7. Promote initially noisy rules from `Report` to `Warn` or `Fail` after reviewing data.
+8. Encode legitimate exceptions as exact reviewed policies with match bounds.
+9. Add project-specific trusted extensions only where built-in evidence is insufficient.
+10. Make analyzer exit codes part of the repository's normal verification gate.
+
+Recommended CI shape:
+
+```sh
+julia --project=/path/to/OdinJuliaAnalysis \
+  /path/to/OdinJuliaAnalysis/analyze.jl check "$PWD" \
+  --settings="$PWD/analysis_settings.jl" \
+  --format=json \
+  --progress=always \
+  --report="$PWD/.build/reports/analysis.md" \
+  > "$PWD/.build/reports/analysis.json"
+```
+
+## Troubleshooting
+
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| `odin` command not found | Odin is absent from `PATH` | Install Odin or update `PATH` before analysis |
+| Settings file does not return `AnalysisSettings` | Final settings expression has the wrong type | Ensure the file's last value is `AnalysisSettings(...)` |
+| Unknown rule in settings | Typo or missing extension rule registration | Check the built-in registry and `extension_rules` |
+| Duplicate rule ID | Extension ID collides with core or another extension | Namespace project rules and keep IDs globally unique |
+| Extension API mismatch | Extension targets another API version | Update the extension or use a compatible analyzer release |
+| Extension dependency cycle | Extensions depend on each other transitively | Make dependency direction acyclic |
+| Analysis exits 2 | Engine or extension was incomplete | Inspect engine statuses and extension messages in JSON or Markdown |
+| JET reports irrelevant dependency internals | Root or ownership path is too broad | Configure concrete repository-owned callable roots |
+| Reviewed-policy drift | Source no longer matches bounded evidence | Re-evaluate the code and update or remove the policy intentionally |
+| Odin analytical build fails | Input, output, or flags differ from the real package | Inspect the retained command, stdout, and stderr |
+| Generated files are unexpectedly analyzed | Output is outside standard excluded directories | Add a profile exclusion or place generated output under `.build` or `bin` |
+| JSON consumer breaks | Consumer assumes an older schema | Gate consumers on `schema_version` and migrate deliberately |
+
+For complete evidence, rerun with both machine and audit outputs:
+
+```sh
+julia --project=. analyze.jl check /path/to/project \
+  --settings=/path/to/project/analysis_settings.jl \
+  --format=json \
+  --progress=always \
+  --report=/path/to/project/.build/reports/analysis.md
+```
+
+## License
+
+This project is released into the public domain under [The Unlicense](LICENSE).

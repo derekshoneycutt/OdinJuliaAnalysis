@@ -1,0 +1,13 @@
+name = "HelloWorldSample"
+uuid = "a7ecb50c-a228-4c42-ab36-163d82286f3f"
+version = "0.1.0"
+authors = ["Derek Honeycutt"]
+
+[compat]
+julia = "1.12"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
