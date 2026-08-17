@@ -1,4 +1,4 @@
-const EXTENSION_API_VERSION = v"1.7.0"
+const EXTENSION_API_VERSION = v"1.8.0"
 const EXTENSION_RESULT_STATUSES = Set((
     "complete",
     "incomplete",
@@ -79,6 +79,8 @@ function run_extension_phase!(
     clone_groups=CloneGroup[],
     resource_lifetimes=ResourceLifetimeSummary[],
     security_paths=SecurityBoundaryPath[],
+    test_coverage=TestCoverageEvidence[],
+    test_coverage_statistics=nothing,
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     statistics=nothing)
@@ -98,6 +100,8 @@ function run_extension_phase!(
         Tuple(clone_groups),
         Tuple(resource_lifetimes),
         Tuple(security_paths),
+        Tuple(test_coverage),
+        test_coverage_statistics,
         Tuple(interop_signatures),
         Tuple(interop_pairs),
         statistics)

@@ -6,7 +6,8 @@ supporting Markdown documentation.
 `OdinJuliaAnalysis` provides one repository-level view across both programming languages:
 parser-backed source checks, function metrics, JET inference, analytical Odin builds,
 allocation evidence, policy exceptions with drift detection, repository statistics, and
-project-specific trusted extensions.
+project-specific trusted extensions. Configured LCOV tracefiles can be correlated with
+static test reachability without making the analyzer responsible for running tests.
 
 ## Table of Contents
 
@@ -22,6 +23,7 @@ project-specific trusted extensions.
   - [Rule Families](#rule-families)
   - [Repository Statistics](#repository-statistics)
   - [Analytical Odin Builds](#analytical-odin-builds)
+  - [Test Coverage Evidence](#test-coverage-evidence)
 - [Configuration](#configuration)
   - [Settings Model](#settings-model)
   - [Responses and Exit Behavior](#responses-and-exit-behavior)
@@ -56,8 +58,8 @@ project-specific trusted extensions.
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `3.18.0` |
-| Extension API | `1.5.0` |
+| Analysis schema | `3.19.0` |
+| Extension API | `1.8.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 57 |
 | Source types | `.jl`, `.odin`, `.md` |
@@ -171,7 +173,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 3.18.0]
+    Statistics --> Report[AnalysisReport schema 3.19.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
@@ -322,6 +324,10 @@ before source discovery begins.
 | `allocations` | Known allocators, source patterns, and reviewed evidence |
 | `report` | Text finding limits and color default |
 | `extensions` | Ordered trusted extension values |
+| `duplicate_code` | Exact whole-body clone thresholds and reviewed clones |
+| `resource_lifetime` | Configured ownership and lifetime summaries |
+| `security` | Configured trust-boundary source, sink, and sanitizer calls |
+| `coverage` | LCOV tracefiles and Markdown high-risk presentation limit |
 
 Settings validation rejects malformed thresholds, duplicate profile names, unknown rules,
 duplicate rule IDs, invalid reviewed policies, invalid build targets, malformed or
@@ -453,7 +459,7 @@ end
 | `extension_dependencies` | Name extensions whose results may be consumed |
 | `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
 
-Default methods provide API version `1.7.0`, repository phase, no rules, and no
+Default methods provide API version `1.8.0`, repository phase, no rules, and no
 dependencies. `extension_id` and `analyze_extension` must be implemented.
 
 ### Lifecycle and Dependencies
@@ -587,6 +593,40 @@ Empty architecture settings are the default, preserve dependency inventory repor
 and make all three rules `not-applicable`. The default rule responses are `Report` so a
 project can add layers without immediately enforcing uncharacterized boundaries.
 
+## Test Coverage Evidence
+
+Coverage analysis consumes LCOV tracefiles produced by the repository's existing test
+workflow. The analyzer never launches tests or a coverage tool. Configure normalized,
+repository-relative tracefile paths after tests have written them:
+
+```julia
+CoverageSettings(true, [".build/coverage/julia.info", ".build/coverage/odin.info"], 20)
+```
+
+The final field limits only the risk-ranked gaps shown in Markdown; JSON always retains
+every declaration record. Repeated LCOV records and configured tracefiles are merged by
+source line. Absolute source paths are accepted only when they resolve inside the
+analysis root. Missing or malformed configured input fails the `test-coverage` engine
+and produces exit code 2.
+
+Each function or procedure correlates LCOV lines in its source range with the transitive
+call closure from static test roots. Evidence is classified as `corroborated`,
+`static-only`, `runtime-only`, `uncovered`, `runtime-unavailable`,
+`static-unavailable`, or `unavailable`. Static reachability and runtime execution remain
+separate fields because neither proves assertion quality.
+
+Risk ranking is a fixed integer calculation:
+
+$$
+\operatorname{risk} = \text{cyclomatic complexity}
+  + \left\lceil\frac{\text{executable lines}}{10}\right\rceil
+  + \begin{cases}5 & \text{callback or bridge}\\0 & \text{otherwise.}\end{cases}
+$$
+
+Coverage evidence is statistical only. It creates no untested-code policy finding,
+reviewed exception, public-API weighting, method-level Julia claim, or assertion-quality
+claim.
+
 ## Reports and Artifacts
 
 JSON is the canonical machine-readable representation. Text and Markdown are renderings
@@ -595,7 +635,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.18.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.19.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
 
 The canonical report includes:
@@ -611,6 +651,7 @@ The canonical report includes:
 | Import bindings | Explicit Julia and Odin names eligible for unused-import analysis |
 | References | Parser-visible identifier names, lexical scopes, and locations |
 | Interop | Normalized ABI signatures and matched, mismatched, external, or missing bridge pairs |
+| Test coverage | Declaration-level static/runtime evidence, classes, risk, and aggregate counts |
 | Statistics | Language totals, complexity density, COCOMO, and LOCOMO |
 | Diagnostics | Visible and ignored findings with evidence and reviewed-policy metadata |
 | Engines | Completion status and failure messages |

@@ -41,4 +41,8 @@ AnalysisSettings(
         ],
         ReviewedAllocationPolicy[]),
     ReportSettings(:auto, 50, 50),
-    AnalysisExtension[SampleExtension()])
+    AnalysisExtension[SampleExtension()],
+    default_duplicate_code_settings(),
+    default_resource_lifetime_settings(),
+    default_security_settings(),
+    default_coverage_settings())

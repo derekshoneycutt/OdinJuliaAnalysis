@@ -201,6 +201,46 @@ struct SecurityBoundaryPath
     explanation::String
 end
 
+struct TestCoverageEvidence
+    path::String
+    language::String
+    declaration::String
+    start_line::Int
+    end_line::Int
+    executable_lines::Int
+    cyclomatic_complexity::Int
+    static_test_reachable::Union{Nothing, Bool}
+    runtime_instrumented_lines::Int
+    runtime_covered_lines::Int
+    runtime_covered::Union{Nothing, Bool}
+    evidence_class::String
+    boundary_categories::Vector{String}
+    risk_score::Int
+    explanation::String
+end
+
+struct TestCoverageCounts
+    declarations::Int
+    static_reachable::Int
+    runtime_available::Int
+    runtime_covered::Int
+    corroborated::Int
+    static_only::Int
+    runtime_only::Int
+    uncovered::Int
+    runtime_unavailable::Int
+    static_unavailable::Int
+    unavailable::Int
+    gaps::Int
+end
+
+struct TestCoverageStatistics
+    overall::TestCoverageCounts
+    by_language::Dict{String, TestCoverageCounts}
+    unresolved_dynamic_edges::Int
+    high_risk_limit::Int
+end
+
 struct InteropSignature
     path::String
     language::String
@@ -277,6 +317,8 @@ struct AnalysisContext
     clone_groups::Tuple
     resource_lifetimes::Tuple
     security_paths::Tuple
+    test_coverage::Tuple
+    test_coverage_statistics::Union{Nothing, TestCoverageStatistics}
     interop_signatures::Tuple
     interop_pairs::Tuple
     statistics::Union{Nothing, RepositoryStatistics}
@@ -312,6 +354,8 @@ struct AnalysisReport
     clone_groups::Vector{CloneGroup}
     resource_lifetimes::Vector{ResourceLifetimeSummary}
     security_paths::Vector{SecurityBoundaryPath}
+    test_coverage::Vector{TestCoverageEvidence}
+    test_coverage_statistics::Union{Nothing, TestCoverageStatistics}
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
     statistics::RepositoryStatistics
@@ -359,6 +403,12 @@ StructTypes.StructType(::Type{CloneGroup}) = StructTypes.Struct()
 StructTypes.StructType(::Type{ResourceLifetimeSummary}) = StructTypes.Struct()
 """Declare structural serialization for configured security boundary paths."""
 StructTypes.StructType(::Type{SecurityBoundaryPath}) = StructTypes.Struct()
+"""Declare structural serialization for declaration-level coverage evidence."""
+StructTypes.StructType(::Type{TestCoverageEvidence}) = StructTypes.Struct()
+"""Declare structural serialization for coverage evidence counts."""
+StructTypes.StructType(::Type{TestCoverageCounts}) = StructTypes.Struct()
+"""Declare structural serialization for repository coverage statistics."""
+StructTypes.StructType(::Type{TestCoverageStatistics}) = StructTypes.Struct()
 """Declare structural serialization for normalized interop signatures."""
 StructTypes.StructType(::Type{InteropSignature}) = StructTypes.Struct()
 """Declare structural serialization for interop bridge pairs."""

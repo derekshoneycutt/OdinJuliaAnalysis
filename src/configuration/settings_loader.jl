@@ -39,6 +39,7 @@ function validate_settings(
     validate_duplicate_code_settings(settings.duplicate_code)
     validate_resource_lifetime_settings(settings.resource_lifetime)
     validate_security_settings(settings.security)
+    validate_coverage_settings(settings.coverage)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -47,7 +48,24 @@ function validate_settings(
         rules, settings.naming, settings.jet, settings.odin_build, settings.return_tuples,
         settings.parameter_counts, settings.function_metrics, settings.architecture,
         settings.allocations, settings.report, extensions, rule_registry, rule_owners,
-        settings.duplicate_code, settings.resource_lifetime, settings.security)
+        settings.duplicate_code, settings.resource_lifetime, settings.security,
+        settings.coverage)
+end
+
+"""Validate configured LCOV inputs and report presentation limits."""
+function validate_coverage_settings(settings::CoverageSettings)
+    settings.high_risk_limit > 0 || throw(ArgumentError(
+        "coverage high-risk limit must be positive"))
+    settings.enabled && isempty(settings.tracefiles) && throw(ArgumentError(
+        "enabled coverage analysis requires at least one tracefile"))
+    normalized = Set{String}()
+    for path in settings.tracefiles
+        validate_repository_path(path, "coverage tracefile")
+        canonical = replace(normpath(path), '\\' => '/')
+        canonical in normalized && throw(ArgumentError(
+            "duplicate coverage tracefile: $canonical"))
+        push!(normalized, canonical)
+    end
 end
 
 """Validate duplicate-code thresholds, exclusions, and reviewed selectors."""

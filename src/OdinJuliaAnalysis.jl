@@ -14,6 +14,7 @@ export AnalysisContext, ExtensionResult, RuleDefinition
 export CallEdge, CallRoot, CloneGroup, CloneOccurrence, DeclarationRecord
 export ResourceLifetimeSummary
 export SecurityBoundaryPath
+export TestCoverageEvidence, TestCoverageCounts, TestCoverageStatistics
 export DependencyEdge, Diagnostic, ImportBinding
 export ReferenceRecord
 export InteropSignature, InteropBridgePair
@@ -34,6 +35,7 @@ export DuplicateCodeSettings, ReviewedClonePolicy, default_duplicate_code_settin
 export ResourceLifetimeContract, ResourceLifetimeSettings
 export default_resource_lifetime_settings
 export SecurityCallContract, SecuritySettings, default_security_settings
+export CoverageSettings, default_coverage_settings
 
 using JSON3
 using JuliaSyntax
@@ -50,6 +52,7 @@ include("analysis/reachability_engine.jl")
 include("analysis/duplicate_code.jl")
 include("analysis/resource_lifetime.jl")
 include("analysis/security_boundaries.jl")
+include("analysis/test_coverage.jl")
 include("analysis/unused_imports.jl")
 include("analysis/interop_engine.jl")
 include("analysis/naming_policies.jl")
@@ -392,6 +395,8 @@ function assemble_analysis_report(
     clone_groups=CloneGroup[],
     resource_lifetimes=ResourceLifetimeSummary[],
     security_paths=SecurityBoundaryPath[],
+    test_coverage=TestCoverageEvidence[],
+    test_coverage_statistics=nothing,
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     extension_results=ExtensionResult[])
@@ -414,6 +419,8 @@ function assemble_analysis_report(
         clone_groups,
         resource_lifetimes,
         security_paths,
+        test_coverage,
+        test_coverage_statistics,
         interop_signatures,
         interop_pairs,
         statistics)
@@ -429,6 +436,8 @@ function assemble_analysis_report(
         declarations, import_bindings, references, call_edges, call_roots, clone_groups,
         resource_lifetimes,
         security_paths,
+        test_coverage,
+        test_coverage_statistics,
         interop_signatures, interop_pairs, statistics,
         diagnostics, ignored, engines, odin_builds, extension_results,
         rule_summaries, exit_code, configuration))
@@ -437,7 +446,7 @@ end
 """Construct the canonical report from fully analyzed repository state."""
 function canonical_analysis_report(state)
     return AnalysisReport(
-        "3.18.0",
+        "3.19.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -457,6 +466,8 @@ function canonical_analysis_report(state)
         state.clone_groups,
         state.resource_lifetimes,
         state.security_paths,
+        state.test_coverage,
+        state.test_coverage_statistics,
         state.interop_signatures,
         state.interop_pairs,
         state.statistics,
@@ -506,6 +517,8 @@ function repository_analysis_state()
         resource_events=Diagnostic[],
         resource_lifetimes=ResourceLifetimeSummary[],
         security_paths=SecurityBoundaryPath[],
+        test_coverage=TestCoverageEvidence[],
+        test_coverage_statistics=Ref{Union{Nothing, TestCoverageStatistics}}(nothing),
         interop_signatures=InteropSignature[],
         interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
@@ -557,6 +570,7 @@ function run_language_analysis!(state, root, files, configuration, progress)
         "Dynamic calls prevent complete configured boundary analysis." : nothing
     push!(state.engines, EngineStatus(
         "security", security_analysis.status, security_message))
+    run_test_coverage_analysis!(state, root, configuration)
     language_files = analyze_files(
         root, files, state.functions, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
@@ -574,9 +588,33 @@ function run_language_analysis!(state, root, files, configuration, progress)
         clone_groups=state.clone_groups,
         resource_lifetimes=state.resource_lifetimes,
         security_paths=state.security_paths,
+        test_coverage=state.test_coverage,
+        test_coverage_statistics=state.test_coverage_statistics[],
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         statistics=language_statistics)
+end
+
+"""Correlate configured runtime coverage with static test reachability."""
+function run_test_coverage_analysis!(state, root, configuration)
+    if !configuration.coverage.enabled
+        push!(state.engines, EngineStatus("test-coverage", "not-applicable", nothing))
+        return
+    end
+    try
+        analysis = analyze_test_coverage(
+            root,
+            state.functions,
+            state.call_edges,
+            state.call_roots,
+            configuration)
+        append!(state.test_coverage, analysis.evidence)
+        state.test_coverage_statistics[] = analysis.statistics
+        push!(state.engines, EngineStatus("test-coverage", "complete", nothing))
+    catch error
+        push!(state.engines, EngineStatus(
+            "test-coverage", "failed", sprint(showerror, error)))
+    end
 end
 
 """Analyze a repository and return its canonical analysis report."""
@@ -618,6 +656,8 @@ function check_repository(
         clone_groups=state.clone_groups,
         resource_lifetimes=state.resource_lifetimes,
         security_paths=state.security_paths,
+        test_coverage=state.test_coverage,
+        test_coverage_statistics=state.test_coverage_statistics[],
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         extension_results=state.extension_results)

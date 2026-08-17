@@ -191,4 +191,5 @@ AnalysisSettings(
         false,
         SecurityCallContract[],
         SecurityCallContract[],
-        SecurityCallContract[]))
+        SecurityCallContract[]),
+    CoverageSettings(false, String[], 20))

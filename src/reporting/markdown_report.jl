@@ -13,6 +13,7 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_references(io, report)
     write_markdown_call_roots(io, report)
     write_markdown_call_graph(io, report)
+    write_markdown_test_coverage(io, report)
     write_markdown_clone_groups(io, report)
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
@@ -25,6 +26,39 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_rules(io, report)
     write_markdown_extensions(io, report)
     write_markdown_engines(io, report)
+end
+
+"""Write static/runtime test evidence and risk-ranked declaration gaps."""
+function write_markdown_test_coverage(io, report)
+    println(io)
+    println(io, "## Test Coverage Evidence")
+    statistics = report.test_coverage_statistics
+    statistics === nothing && return println(io, "\nRuntime coverage is not configured.")
+    counts = statistics.overall
+    println(io, "\n| Declarations | Static reachable | Runtime available | Runtime covered | ",
+        "Corroborated | Gaps | Dynamic edges |")
+    println(io, "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    println(io, "| $(counts.declarations) | $(counts.static_reachable) | ",
+        "$(counts.runtime_available) | $(counts.runtime_covered) | ",
+        "$(counts.corroborated) | $(counts.gaps) | ",
+        "$(statistics.unresolved_dynamic_edges) |")
+    gaps = filter(coverage_is_gap, report.test_coverage)
+    sort!(gaps; by=coverage_risk_key)
+    shown = first(gaps, min(length(gaps), statistics.high_risk_limit))
+    println(io, "\n### High-Risk Coverage Gaps")
+    isempty(shown) && return println(io, "\nNo coverage gaps were identified.")
+    println(io, "\n| Risk | Declaration | File | Static | Runtime | Lines | Class | Boundary |")
+    println(io, "| ---: | --- | --- | --- | --- | ---: | --- | --- |")
+    for item in shown
+        runtime = item.runtime_instrumented_lines == 0 ? "-" :
+            "$(item.runtime_covered_lines)/$(item.runtime_instrumented_lines)"
+        boundary = isempty(item.boundary_categories) ? "-" :
+            join(item.boundary_categories, ", ")
+        println(io, "| $(item.risk_score) | `$(markdown_cell(item.declaration))` | ",
+            "`$(markdown_cell(item.path)):$(item.start_line)` | ",
+            "$(markdown_optional(item.static_test_reachable)) | $runtime | ",
+            "$(item.executable_lines) | $(item.evidence_class) | $boundary |")
+    end
 end
 
 """Write configured source-before-sink security boundary evidence."""

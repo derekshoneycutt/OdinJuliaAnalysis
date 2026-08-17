@@ -470,6 +470,15 @@ default_security_settings() = SecuritySettings(
     SecurityCallContract[],
     SecurityCallContract[])
 
+struct CoverageSettings
+    enabled::Bool
+    tracefiles::Vector{String}
+    high_risk_limit::Int
+end
+
+"""Return runtime coverage correlation disabled by default."""
+default_coverage_settings() = CoverageSettings(false, String[], 20)
+
 struct AnalysisSettings
     profile::Symbol
     failure_threshold::FindingResponse
@@ -489,6 +498,7 @@ struct AnalysisSettings
     duplicate_code::DuplicateCodeSettings
     resource_lifetime::ResourceLifetimeSettings
     security::SecuritySettings
+    coverage::CoverageSettings
 end
 
 struct EffectiveSettings
@@ -512,6 +522,7 @@ struct EffectiveSettings
     duplicate_code::DuplicateCodeSettings
     resource_lifetime::ResourceLifetimeSettings
     security::SecuritySettings
+    coverage::CoverageSettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -541,7 +552,8 @@ function AnalysisSettings(
         AnalysisExtension[],
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
-        default_security_settings())
+        default_security_settings(),
+        default_coverage_settings())
 end
 
     """Construct settings from the pre-entry-point API using default JET settings."""
@@ -572,7 +584,8 @@ end
         AnalysisExtension[],
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
-        default_security_settings())
+        default_security_settings(),
+        default_coverage_settings())
     end
 
 struct CompatibilitySettingsTail
@@ -587,6 +600,13 @@ struct CompatibilitySettingsTail
     duplicate_code
     resource_lifetime
     security
+    coverage
+end
+
+"""Decode the extension list from either compatible settings layout."""
+function compatibility_extensions(trailing, has_architecture)
+    index = has_architecture ? 8 : 7
+    return length(trailing) >= index ? trailing[index] : AnalysisExtension[]
 end
 
 """Decode settings fields added across compatibility constructor versions."""
@@ -609,8 +629,10 @@ function compatibility_settings_tail(trailing)
     security_index = lifetime_index + 1
     security = length(trailing) >= security_index ?
         trailing[security_index] : default_security_settings()
-    extensions = has_architecture && length(trailing) >= 8 ? trailing[8] :
-        !has_architecture && length(trailing) >= 7 ? trailing[7] : AnalysisExtension[]
+    coverage_index = security_index + 1
+    coverage = length(trailing) >= coverage_index ?
+        trailing[coverage_index] : default_coverage_settings()
+    extensions = compatibility_extensions(trailing, has_architecture)
     policy_end = has_architecture ? 7 : min(length(trailing), 6)
     allocations, report = trailing[(policy_end - 1):policy_end]
     return CompatibilitySettingsTail(
@@ -624,7 +646,8 @@ function compatibility_settings_tail(trailing)
         extensions,
         duplicate_code,
         resource_lifetime,
-        security)
+        security,
+        coverage)
 end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
@@ -637,7 +660,7 @@ end
         naming,
         jet,
         trailing...)
-        length(trailing) in 2:11 || throw(MethodError(
+        length(trailing) in 2:12 || throw(MethodError(
             AnalysisSettings,
             (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
                 trailing...)))
@@ -660,7 +683,8 @@ end
         tail.extensions,
         tail.duplicate_code,
         tail.resource_lifetime,
-        tail.security)
+        tail.security,
+        tail.coverage)
     end
 
     """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -689,7 +713,8 @@ end
                 trailing...,
                 default_duplicate_code_settings(),
                 default_resource_lifetime_settings(),
-                default_security_settings())
+                default_security_settings(),
+                default_coverage_settings())
         end
         odin_build = trailing[1]
         return_tuples = length(trailing) in (4, 6) ? trailing[2] :
@@ -719,5 +744,6 @@ end
         Dict{String, String}(),
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
-        default_security_settings())
+        default_security_settings(),
+        default_coverage_settings())
     end
