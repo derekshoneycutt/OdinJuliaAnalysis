@@ -3,6 +3,7 @@ module OdinEngine
 using JSON3
 
 using ..OdinJuliaAnalysis: Diagnostic
+using ..OdinJuliaAnalysis: CallEdge
 using ..OdinJuliaAnalysis: DeclarationRecord
 using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
@@ -23,7 +24,7 @@ export analyze
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.7.0"
+const SCHEMA_VERSION = "3.8.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -73,6 +74,14 @@ const OdinReference = @NamedTuple begin
     column::Int
 end
 
+const OdinCallEdge = @NamedTuple begin
+    caller::String
+    callee::String
+    kind::String
+    line::Int
+    column::Int
+end
+
 const OdinInteropSignature = @NamedTuple begin
     symbol::String
     direction::String
@@ -95,6 +104,7 @@ const OdinFileSummary = @NamedTuple begin
     symbols::Vector{OdinDeclarationSymbol}
     imports::Vector{OdinImport}
     references::Vector{OdinReference}
+    call_edges::Vector{OdinCallEdge}
     interop_signatures::Vector{OdinInteropSignature}
 end
 
@@ -146,6 +156,7 @@ function empty_analysis()
         declarations=DeclarationRecord[],
         import_bindings=ImportBinding[],
         references=ReferenceRecord[],
+        call_edges=CallEdge[],
         interop_signatures=InteropSignature[],
         struct_counts=Dict{String, Int}())
 end
@@ -159,8 +170,17 @@ function append_file_summary!(analysis, root, summary, configuration)
     append!(analysis.declarations, declaration_records(source_path, summary))
     append_import_records!(analysis, root, source_path, summary.imports)
     append!(analysis.references, reference_records(source_path, summary.references))
+    append!(analysis.call_edges, call_edge_records(source_path, summary.call_edges))
     append!(analysis.interop_signatures,
         interop_records(source_path, summary.interop_signatures))
+end
+
+"""Convert native explicit calls into canonical call graph edges."""
+function call_edge_records(source_path, edges)
+    return [CallEdge(
+        source_path, "odin", isempty(item.caller) ? nothing : String(item.caller),
+        String(item.callee), String(item.kind), Int(item.line), Int(item.column))
+        for item in edges]
 end
 
 """Append canonical dependency and binding records from native imports."""

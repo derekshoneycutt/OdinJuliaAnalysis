@@ -1,4 +1,4 @@
-const EXTENSION_API_VERSION = v"1.3.0"
+const EXTENSION_API_VERSION = v"1.5.0"
 const EXTENSION_RESULT_STATUSES = Set((
     "complete",
     "incomplete",
@@ -74,6 +74,8 @@ function run_extension_phase!(
     declarations=DeclarationRecord[],
     import_bindings=ImportBinding[],
     references=ReferenceRecord[],
+    call_edges=CallEdge[],
+    call_roots=CallRoot[],
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     statistics=nothing)
@@ -88,6 +90,8 @@ function run_extension_phase!(
         Tuple(declarations),
         Tuple(import_bindings),
         Tuple(references),
+        Tuple(call_edges),
+        Tuple(call_roots),
         Tuple(interop_signatures),
         Tuple(interop_pairs),
         statistics)

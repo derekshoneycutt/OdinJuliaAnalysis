@@ -56,8 +56,8 @@ project-specific trusted extensions.
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `3.13.0` |
-| Extension API | `1.3.0` |
+| Analysis schema | `3.15.0` |
+| Extension API | `1.5.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 57 |
 | Source types | `.jl`, `.odin`, `.md` |
@@ -171,7 +171,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 3.13.0]
+    Statistics --> Report[AnalysisReport schema 3.15.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
@@ -453,7 +453,7 @@ end
 | `extension_dependencies` | Name extensions whose results may be consumed |
 | `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
 
-Default methods provide API version `1.3.0`, repository phase, no rules, and no
+Default methods provide API version `1.5.0`, repository phase, no rules, and no
 dependencies. `extension_id` and `analyze_extension` must be implemented.
 
 ### Lifecycle and Dependencies
@@ -545,7 +545,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.13.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.15.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
 
 The canonical report includes:

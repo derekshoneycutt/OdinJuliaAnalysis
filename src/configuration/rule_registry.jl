@@ -1,4 +1,8 @@
 const RULE_REGISTRY = Dict(
+    "CALL-GRAPH-UNRESOLVED-EDGE" => RuleDefinition(
+        "CALL-GRAPH-UNRESOLVED-EDGE", "common",
+        "Call-Graph Reachability > Unresolved Edges",
+        "experimental", "potential", "report", false),
     "ARCHITECTURE-FORBIDDEN-DEPENDENCY" => RuleDefinition(
         "ARCHITECTURE-FORBIDDEN-DEPENDENCY", "common",
         "Dependency Architecture > Allowed Directions",
@@ -34,6 +38,24 @@ const RULE_REGISTRY = Dict(
         "JULIA-JET-POSSIBLE-ERROR", "julia",
         "Julia Rules > Static Inference Analysis",
         "experimental", "potential", "report", false),
+    "JULIA-EMPTY-CATCH" => RuleDefinition(
+        "JULIA-EMPTY-CATCH", "julia", "Error Handling > Empty Catch",
+        "experimental", "definite", "report", false),
+    "JULIA-BROAD-CATCH" => RuleDefinition(
+        "JULIA-BROAD-CATCH", "julia", "Error Handling > Broad Catch",
+        "experimental", "probable", "report", false),
+    "JULIA-UNSIGNALED-ARGUMENT-MUTATION" => RuleDefinition(
+        "JULIA-UNSIGNALED-ARGUMENT-MUTATION", "julia",
+        "Mutation And Side Effects > Argument Mutation",
+        "experimental", "definite", "report", false),
+    "JULIA-GLOBAL-WRITE" => RuleDefinition(
+        "JULIA-GLOBAL-WRITE", "julia",
+        "Mutation And Side Effects > Global Writes",
+        "experimental", "definite", "report", false),
+    "JULIA-UNREACHABLE-FUNCTION" => RuleDefinition(
+        "JULIA-UNREACHABLE-FUNCTION", "julia",
+        "Call-Graph Reachability > Julia Functions",
+        "experimental", "probable", "report", false),
     "JULIA-NAMING" => RuleDefinition(
         "JULIA-NAMING", "julia", "Julia Rules > Naming and API Semantics",
         "mature", "stable", "report", false),
@@ -96,6 +118,10 @@ const RULE_REGISTRY = Dict(
     "ODIN-UNUSED-IMPORT" => RuleDefinition(
         "ODIN-UNUSED-IMPORT", "odin", "Odin Rules > Unused Imports",
         "experimental", "definite", "report", false),
+    "ODIN-UNREACHABLE-PROCEDURE" => RuleDefinition(
+        "ODIN-UNREACHABLE-PROCEDURE", "odin",
+        "Call-Graph Reachability > Odin Procedures",
+        "experimental", "probable", "report", false),
     "ODIN-DECLARATION-ORDER" => RuleDefinition(
         "ODIN-DECLARATION-ORDER", "odin",
         "Global Rules > Declaration Order",

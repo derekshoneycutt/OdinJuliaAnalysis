@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.7.0"
-ENGINE_VERSION :: "0.10.0"
+SCHEMA_VERSION :: "3.8.0"
+ENGINE_VERSION :: "0.11.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -62,6 +62,14 @@ Reference_Record :: struct {
     column: int,
 }
 
+Call_Edge :: struct {
+    caller: string,
+    callee: string,
+    kind: string,
+    line: int,
+    column: int,
+}
+
 Interop_Signature :: struct {
     symbol: string,
     direction: string,
@@ -84,6 +92,7 @@ File_Summary :: struct {
     symbols: [dynamic]Declaration_Symbol,
     imports: [dynamic]Import_Edge,
     references: [dynamic]Reference_Record,
+    call_edges: [dynamic]Call_Edge,
     interop_signatures: [dynamic]Interop_Signature,
 }
 
@@ -111,6 +120,7 @@ Analysis_Visitor_Data :: struct {
     symbols: ^[dynamic]Declaration_Symbol,
     imports: ^[dynamic]Import_Edge,
     references: ^[dynamic]Reference_Record,
+    call_edges: ^[dynamic]Call_Edge,
     interop_signatures: ^[dynamic]Interop_Signature,
     allocator: runtime.Allocator,
 }
@@ -675,6 +685,24 @@ append_reference :: proc(data: ^Analysis_Visitor_Data, identifier: ^ast.Ident) {
     })
 }
 
+// Record one explicit Odin call with its narrowest lexical procedure scope.
+append_call_edge :: proc(data: ^Analysis_Visitor_Data, call: ^ast.Call_Expr) {
+    callee := expression_source(data.source, call.expr)
+    if callee == "" {
+        return
+    }
+    _, direct := ast.unparen_expr(call.expr).derived.(^ast.Ident)
+    _, qualified := ast.unparen_expr(call.expr).derived.(^ast.Selector_Expr)
+    kind := "direct" if direct else "qualified" if qualified else "dynamic"
+    append(data.call_edges, Call_Edge {
+        caller = containing_procedure(data, call.pos.offset),
+        callee = callee,
+        kind = kind,
+        line = call.pos.line,
+        column = call.pos.column,
+    })
+}
+
 // Classify one allocation-producing call and append its finding.
 check_allocation_call :: proc(
     data: ^Analysis_Visitor_Data,
@@ -782,6 +810,7 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
         record_decision(data, node)
     }
     if call, is_call := node.derived.(^ast.Call_Expr); is_call {
+        append_call_edge(data, call)
         check_allocation_call(data, call)
     }
     return visitor
@@ -801,6 +830,7 @@ check_allocations :: proc(
         symbols = &summary.symbols,
         imports = &summary.imports,
         references = &summary.references,
+        call_edges = &summary.call_edges,
         interop_signatures = &summary.interop_signatures,
         allocator = allocator,
     }

@@ -132,6 +132,24 @@ struct ReferenceRecord
     column::Int
 end
 
+struct CallEdge
+    source_path::String
+    language::String
+    caller::Union{Nothing, String}
+    callee::String
+    kind::String
+    line::Int
+    column::Int
+end
+
+struct CallRoot
+    id::String
+    path::String
+    language::String
+    declaration::String
+    category::String
+end
+
 struct InteropSignature
     path::String
     language::String
@@ -203,6 +221,8 @@ struct AnalysisContext
     declarations::Tuple
     import_bindings::Tuple
     references::Tuple
+    call_edges::Tuple
+    call_roots::Tuple
     interop_signatures::Tuple
     interop_pairs::Tuple
     statistics::Union{Nothing, RepositoryStatistics}
@@ -233,6 +253,8 @@ struct AnalysisReport
     declarations::Vector{DeclarationRecord}
     import_bindings::Vector{ImportBinding}
     references::Vector{ReferenceRecord}
+    call_edges::Vector{CallEdge}
+    call_roots::Vector{CallRoot}
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
     statistics::RepositoryStatistics
@@ -268,6 +290,10 @@ StructTypes.StructType(::Type{DeclarationRecord}) = StructTypes.Struct()
 StructTypes.StructType(::Type{ImportBinding}) = StructTypes.Struct()
 """Declare structural serialization for identifier reference records."""
 StructTypes.StructType(::Type{ReferenceRecord}) = StructTypes.Struct()
+"""Declare structural serialization for explicit call graph edges."""
+StructTypes.StructType(::Type{CallEdge}) = StructTypes.Struct()
+"""Declare structural serialization for configured and inferred call roots."""
+StructTypes.StructType(::Type{CallRoot}) = StructTypes.Struct()
 """Declare structural serialization for normalized interop signatures."""
 StructTypes.StructType(::Type{InteropSignature}) = StructTypes.Struct()
 """Declare structural serialization for interop bridge pairs."""

@@ -11,6 +11,8 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_declarations(io, report)
     write_markdown_import_bindings(io, report)
     write_markdown_references(io, report)
+    write_markdown_call_roots(io, report)
+    write_markdown_call_graph(io, report)
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
     write_markdown_odin_builds(io, report)
@@ -20,6 +22,20 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_rules(io, report)
     write_markdown_extensions(io, report)
     write_markdown_engines(io, report)
+end
+
+"""Write configured and inferred call roots by lifecycle category."""
+function write_markdown_call_roots(io, report)
+    println(io)
+    println(io, "## Call Roots")
+    isempty(report.call_roots) && return println(io, "\nNo call roots were found.")
+    println(io, "\n| ID | Source | Language | Declaration | Category |")
+    println(io, "| --- | --- | --- | --- | --- |")
+    for root in report.call_roots
+        println(io, "| `$(markdown_cell(root.id))` | `$(markdown_cell(root.path))` | ",
+            "$(root.language) | `$(markdown_cell(root.declaration))` | ",
+            "$(root.category) |")
+    end
 end
 
 """Write explicit import bindings eligible for unused-import analysis."""
@@ -48,6 +64,21 @@ function write_markdown_references(io, report)
         println(io, "| `$(markdown_cell(reference.path))` | $(reference.language) | ",
             "`$(markdown_cell(reference.name))` | `$(markdown_cell(scope))` | ",
             "$(reference.line):$(reference.column) |")
+    end
+end
+
+"""Write explicit parser-backed call graph edges."""
+function write_markdown_call_graph(io, report)
+    println(io)
+    println(io, "## Call Graph")
+    isempty(report.call_edges) && return println(io, "\nNo explicit call edges found.")
+    println(io, "\n| Source | Language | Caller | Callee | Kind | Location |")
+    println(io, "| --- | --- | --- | --- | --- | ---: |")
+    for edge in report.call_edges
+        caller = something(edge.caller, "-")
+        println(io, "| `$(markdown_cell(edge.source_path))` | $(edge.language) | ",
+            "`$(markdown_cell(caller))` | `$(markdown_cell(edge.callee))` | ",
+            "$(edge.kind) | $(edge.line):$(edge.column) |")
     end
 end
 

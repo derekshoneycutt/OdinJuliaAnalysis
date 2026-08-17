@@ -876,7 +876,7 @@ end
                 ("main.odin", "run.item", "parameter", "run"),
                 ("main.odin", "run.local", "variable", "run"),
             ]
-            @test report.schema_version == "3.13.0"
+            @test report.schema_version == "3.15.0"
         end
     end
 
@@ -888,6 +888,7 @@ end
                 Dates.now()
                 bridge(a::Cint, b::Cint) =
                     @ccall bridge_add(a::Cint, b::Cint)::Cint
+                invoke_bridge() = bridge(1, 2)
                 """)
             write(joinpath(root, "bridge.odin"), """
                 package library
@@ -917,11 +918,17 @@ end
             @test all(item -> item.certainty == "definite", findings)
             @test length(report.import_bindings) == 4
             @test !isempty(report.references)
+            @test [(item.caller, item.callee, item.kind) for item in report.call_edges] == [
+                (nothing, "Dates.now", "qualified"),
+                ("bridge", "bridge_add", "direct"),
+                ("invoke_bridge", "bridge", "direct"),
+                ("add", "fmt.println", "qualified"),
+            ]
             @test [(item.symbol, item.status) for item in report.interop_pairs] ==
                 [("bridge_add", "matched")]
             pair = only(report.interop_pairs)
             @test pair.mismatch === nothing
-            @test report.schema_version == "3.13.0"
+            @test report.schema_version == "3.15.0"
 
             signatures = InteropSignature[
                 InteropSignature(
@@ -954,9 +961,74 @@ end
             markdown = String(take!(output))
             @test occursin("## Import Bindings", markdown)
             @test occursin("## Reference Inventory", markdown)
+            @test occursin("## Call Graph", markdown)
             @test occursin("## Interop Bridge Pairs", markdown)
             @test occursin("bridge_add", markdown)
         end
+    end
+
+    @testset "Phase 2 reachability and behavior" begin
+        configuration = OdinJuliaAnalysis.load_settings()
+        declarations = DeclarationRecord[
+            DeclarationRecord("app.jl", "julia", "main", "App.main",
+                "function", "App", 1, 1),
+            DeclarationRecord("app.jl", "julia", "helper", "App.helper",
+                "function", "App", 5, 1),
+            DeclarationRecord("app.jl", "julia", "unused", "App.unused",
+                "function", "App", 9, 1),
+        ]
+        edges = CallEdge[
+            CallEdge("app.jl", "julia", "App.main", "helper", "direct", 2, 5),
+            CallEdge("app.jl", "julia", "App.helper", "factory()", "dynamic", 6, 5),
+        ]
+        roots = CallRoot[
+            CallRoot("app", "app.jl", "julia", "main", "production"),
+        ]
+        diagnostics = OdinJuliaAnalysis.analyze_reachability(
+            declarations, edges, roots, configuration)
+        @test sort([item.rule_id for item in diagnostics]) == [
+            "CALL-GRAPH-UNRESOLVED-EDGE",
+            "JULIA-UNREACHABLE-FUNCTION",
+        ]
+        @test only(filter(
+            item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION",
+            diagnostics)).subject == "App.unused"
+
+        source = """
+            function mutate(value::Vector{Int})
+                value[1] = 2
+                global STATE = 1
+                try
+                    error("failure")
+                catch error_value
+                    println("ignored")
+                end
+                try
+                    error("failure")
+                catch
+                end
+            end
+
+            function mutate!(value::Vector{Int})
+                value[1] = 3
+            end
+            """
+        behavior = filter(
+            item -> item.rule_id in (
+                "JULIA-EMPTY-CATCH",
+                "JULIA-BROAD-CATCH",
+                "JULIA-UNSIGNALED-ARGUMENT-MUTATION",
+                "JULIA-GLOBAL-WRITE"),
+            OdinJuliaAnalysis.JuliaEngine.check("behavior.jl", source, configuration))
+        @test sort([item.rule_id for item in behavior]) == [
+            "JULIA-BROAD-CATCH",
+            "JULIA-EMPTY-CATCH",
+            "JULIA-GLOBAL-WRITE",
+            "JULIA-UNSIGNALED-ARGUMENT-MUTATION",
+        ]
+        @test count(
+            item -> item.rule_id == "JULIA-UNSIGNALED-ARGUMENT-MUTATION",
+            behavior) == 1
     end
 
     @testset "reviewed naming policies" begin
@@ -2181,7 +2253,7 @@ end
 
             output = IOBuffer()
             OdinJuliaAnalysis.write_report(output, report, "json")
-            @test occursin("\"schema_version\": \"3.13.0\"", String(take!(output)))
+            @test occursin("\"schema_version\": \"3.15.0\"", String(take!(output)))
 
             settings_path = write_jet_settings(
                 tempname(),

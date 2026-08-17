@@ -43,6 +43,10 @@ triple :: proc() -> (first, second: int, flag: bool) {
 }
 
 undocumented :: proc() {}
+
+caller :: proc() {
+    choose(1, 2)
+}
 `
 
 ALLOCATION_CLASSIFICATION_FIXTURE :: `package fixture
@@ -110,6 +114,19 @@ find_test_symbol :: proc(
     for &symbol in summary.symbols {
         if symbol.name == name && symbol.kind == kind {
             return &symbol, true
+        }
+    }
+    return nil, false
+}
+
+// Return the first explicit call edge matching one caller and callee.
+find_test_call_edge :: proc(
+    summary: ^File_Summary,
+    caller: string,
+    callee: string) -> (^Call_Edge, bool) {
+    for &edge in summary.call_edges {
+        if edge.caller == caller && edge.callee == callee {
+            return &edge, true
         }
     }
     return nil, false
@@ -183,6 +200,15 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     testing.expect(t, !discard_found)
 }
 
+// Verify explicit native call extraction and lexical caller scope.
+verify_test_call_edges :: proc(t: ^testing.T, summary: ^File_Summary) {
+    edge, found := find_test_call_edge(summary, "caller", "choose")
+    testing.expect(t, found)
+    if found {
+        testing.expect_value(t, edge.kind, "direct")
+    }
+}
+
 // Verify representative implicit, growth, and explicit allocation findings.
 verify_test_allocation_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
     implicit, implicit_found := find_test_finding(
@@ -228,11 +254,12 @@ odin_engine_test_procedure_metrics :: proc(t: ^testing.T) {
     summary := analyze_file(fixture.path, allocator)
     testing.expect(t, summary.parsed)
     testing.expect_value(t, summary.syntax_errors, 0)
-    testing.expect_value(t, len(summary.procedures), 3)
+    testing.expect_value(t, len(summary.procedures), 4)
     testing.expect_value(t, summary.struct_count, 1)
     verify_test_procedure_metrics(t, &summary)
     verify_test_analysis_findings(t, &summary)
     verify_test_declaration_symbols(t, &summary)
+    verify_test_call_edges(t, &summary)
 }
 
 // Verify allocation findings retain category, procedure, target, and certainty.

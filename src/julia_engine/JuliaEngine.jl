@@ -4,6 +4,7 @@ using CodeComplexity
 using JuliaSyntax
 
 using ..OdinJuliaAnalysis: Diagnostic
+using ..OdinJuliaAnalysis: CallEdge
 using ..OdinJuliaAnalysis: DeclarationRecord
 using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
@@ -21,6 +22,7 @@ using ..OdinJuliaAnalysis: valid_identifier_name
 export check_syntax
 export check
 export analyze_dependencies
+export analyze_calls
 export analyze_declarations
 export analyze_functions
 export analyze_import_bindings
@@ -200,6 +202,47 @@ function collect_references!(references, node, path, offsets, scope, excluded)
         collect_references!(
             references, child, path, offsets, nested_scope,
             excluded || child === declaration)
+    end
+end
+
+"""Collect explicit parser-backed Julia call edges."""
+function analyze_calls(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    calls = CallEdge[]
+    collect_calls!(calls, tree, path, offsets, String[], false)
+    return calls
+end
+
+"""Visit call expressions while retaining lexical module and function scope."""
+function collect_calls!(calls, node, path, offsets, scope, declaration_header)
+    kind = Symbol(JuliaSyntax.kind(node))
+    declaration = kind in (:module, :function, :struct) ?
+        declaration_identifier_node(node) : nothing
+    nested_scope = declaration === nothing ? scope :
+        [scope; strip(String(JuliaSyntax.sourcetext(declaration)))]
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :call && !declaration_header && !isempty(children)
+        callee_node = first(children)
+        callee_kind = Symbol(JuliaSyntax.kind(callee_node))
+        byte_offset = JuliaSyntax.first_byte(callee_node)
+        line = metric_line_for_offset(offsets, byte_offset)
+        call_kind = callee_kind == :Identifier ? "direct" :
+            callee_kind == :. ? "qualified" : "dynamic"
+        push!(calls, CallEdge(
+            path,
+            "julia",
+            isempty(scope) ? nothing : join(scope, "."),
+            strip(String(JuliaSyntax.sourcetext(callee_node))),
+            call_kind,
+            line,
+            byte_offset - offsets[line] + 1))
+    end
+    for child in children
+        child_is_header = declaration !== nothing && child === first(children)
+        collect_calls!(
+            calls, child, path, offsets, nested_scope,
+            declaration_header || child_is_header)
     end
 end
 
@@ -489,7 +532,136 @@ function check(
     append!(diagnostics, check_return_tuples(path, source, configuration))
     append!(diagnostics, check_parameter_counts(path, source, configuration))
     append!(diagnostics, check_declaration_order(path, source, configuration))
+    append!(diagnostics, check_behavior(path, source, configuration))
     return diagnostics
+end
+
+"""Report high-confidence catch, argument-mutation, and global-write behavior."""
+function check_behavior(path, source, configuration)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    diagnostics = Diagnostic[]
+    collect_behavior!(
+        diagnostics, tree, path, offsets, configuration, nothing, Set{String}())
+    return diagnostics
+end
+
+"""Visit behavior-sensitive syntax while retaining function name and parameters."""
+function collect_behavior!(
+    diagnostics, node, path, offsets, configuration, function_name, parameters)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :function
+        name_node = declaration_identifier_node(node)
+        name = name_node === nothing ? nothing :
+            strip(String(JuliaSyntax.sourcetext(name_node)))
+        header = isempty(children) ? nothing : first(children)
+        function_parameters = header === nothing ? Set{String}() :
+            function_parameter_names(header, name_node)
+        for child in children
+            child === header && continue
+            collect_behavior!(
+                diagnostics, child, path, offsets, configuration,
+                name, function_parameters)
+        end
+        return
+    elseif kind == :catch
+        append_catch_diagnostics!(diagnostics, node, path, offsets, configuration)
+    elseif kind == :global && function_name !== nothing
+        append_behavior_diagnostic!(
+            diagnostics, "JULIA-GLOBAL-WRITE", node, path, offsets, configuration,
+            "Function `$function_name` writes global state.";
+            subject=function_name, operation="global-write", certainty="definite")
+    elseif kind == :(=) && function_name !== nothing &&
+        !endswith(function_name, "!") && !isempty(children)
+        target = mutated_parameter(first(children), parameters)
+        target === nothing || append_behavior_diagnostic!(
+            diagnostics, "JULIA-UNSIGNALED-ARGUMENT-MUTATION", first(children),
+            path, offsets, configuration,
+            "Function `$function_name` mutates argument `$target` without a trailing `!`.";
+            subject=target, operation="argument-mutation", certainty="definite")
+    end
+    for child in children
+        collect_behavior!(
+            diagnostics, child, path, offsets, configuration,
+            function_name, parameters)
+    end
+end
+
+"""Return explicit parameter identifiers from one function declaration header."""
+function function_parameter_names(header, name_node)
+    names = Set{String}()
+    for child in something(JuliaSyntax.children(header), ())
+        child === name_node && continue
+        parameter = declaration_identifier_node(child)
+        parameter === nothing && Symbol(JuliaSyntax.kind(child)) == :Identifier &&
+            (parameter = child)
+        parameter === nothing || push!(names, String(JuliaSyntax.sourcetext(parameter)))
+    end
+    return names
+end
+
+"""Return a mutated explicit argument for indexed or property assignment."""
+function mutated_parameter(target, parameters)
+    kind = Symbol(JuliaSyntax.kind(target))
+    kind in (:ref, :.) || return nothing
+    children = something(JuliaSyntax.children(target), ())
+    isempty(children) && return nothing
+    owner = first(children)
+    Symbol(JuliaSyntax.kind(owner)) == :Identifier || return nothing
+    name = String(JuliaSyntax.sourcetext(owner))
+    return name in parameters ? name : nothing
+end
+
+"""Report empty catches and broad catches that do not bind or use an exception."""
+function append_catch_diagnostics!(diagnostics, node, path, offsets, configuration)
+    children = something(JuliaSyntax.children(node), ())
+    binding = !isempty(children) && Symbol(JuliaSyntax.kind(first(children))) == :Identifier ?
+        first(children) : nothing
+    body = isempty(children) ? nothing : last(children)
+    body === nothing && return append_behavior_diagnostic!(
+        diagnostics, "JULIA-EMPTY-CATCH", node, path, offsets, configuration,
+        "Catch block is empty."; operation="catch", certainty="definite")
+    body_children = something(JuliaSyntax.children(body), ())
+    if isempty(body_children)
+        append_behavior_diagnostic!(
+            diagnostics, "JULIA-EMPTY-CATCH", node, path, offsets, configuration,
+            "Catch block is empty."; operation="catch", certainty="definite")
+        return
+    end
+    binding_name = binding === nothing ? nothing : String(JuliaSyntax.sourcetext(binding))
+    binding_used = binding_name === nothing ? false : any(
+        child -> Symbol(JuliaSyntax.kind(child)) == :Identifier &&
+            String(JuliaSyntax.sourcetext(child)) == binding_name,
+        syntax_descendants(body))
+    binding_used === true && return
+    append_behavior_diagnostic!(
+        diagnostics, "JULIA-BROAD-CATCH", node, path, offsets, configuration,
+        "Catch block handles all exceptions without using the exception value.";
+        subject=binding_name, operation="catch", certainty="probable")
+end
+
+"""Return all recursive syntax descendants of one node."""
+function syntax_descendants(node)
+    descendants = Any[]
+    for child in something(JuliaSyntax.children(node), ())
+        push!(descendants, child)
+        append!(descendants, syntax_descendants(child))
+    end
+    return descendants
+end
+
+"""Create and configure one parser-backed Julia behavior diagnostic."""
+function append_behavior_diagnostic!(
+    diagnostics, rule_id, node, path, offsets, configuration, message;
+    subject=nothing, operation, certainty)
+    byte_offset = JuliaSyntax.first_byte(node)
+    line = metric_line_for_offset(offsets, byte_offset)
+    diagnostic = Diagnostic(
+        rule_id, Ignore, path, line, byte_offset - offsets[line] + 1, message,
+        nothing, nothing, "julia-syntax", subject, operation, nothing, certainty)
+    configured = configured_diagnostic(configuration, diagnostic)
+    configured === nothing || push!(diagnostics, configured)
 end
 
 """Report top-level constants and structs declared after ordinary functions."""

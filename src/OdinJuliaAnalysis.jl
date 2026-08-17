@@ -11,7 +11,8 @@ export FunctionMetricSettings, ResponseThresholds, ReviewedComplexity
 export AnalysisExtension, AnalysisPhase
 export AfterDiscovery, AfterLanguageAnalysis, AfterRepositoryAnalysis
 export AnalysisContext, ExtensionResult, RuleDefinition
-export DeclarationRecord, DependencyEdge, Diagnostic, ImportBinding, ReferenceRecord
+export CallEdge, CallRoot, DeclarationRecord, DependencyEdge, Diagnostic, ImportBinding
+export ReferenceRecord
 export InteropSignature, InteropBridgePair
 export ArchitectureLayer, ArchitectureDependency, ArchitectureSettings
 export extension_id, extension_api_version, extension_rules
@@ -38,6 +39,7 @@ include("configuration/rule_registry.jl")
 include("core/extension_api.jl")
 include("configuration/settings_loader.jl")
 include("analysis/architecture_engine.jl")
+include("analysis/reachability_engine.jl")
 include("analysis/unused_imports.jl")
 include("analysis/interop_engine.jl")
 include("analysis/naming_policies.jl")
@@ -246,6 +248,9 @@ function analyze_julia_source_file!(relative_path, source, configuration, state)
         state.references,
         JuliaEngine.analyze_references(relative_path, source))
     syntax_failed || append!(
+        state.call_edges,
+        JuliaEngine.analyze_calls(relative_path, source))
+    syntax_failed || append!(
         state.interop_signatures,
         JuliaEngine.analyze_interop(relative_path, source))
 end
@@ -306,6 +311,7 @@ function run_odin_analysis!(
         append!(state.declarations, odin_analysis.declarations)
         append!(state.import_bindings, odin_analysis.import_bindings)
         append!(state.references, odin_analysis.references)
+        append!(state.call_edges, odin_analysis.call_edges)
         append!(state.interop_signatures, odin_analysis.interop_signatures)
         merge!(state.struct_counts, odin_analysis.struct_counts)
         push!(state.engines, EngineStatus("odin", "complete", nothing))
@@ -366,6 +372,8 @@ function assemble_analysis_report(
     declarations=DeclarationRecord[],
     import_bindings=ImportBinding[],
     references=ReferenceRecord[],
+    call_edges=CallEdge[],
+    call_roots=CallRoot[],
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     extension_results=ExtensionResult[])
@@ -383,6 +391,8 @@ function assemble_analysis_report(
         declarations,
         import_bindings,
         references,
+        call_edges,
+        call_roots,
         interop_signatures,
         interop_pairs,
         statistics)
@@ -392,11 +402,11 @@ function assemble_analysis_report(
     ignored = remove_ignored_diagnostics!(diagnostics)
     exit_code = analysis_exit_code(diagnostics, engines, configuration)
     rule_summaries = summarize_rule_runs(configuration, files_by_language, diagnostics,
-        ignored.counts, engines)
+        ignored.counts, engines, call_roots)
     return canonical_analysis_report((;
         root, files, files_by_language, files_analysis, functions, dependencies,
-        declarations, import_bindings, references, interop_signatures, interop_pairs,
-        statistics,
+        declarations, import_bindings, references, call_edges, call_roots,
+        interop_signatures, interop_pairs, statistics,
         diagnostics, ignored, engines, odin_builds, extension_results,
         rule_summaries, exit_code, configuration))
 end
@@ -404,7 +414,7 @@ end
 """Construct the canonical report from fully analyzed repository state."""
 function canonical_analysis_report(state)
     return AnalysisReport(
-        "3.13.0",
+        "3.15.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -419,6 +429,8 @@ function canonical_analysis_report(state)
         state.declarations,
         state.import_bindings,
         state.references,
+        state.call_edges,
+        state.call_roots,
         state.interop_signatures,
         state.interop_pairs,
         state.statistics,
@@ -461,6 +473,8 @@ function repository_analysis_state()
         declarations=DeclarationRecord[],
         import_bindings=ImportBinding[],
         references=ReferenceRecord[],
+        call_edges=CallEdge[],
+        call_roots=CallRoot[],
         interop_signatures=InteropSignature[],
         interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
@@ -485,6 +499,12 @@ function run_language_analysis!(state, root, files, configuration, progress)
     append!(state.interop_pairs, pair_interop_signatures(state.interop_signatures))
     JuliaEngine.resolve_dependencies!(state.dependencies, root, files)
     run_architecture_analysis!(state, configuration)
+    append!(state.call_roots, collect_call_roots(
+        state.declarations, state.interop_signatures, configuration))
+    append!(state.diagnostics, analyze_reachability(
+        state.declarations, state.call_edges, state.call_roots, configuration))
+    push!(state.engines, EngineStatus(
+        "call-graph", isempty(state.call_roots) ? "not-applicable" : "complete", nothing))
     language_files = analyze_files(
         root, files, state.functions, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
@@ -497,6 +517,8 @@ function run_language_analysis!(state, root, files, configuration, progress)
         declarations=state.declarations,
         import_bindings=state.import_bindings,
         references=state.references,
+        call_edges=state.call_edges,
+        call_roots=state.call_roots,
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         statistics=language_statistics)
@@ -536,6 +558,8 @@ function check_repository(
         declarations=state.declarations,
         import_bindings=state.import_bindings,
         references=state.references,
+        call_edges=state.call_edges,
+        call_roots=state.call_roots,
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         extension_results=state.extension_results)
@@ -623,7 +647,8 @@ function summarize_rule_runs(
     files_by_language,
     diagnostics,
     ignored_counts,
-    engines)
+    engines,
+    call_roots=CallRoot[])
     engine_statuses = Dict(engine.name => engine.status for engine in engines)
     summaries = RuleRunSummary[]
     for rule_id in sort!(collect(keys(configuration.rules)))
@@ -631,6 +656,10 @@ function summarize_rule_runs(
         definition = configuration.rule_registry[rule_id]
         files_checked = startswith(rule_id, "ARCHITECTURE-") &&
             isempty(configuration.architecture.layers) ? 0 :
+            rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
+            !any(root -> root.language == "julia", call_roots) ? 0 :
+            rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
+            !any(root -> root.language == "odin", call_roots) ? 0 :
             rule_id == "ODIN-BUILD-FAILED" ?
             length(configuration.odin_build.targets) :
             startswith(rule_id, "JULIA-JET-") ?
@@ -663,6 +692,8 @@ function rule_run_status(
     files_checked == 0 && return "not-applicable"
     engine_name = extension_owner !== nothing ? "extension:$extension_owner" :
         startswith(setting.rule_id, "ARCHITECTURE-") ? "architecture" :
+        setting.rule_id in ("CALL-GRAPH-UNRESOLVED-EDGE",
+            "JULIA-UNREACHABLE-FUNCTION", "ODIN-UNREACHABLE-PROCEDURE") ? "call-graph" :
         setting.rule_id == "ODIN-BUILD-FAILED" ? "odin-build" :
         startswith(setting.rule_id, "JULIA-JET-") ? "jet" :
         definition.language == "common" ? "common" : definition.language
