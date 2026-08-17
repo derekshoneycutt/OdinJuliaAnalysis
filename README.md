@@ -210,18 +210,15 @@ flowchart TD
 | [`analyze.jl`](analyze.jl) | Activates the package and invokes the CLI |
 | [`settings.jl`](settings.jl) | Self-analysis policy and complete configuration example |
 | [`src/OdinJuliaAnalysis.jl`](src/OdinJuliaAnalysis.jl) | Public module, CLI parsing, and canonical pipeline |
-| [`src/settings_types.jl`](src/settings_types.jl) | Public settings, thresholds, and reviewed-policy types |
-| [`src/settings_loader.jl`](src/settings_loader.jl) | Settings validation, rule merging, and extension ordering |
-| [`src/model.jl`](src/model.jl) | Canonical diagnostics, inventories, results, and report schema |
+| [`src/configuration/`](src/configuration/) | Settings types/loading and the built-in rule registry |
+| [`src/core/`](src/core/) | Canonical model, discovery, statistics, and extension lifecycle |
+| [`src/analysis/`](src/analysis/) | Cross-language rules, architecture, unused imports, interop, and reviewed policies |
 | [`src/julia_engine/`](src/julia_engine/) | JuliaSyntax-backed analysis and metrics |
 | [`src/jet_engine/`](src/jet_engine/) | JET callable-root analysis |
 | [`src/odin_engine/`](src/odin_engine/) | Julia adapter for the native Odin engine |
 | [`odin_engine/`](odin_engine/) | Native Odin parser, analyzer, and native tests |
 | [`src/markdown_engine/`](src/markdown_engine/) | Markdown structure checks |
-| [`src/extension_api.jl`](src/extension_api.jl) | Trusted extension contract and execution |
-| [`src/architecture_engine.jl`](src/architecture_engine.jl) | Core layer ownership, direction, resolution, and cycle policy |
-| [`src/reporting.jl`](src/reporting.jl) | Text and JSON output |
-| [`src/markdown_report.jl`](src/markdown_report.jl) | Comprehensive Markdown renderer |
+| [`src/reporting/`](src/reporting/) | Text, JSON, and comprehensive Markdown renderers |
 | [`test/`](test/) | Analyzer regression suite |
 | [`sample/`](sample/) | Standalone Odin/Julia consumer and integration example |
 

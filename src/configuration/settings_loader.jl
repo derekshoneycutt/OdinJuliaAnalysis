@@ -1,4 +1,5 @@
-const DEFAULT_SETTINGS_PATH = normpath(joinpath(@__DIR__, "..", "settings.jl"))
+const DEFAULT_SETTINGS_PATH = normpath(
+    joinpath(@__DIR__, "..", "..", "settings.jl"))
 
 """Load, validate, and resolve analyzer settings from a Julia file."""
 function load_settings(
