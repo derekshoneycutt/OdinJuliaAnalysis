@@ -56,10 +56,10 @@ project-specific trusted extensions.
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `3.8.0` |
-| Extension API | `1.0.0` |
+| Analysis schema | `3.13.0` |
+| Extension API | `1.3.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 52 |
+| Built-in rules | 57 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -171,7 +171,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 3.8.0]
+    Statistics --> Report[AnalysisReport schema 3.13.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
@@ -219,6 +219,7 @@ flowchart TD
 | [`odin_engine/`](odin_engine/) | Native Odin parser, analyzer, and native tests |
 | [`src/markdown_engine/`](src/markdown_engine/) | Markdown structure checks |
 | [`src/extension_api.jl`](src/extension_api.jl) | Trusted extension contract and execution |
+| [`src/architecture_engine.jl`](src/architecture_engine.jl) | Core layer ownership, direction, resolution, and cycle policy |
 | [`src/reporting.jl`](src/reporting.jl) | Text and JSON output |
 | [`src/markdown_report.jl`](src/markdown_report.jl) | Comprehensive Markdown renderer |
 | [`test/`](test/) | Analyzer regression suite |
@@ -228,14 +229,15 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 52 built-in rules. Every configured rule has an enablement flag and
+The registry contains 57 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
 | --- | ---: | --- |
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
-| Julia core and metrics | 15 | Syntax, closing delimiters, declaration order, naming, globals, tuples, parameters, documentation, function lines, cyclomatic complexity, and JET |
-| Odin core, metrics, builds, and allocations | 26 | Syntax, declaration order, naming, globals, tuples, parameters, documentation, metrics, compiler builds, allocator source, growth, and hidden allocation |
+| Julia core and metrics | 16 | Syntax, closing delimiters, declaration order, naming, globals, tuples, parameters, documentation, unused imports, function lines, cyclomatic complexity, and JET |
+| Odin core, metrics, builds, and allocations | 27 | Syntax, declaration order, naming, globals, tuples, parameters, documentation, unused imports, metrics, compiler builds, allocator source, growth, and hidden allocation |
+| Dependency architecture | 3 | Forbidden layer directions, layer cycles, and unresolved internal imports |
 | Generic policy drift | 2 | Reviewed function-metric and naming policies remain exact and active |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
@@ -319,13 +321,15 @@ before source discovery begins.
 | `return_tuples` | Julia and Odin tuple-return maximums |
 | `parameter_counts` | Language-specific parameter limits |
 | `function_metrics` | Per-language line and cyclomatic response tiers |
+| `architecture` | Repository path layers and exact allowed dependency directions |
 | `allocations` | Known allocators, source patterns, and reviewed evidence |
 | `report` | Text finding limits and color default |
 | `extensions` | Ordered trusted extension values |
 
 Settings validation rejects malformed thresholds, duplicate profile names, unknown rules,
-duplicate rule IDs, invalid reviewed policies, invalid build targets, extension API
-mismatches, unknown extension dependencies, and dependency cycles.
+duplicate rule IDs, invalid reviewed policies, invalid build targets, malformed or
+overlapping architecture ownership, extension API mismatches, unknown extension
+dependencies, and extension dependency cycles.
 
 ### Responses and Exit Behavior
 
@@ -452,7 +456,7 @@ end
 | `extension_dependencies` | Name extensions whose results may be consumed |
 | `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
 
-Default methods provide API version `1.0.0`, repository phase, no rules, and no
+Default methods provide API version `1.3.0`, repository phase, no rules, and no
 dependencies. `extension_id` and `analyze_extension` must be implemented.
 
 ### Lifecycle and Dependencies
@@ -460,7 +464,7 @@ dependencies. `extension_id` and `analyze_extension` must be implemented.
 | Phase | Available context | Typical use |
 | --- | --- | --- |
 | `AfterDiscovery` | Root, profile, phase, and normalized source paths | Layout and path policy |
-| `AfterLanguageAnalysis` | Paths plus file and function inventories and interim statistics | Declaration and metric policy |
+| `AfterLanguageAnalysis` | Paths, file, function, dependency, and declaration inventories, plus interim statistics | Declaration, dependency, and metric policy |
 | `AfterRepositoryAnalysis` | Final core inventories and repository statistics | Cross-file and cross-language policy |
 
 ```mermaid
@@ -505,6 +509,37 @@ Thrown exceptions and invalid results are converted to failed extension results.
 See [`sample/analysis_extension.jl`](sample/analysis_extension.jl) for a working rule,
 artifact, settings registration, and dynamically loaded extension.
 
+## Dependency Architecture
+
+Core architecture analysis applies project-owned path layers to the canonical dependency
+inventory. It is configured through the standard `ArchitectureSettings` field:
+
+```julia
+architecture = ArchitectureSettings(
+    [
+        ArchitectureLayer("application", ["src/app", "src/main.jl"]),
+        ArchitectureLayer("library", ["src/lib"]),
+    ],
+    [ArchitectureDependency("application", "library")])
+```
+
+Pass that value between `FunctionMetricSettings` and `AllocationSettings` in the full
+`AnalysisSettings` constructor. The three built-in rules are:
+
+- `ARCHITECTURE-FORBIDDEN-DEPENDENCY` reports actual layer directions absent from the
+  exact allowed list;
+- `ARCHITECTURE-DEPENDENCY-CYCLE` reports strongly connected layer groups;
+- `ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT` reports relative or repository-local imports
+  that cannot be resolved.
+
+Layer paths are repository-relative. More-specific paths take precedence over broader
+paths, allowing a root layer such as `.` with nested subsystem layers. Julia resolution
+uses parser-derived qualified module declarations. Odin collection imports such as
+`core:fmt` are external; plain package paths resolve to existing repository directories.
+Empty architecture settings are the default, preserve dependency inventory reporting,
+and make all three rules `not-applicable`. The default rule responses are `Report` so a
+project can add layers without immediately enforcing uncharacterized boundaries.
+
 ## Reports and Artifacts
 
 JSON is the canonical machine-readable representation. Text and Markdown are renderings
@@ -513,7 +548,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.8.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.13.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
 
 The canonical report includes:
@@ -523,6 +558,11 @@ The canonical report includes:
 | Metadata | Schema, tool version, root, profile, thresholds, and exit code |
 | Files | Language, line classes, parse state, function count, and struct count |
 | Functions | Location, physical/executable lines, parameters, returns, and complexity |
+| Dependencies | Parser-backed Julia `using`/`import` and Odin package-import edges |
+| Declarations | Qualified parser-backed declaration names, kinds, scopes, and locations |
+| Import bindings | Explicit Julia and Odin names eligible for unused-import analysis |
+| References | Parser-visible identifier names, lexical scopes, and locations |
+| Interop | Normalized ABI signatures and matched, mismatched, external, or missing bridge pairs |
 | Statistics | Language totals, complexity density, COCOMO, and LOCOMO |
 | Diagnostics | Visible and ignored findings with evidence and reviewed-policy metadata |
 | Engines | Completion status and failure messages |

@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.5.0"
-ENGINE_VERSION :: "0.9.0"
+SCHEMA_VERSION :: "3.7.0"
+ENGINE_VERSION :: "0.10.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -47,6 +47,32 @@ Declaration_Symbol :: struct {
     is_struct: bool,
 }
 
+Import_Edge :: struct {
+    target: string,
+    binding: string,
+    is_using: bool,
+    line: int,
+    column: int,
+}
+
+Reference_Record :: struct {
+    name: string,
+    scope: string,
+    line: int,
+    column: int,
+}
+
+Interop_Signature :: struct {
+    symbol: string,
+    direction: string,
+    library: string,
+    calling_convention: string,
+    parameter_types: [dynamic]string,
+    return_types: [dynamic]string,
+    line: int,
+    column: int,
+}
+
 File_Summary :: struct {
     path: string,
     parsed: bool,
@@ -56,6 +82,9 @@ File_Summary :: struct {
     findings: [dynamic]Finding,
     procedures: [dynamic]Procedure_Metric,
     symbols: [dynamic]Declaration_Symbol,
+    imports: [dynamic]Import_Edge,
+    references: [dynamic]Reference_Record,
+    interop_signatures: [dynamic]Interop_Signature,
 }
 
 Engine_Response :: struct {
@@ -80,6 +109,10 @@ Analysis_Visitor_Data :: struct {
     procedure_scopes: ^[dynamic]Procedure_Scope,
     procedures: ^[dynamic]Procedure_Metric,
     symbols: ^[dynamic]Declaration_Symbol,
+    imports: ^[dynamic]Import_Edge,
+    references: ^[dynamic]Reference_Record,
+    interop_signatures: ^[dynamic]Interop_Signature,
+    allocator: runtime.Allocator,
 }
 
 // Configure optional metadata for one allocation finding.
@@ -159,6 +192,105 @@ append_value_declaration_symbols :: proc(
             kind := "constant" if !declaration.is_mutable else "variable"
             append_symbol(data, name, kind)
         }
+    }
+}
+
+// Return whether a declaration has one identifier attribute.
+has_attribute :: proc(declaration: ^ast.Value_Decl, expected: string) -> bool {
+    for attribute in declaration.attributes {
+        for element in attribute.elems {
+            name, named := identifier_name(element)
+            if named && name == expected {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// Return one string-valued declaration attribute or an empty string.
+attribute_string :: proc(
+    declaration: ^ast.Value_Decl,
+    expected: string,
+    source: string) -> string {
+    for attribute in declaration.attributes {
+        for element in attribute.elems {
+            field_value, valued := ast.unparen_expr(element).derived.(^ast.Field_Value)
+            if !valued {
+                continue
+            }
+            name, named := identifier_name(field_value.field)
+            if named && name == expected {
+                return strings.trim(expression_source(source, field_value.value), "\"")
+            }
+        }
+    }
+    return ""
+}
+
+// Append one type for every ABI slot represented by a field list.
+append_abi_types :: proc(
+    result: ^[dynamic]string,
+    fields: ^ast.Field_List,
+    source: string) {
+    if fields == nil {
+        return
+    }
+    for field in fields.list {
+        type_name := expression_source(source, field.type)
+        count := max(len(field.names), 1)
+        for _ in 0 ..< count {
+            append(result, type_name)
+        }
+    }
+}
+
+// Return the normalized source-level calling convention of a procedure.
+procedure_calling_convention :: proc(procedure: ^ast.Proc_Lit) -> string {
+    #partial switch convention in procedure.type.calling_convention {
+    case string:
+        return strings.trim(convention, "\"")
+    case ast.Proc_Calling_Convention_Extra:
+        return "c"
+    }
+    return "odin"
+}
+
+// Record foreign imports and exported procedures as normalized ABI signatures.
+append_interop_signature :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    for value, index in declaration.values {
+        procedure, is_procedure := ast.unparen_expr(value).derived.(^ast.Proc_Lit)
+        if !is_procedure || index >= len(declaration.names) {
+            continue
+        }
+        direction := "import" if procedure.body == nil else
+            "export" if has_attribute(declaration, "export") else ""
+        if direction == "" {
+            continue
+        }
+        name, named := identifier_name(declaration.names[index])
+        if !named {
+            continue
+        }
+        symbol := attribute_string(declaration, "link_name", data.source)
+        if symbol == "" {
+            symbol = name
+        }
+        parameters := make([dynamic]string, 0, data.allocator)
+        returns := make([dynamic]string, 0, data.allocator)
+        append_abi_types(&parameters, procedure.type.params, data.source)
+        append_abi_types(&returns, procedure.type.results, data.source)
+        append(data.interop_signatures, Interop_Signature {
+            symbol = symbol,
+            direction = direction,
+            calling_convention = procedure_calling_convention(procedure),
+            parameter_types = parameters,
+            return_types = returns,
+            line = declaration.names[index].pos.line,
+            column = declaration.names[index].pos.column,
+        })
     }
 }
 
@@ -480,6 +612,32 @@ append_import_symbol :: proc(
     })
 }
 
+// Record one parser-backed Odin package import.
+append_import_edge :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Import_Decl) {
+    append(data.imports, Import_Edge {
+        target = strings.trim(declaration.relpath.text, "\""),
+        binding = declaration.name.text,
+        is_using = declaration.is_using,
+        line = declaration.relpath.pos.line,
+        column = declaration.relpath.pos.column,
+    })
+}
+
+// Record one parser-visible Odin identifier reference.
+append_reference :: proc(data: ^Analysis_Visitor_Data, identifier: ^ast.Ident) {
+    if identifier.name == "_" {
+        return
+    }
+    append(data.references, Reference_Record {
+        name = identifier.name,
+        scope = containing_procedure(data, identifier.pos.offset),
+        line = identifier.pos.line,
+        column = identifier.pos.column,
+    })
+}
+
 // Classify one allocation-producing call and append its finding.
 check_allocation_call :: proc(
     data: ^Analysis_Visitor_Data,
@@ -570,10 +728,16 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
         check_procedure_documentation(data, declaration)
         check_nonconst_global(data, declaration)
         append_value_declaration_symbols(data, declaration)
+            append_interop_signature(data, declaration)
         return visitor
     }
     if import_declaration, is_import := node.derived.(^ast.Import_Decl); is_import {
         append_import_symbol(data, import_declaration)
+        append_import_edge(data, import_declaration)
+        return visitor
+    }
+    if identifier, is_identifier := node.derived.(^ast.Ident); is_identifier {
+        append_reference(data, identifier)
         return visitor
     }
     #partial switch _ in node.derived {
@@ -592,6 +756,9 @@ check_allocations :: proc(
     findings: ^[dynamic]Finding,
     procedures: ^[dynamic]Procedure_Metric,
     symbols: ^[dynamic]Declaration_Symbol,
+    imports: ^[dynamic]Import_Edge,
+    references: ^[dynamic]Reference_Record,
+    interop_signatures: ^[dynamic]Interop_Signature,
     allocator: runtime.Allocator) {
     procedure_scopes := make([dynamic]Procedure_Scope, 0, allocator)
     data := Analysis_Visitor_Data {
@@ -600,6 +767,10 @@ check_allocations :: proc(
         procedure_scopes = &procedure_scopes,
         procedures = procedures,
         symbols = symbols,
+        imports = imports,
+        references = references,
+        interop_signatures = interop_signatures,
+        allocator = allocator,
     }
     visitor := ast.Visitor {
         visit = visit_allocations,
@@ -661,6 +832,9 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
         findings = make([dynamic]Finding, 0, allocator),
         procedures = make([dynamic]Procedure_Metric, 0, allocator),
         symbols = make([dynamic]Declaration_Symbol, 0, allocator),
+        imports = make([dynamic]Import_Edge, 0, allocator),
+        references = make([dynamic]Reference_Record, 0, allocator),
+        interop_signatures = make([dynamic]Interop_Signature, 0, allocator),
     }
     source, read_error := os.read_entire_file(path, allocator)
     if read_error != nil {
@@ -684,6 +858,9 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
             &summary.findings,
             &summary.procedures,
             &summary.symbols,
+            &summary.imports,
+            &summary.references,
+            &summary.interop_signatures,
             allocator)
         for symbol in summary.symbols {
             if symbol.is_struct {

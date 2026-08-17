@@ -1,4 +1,16 @@
 const RULE_REGISTRY = Dict(
+    "ARCHITECTURE-FORBIDDEN-DEPENDENCY" => RuleDefinition(
+        "ARCHITECTURE-FORBIDDEN-DEPENDENCY", "common",
+        "Dependency Architecture > Allowed Directions",
+        "experimental", "stable", "report", false),
+    "ARCHITECTURE-DEPENDENCY-CYCLE" => RuleDefinition(
+        "ARCHITECTURE-DEPENDENCY-CYCLE", "common",
+        "Dependency Architecture > Cycles",
+        "experimental", "stable", "report", false),
+    "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT" => RuleDefinition(
+        "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT", "common",
+        "Dependency Architecture > Resolution",
+        "experimental", "stable", "report", false),
     "COMMON-LINE-90" => RuleDefinition(
         "COMMON-LINE-90", "common", "Global Rules > Line Length",
         "mature", "stable", "warning", false),
@@ -28,6 +40,9 @@ const RULE_REGISTRY = Dict(
     "JULIA-NONCONST-GLOBAL" => RuleDefinition(
         "JULIA-NONCONST-GLOBAL", "julia", "Global Rules > Mutable Globals",
         "mature", "stable", "warning", false),
+    "JULIA-UNUSED-IMPORT" => RuleDefinition(
+        "JULIA-UNUSED-IMPORT", "julia", "Julia Rules > Unused Imports",
+        "experimental", "definite", "report", false),
     "JULIA-DECLARATION-ORDER" => RuleDefinition(
         "JULIA-DECLARATION-ORDER", "julia",
         "Global Rules > Declaration Order",
@@ -78,6 +93,9 @@ const RULE_REGISTRY = Dict(
     "ODIN-NONCONST-GLOBAL" => RuleDefinition(
         "ODIN-NONCONST-GLOBAL", "odin", "Global Rules > Mutable Globals",
         "mature", "stable", "warning", false),
+    "ODIN-UNUSED-IMPORT" => RuleDefinition(
+        "ODIN-UNUSED-IMPORT", "odin", "Odin Rules > Unused Imports",
+        "experimental", "definite", "report", false),
     "ODIN-DECLARATION-ORDER" => RuleDefinition(
         "ODIN-DECLARATION-ORDER", "odin",
         "Global Rules > Declaration Order",

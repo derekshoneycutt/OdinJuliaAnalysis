@@ -10,6 +10,9 @@ AnalysisSettings(
         ScanProfile(:aspirational, String[]),
     ],
     [
+        RuleSetting("ARCHITECTURE-FORBIDDEN-DEPENDENCY", true, Report),
+        RuleSetting("ARCHITECTURE-DEPENDENCY-CYCLE", true, Report),
+        RuleSetting("ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT", true, Report),
         RuleSetting("COMMON-LINE-90", true, Warn),
         RuleSetting("COMMON-LINE-100", true, Warn),
         RuleSetting("COMMON-LINE-120", true, Fail),
@@ -19,6 +22,7 @@ AnalysisSettings(
         RuleSetting("JULIA-JET-POSSIBLE-ERROR", true, Fail),
         RuleSetting("JULIA-NAMING", true, Warn),
         RuleSetting("JULIA-NONCONST-GLOBAL", true, Warn),
+        RuleSetting("JULIA-UNUSED-IMPORT", true, Report),
         RuleSetting("JULIA-DECLARATION-ORDER", true, Warn),
         RuleSetting("JULIA-RETURN-TUPLE", true, Fail),
         RuleSetting("JULIA-PARAMETERS-FAIL", true, Fail),
@@ -33,6 +37,7 @@ AnalysisSettings(
         RuleSetting("ODIN-CLOSING-PAREN-PLACEMENT", true, Fail),
         RuleSetting("ODIN-NAMING", true, Warn),
         RuleSetting("ODIN-NONCONST-GLOBAL", true, Warn),
+        RuleSetting("ODIN-UNUSED-IMPORT", true, Report),
         RuleSetting("ODIN-DECLARATION-ORDER", true, Warn),
         RuleSetting("ODIN-RETURN-TUPLE", true, Fail),
         RuleSetting("ODIN-PARAMETERS-WARN", true, Warn),
@@ -188,6 +193,7 @@ AnalysisSettings(
             AllocatorSourcePattern("context.allocator", :context),
             AllocatorSourcePattern("context.temp_allocator", :temporary),
             AllocatorSourcePattern("heap.allocator()", :heap),
+            AllocatorSourcePattern("data.allocator", :custom),
         ],
         ReviewedAllocationPolicy[
             ReviewedAllocationPolicy(

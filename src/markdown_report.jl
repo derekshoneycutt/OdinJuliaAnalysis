@@ -7,6 +7,11 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_thresholds(
         io, report.thresholds, report.parameter_counts, report.function_metrics)
     write_markdown_files(io, report)
+    write_markdown_dependencies(io, report)
+    write_markdown_declarations(io, report)
+    write_markdown_import_bindings(io, report)
+    write_markdown_references(io, report)
+    write_markdown_interop(io, report)
     write_markdown_functions(io, report)
     write_markdown_odin_builds(io, report)
     write_markdown_findings(io, report)
@@ -15,6 +20,112 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_rules(io, report)
     write_markdown_extensions(io, report)
     write_markdown_engines(io, report)
+end
+
+"""Write explicit import bindings eligible for unused-import analysis."""
+function write_markdown_import_bindings(io, report)
+    println(io)
+    println(io, "## Import Bindings")
+    isempty(report.import_bindings) && return println(io, "\nNo explicit bindings found.")
+    println(io, "\n| Source | Language | Target | Binding | Kind | Location |")
+    println(io, "| --- | --- | --- | --- | --- | ---: |")
+    for binding in report.import_bindings
+        println(io, "| `$(markdown_cell(binding.path))` | $(binding.language) | ",
+            "`$(markdown_cell(binding.target))` | `$(markdown_cell(binding.name))` | ",
+            "$(binding.kind) | $(binding.line):$(binding.column) |")
+    end
+end
+
+"""Write parser-visible identifier references."""
+function write_markdown_references(io, report)
+    println(io)
+    println(io, "## Reference Inventory")
+    isempty(report.references) && return println(io, "\nNo identifier references found.")
+    println(io, "\n| Source | Language | Name | Scope | Location |")
+    println(io, "| --- | --- | --- | --- | ---: |")
+    for reference in report.references
+        scope = something(reference.scope, "-")
+        println(io, "| `$(markdown_cell(reference.path))` | $(reference.language) | ",
+            "`$(markdown_cell(reference.name))` | `$(markdown_cell(scope))` | ",
+            "$(reference.line):$(reference.column) |")
+    end
+end
+
+"""Write normalized ABI signatures and deterministic bridge pair status."""
+function write_markdown_interop(io, report)
+    println(io)
+    println(io, "## Interop Signatures")
+    if isempty(report.interop_signatures)
+        println(io, "\nNo supported interop signatures found.")
+    else
+        println(io, "\n| Source | Language | Direction | Symbol | ABI | Parameters | Returns |")
+        println(io, "| --- | --- | --- | --- | --- | --- | --- |")
+        for signature in report.interop_signatures
+            parameters = join(signature.parameter_types, ", ")
+            returns = isempty(signature.return_types) ? "void" :
+                join(signature.return_types, ", ")
+            println(io, "| `$(markdown_cell(signature.path))` | ",
+                "$(signature.language) | $(signature.direction) | ",
+                "`$(markdown_cell(signature.symbol))` | ",
+                "$(signature.calling_convention) | `$(markdown_cell(parameters))` | ",
+                "`$(markdown_cell(returns))` |")
+        end
+    end
+    println(io)
+    println(io, "## Interop Bridge Pairs")
+    isempty(report.interop_pairs) && return println(io, "\nNo bridge pairs found.")
+    println(io, "\n| Symbol | Status | Julia | Odin | Mismatch |")
+    println(io, "| --- | --- | --- | --- | --- |")
+    for pair in report.interop_pairs
+        println(io, "| `$(markdown_cell(pair.symbol))` | $(pair.status) | ",
+            "`$(markdown_cell(something(pair.julia_path, "-")))` | ",
+            "`$(markdown_cell(something(pair.odin_path, "-")))` | ",
+            "$(markdown_cell(something(pair.mismatch, "-"))) |")
+    end
+end
+
+"""Write the parser-backed declaration inventory."""
+function write_markdown_declarations(io, report)
+    println(io)
+    println(io, "## Declaration Inventory")
+    if isempty(report.declarations)
+        println(io)
+        println(io, "No supported Julia or Odin declarations were found.")
+        return
+    end
+    println(io)
+    println(io, "| Source | Language | Kind | Qualified name | Scope | Location |")
+    println(io, "| --- | --- | --- | --- | --- | ---: |")
+    for declaration in report.declarations
+        scope = something(declaration.scope, "-")
+        println(io,
+            "| `$(markdown_cell(declaration.path))` | $(declaration.language) | ",
+            "$(declaration.kind) | `$(markdown_cell(declaration.qualified_name))` | ",
+            "`$(markdown_cell(scope))` | ",
+            "$(declaration.line):$(declaration.column) |")
+    end
+end
+
+"""Write the parser-backed repository dependency graph."""
+function write_markdown_dependencies(io, report)
+    println(io)
+    println(io, "## Dependency Graph")
+    if isempty(report.dependencies)
+        println(io)
+        println(io, "No Julia or Odin dependencies were found.")
+        return
+    end
+    println(io)
+    println(io, "| Source | Language | Kind | Target | Resolution | Target path | Location |")
+    println(io, "| --- | --- | --- | --- | --- | --- | ---: |")
+    for edge in report.dependencies
+        target_path = something(edge.target_path, "-")
+        println(io,
+            "| `$(markdown_cell(edge.source_path))` | $(edge.language) | ",
+            "$(edge.kind) | `$(markdown_cell(edge.target))` | ",
+            "$(edge.resolution) | `$(markdown_cell(target_path))` | ",
+            "$(edge.line):$(edge.column) |")
+    end
 end
 
 """Write analytical Odin build commands, outcomes, artifacts, and captured streams."""

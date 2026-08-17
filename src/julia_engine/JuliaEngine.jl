@@ -4,10 +4,15 @@ using CodeComplexity
 using JuliaSyntax
 
 using ..OdinJuliaAnalysis: Diagnostic
+using ..OdinJuliaAnalysis: DeclarationRecord
+using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
 using ..OdinJuliaAnalysis: FunctionAnalysis
+using ..OdinJuliaAnalysis: ImportBinding
+using ..OdinJuliaAnalysis: InteropSignature
 using ..OdinJuliaAnalysis: Ignore
 using ..OdinJuliaAnalysis: NamingConvention
+using ..OdinJuliaAnalysis: ReferenceRecord
 using ..OdinJuliaAnalysis: configured_diagnostic
 using ..OdinJuliaAnalysis: executable_source_lines
 using ..OdinJuliaAnalysis: load_settings
@@ -15,7 +20,12 @@ using ..OdinJuliaAnalysis: valid_identifier_name
 
 export check_syntax
 export check
+export analyze_dependencies
+export analyze_declarations
 export analyze_functions
+export analyze_import_bindings
+export analyze_interop
+export analyze_references
 export documentation_comment_lines
 export struct_count
 
@@ -23,6 +33,447 @@ include("ClosingParentheses.jl")
 
 const CYCLOMATIC = CyclomaticComplexity()
 const COGNITIVE = CognitiveComplexity()
+
+const JuliaModuleDefinition = @NamedTuple begin
+    name::String
+    path::String
+    start_line::Int
+    end_line::Int
+    depth::Int
+end
+
+"""Collect explicit parser-backed Julia declarations."""
+function analyze_declarations(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    declarations = DeclarationRecord[]
+    collect_declarations!(declarations, tree, path, offsets, String[])
+    return declarations
+end
+
+"""Visit explicit module, function, struct, and constant declarations."""
+function collect_declarations!(declarations, node, path, offsets, scope)
+    kind = Symbol(JuliaSyntax.kind(node))
+    declaration_kind = if kind == :module
+        "module"
+    elseif kind == :function
+        "function"
+    elseif kind == :struct
+        "type"
+    elseif kind == :const
+        "constant"
+    end
+    nested_scope = scope
+    if declaration_kind !== nothing
+        name_node = declaration_identifier_node(node)
+        if name_node !== nothing
+            name = strip(String(JuliaSyntax.sourcetext(name_node)))
+            byte_offset = JuliaSyntax.first_byte(name_node)
+            line = metric_line_for_offset(offsets, byte_offset)
+            scope_name = isempty(scope) ? nothing : join(scope, ".")
+            push!(declarations, DeclarationRecord(
+                path,
+                "julia",
+                name,
+                join([scope; name], "."),
+                declaration_kind,
+                scope_name,
+                line,
+                byte_offset - offsets[line] + 1))
+            kind in (:module, :function, :struct) && (nested_scope = [scope; name])
+        end
+    end
+    for child in something(JuliaSyntax.children(node), ())
+        collect_declarations!(declarations, child, path, offsets, nested_scope)
+    end
+end
+
+"""Return the identifier node naming one explicit declaration."""
+function declaration_identifier_node(node)
+    children = something(JuliaSyntax.children(node), ())
+    isempty(children) && return nothing
+    candidate = first(children)
+    while true
+        kind = Symbol(JuliaSyntax.kind(candidate))
+        kind == :Identifier && return candidate
+        kind in (:where, :(::), :curly, :(=), :call) || return nothing
+        nested = something(JuliaSyntax.children(candidate), ())
+        isempty(nested) && return nothing
+        candidate = first(nested)
+    end
+end
+
+"""Collect explicit Julia import bindings that can be checked for references."""
+function analyze_import_bindings(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    bindings = ImportBinding[]
+    collect_import_bindings!(bindings, tree, path, offsets)
+    return bindings
+end
+
+"""Visit import statements and append their explicit namespace or name bindings."""
+function collect_import_bindings!(bindings, node, path, offsets)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind in (:using, :import)
+        append_julia_import_bindings!(bindings, node, path, offsets, String(kind))
+        return
+    end
+    for child in children
+        collect_import_bindings!(bindings, child, path, offsets)
+    end
+end
+
+"""Append analyzable bindings from one Julia using or import statement."""
+function append_julia_import_bindings!(bindings, node, path, offsets, kind)
+    children = something(JuliaSyntax.children(node), ())
+    isempty(children) && return
+    clause = first(children)
+    clause_kind = Symbol(JuliaSyntax.kind(clause))
+    if clause_kind == :importpath
+        kind == "import" || return
+        append_julia_import_binding!(bindings, clause, clause, path, offsets, kind)
+        return
+    end
+    clause_kind == :(:) || return
+    paths = something(JuliaSyntax.children(clause), ())
+    length(paths) >= 2 || return
+    target = strip(String(JuliaSyntax.sourcetext(first(paths))))
+    for binding_node in paths[2:end]
+        append_julia_import_binding!(
+            bindings, first(paths), binding_node, path, offsets, kind; target)
+    end
+end
+
+"""Append one Julia import binding with its local alias and source location."""
+function append_julia_import_binding!(
+    bindings, target_node, binding_node, path, offsets, kind; target=nothing)
+    local_node = binding_node
+    if Symbol(JuliaSyntax.kind(binding_node)) == :as
+        alias_children = something(JuliaSyntax.children(binding_node), ())
+        isempty(alias_children) && return
+        local_node = last(alias_children)
+    end
+    name = strip(String(JuliaSyntax.sourcetext(local_node)))
+    raw_target = target === nothing ?
+        strip(String(JuliaSyntax.sourcetext(target_node))) : target
+    byte_offset = JuliaSyntax.first_byte(local_node)
+    line = metric_line_for_offset(offsets, byte_offset)
+    push!(bindings, ImportBinding(
+        path, "julia", raw_target, name, kind, line,
+        byte_offset - offsets[line] + 1))
+end
+
+"""Collect parser-visible Julia identifier references outside import statements."""
+function analyze_references(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    references = ReferenceRecord[]
+    collect_references!(references, tree, path, offsets, String[], false)
+    return references
+end
+
+"""Visit identifier nodes while retaining lexical module and function scope."""
+function collect_references!(references, node, path, offsets, scope, excluded)
+    kind = Symbol(JuliaSyntax.kind(node))
+    kind in (:using, :import, :export) && return
+    declaration = kind in (:module, :function, :struct, :const) ?
+        declaration_identifier_node(node) : nothing
+    nested_scope = scope
+    if declaration !== nothing && kind in (:module, :function, :struct)
+        nested_scope = [scope; strip(String(JuliaSyntax.sourcetext(declaration)))]
+    end
+    if kind == :Identifier && !excluded
+        byte_offset = JuliaSyntax.first_byte(node)
+        line = metric_line_for_offset(offsets, byte_offset)
+        push!(references, ReferenceRecord(
+            path,
+            "julia",
+            String(JuliaSyntax.sourcetext(node)),
+            isempty(scope) ? nothing : join(scope, "."),
+            line,
+            byte_offset - offsets[line] + 1))
+        return
+    end
+    for child in something(JuliaSyntax.children(node), ())
+        collect_references!(
+            references, child, path, offsets, nested_scope,
+            excluded || child === declaration)
+    end
+end
+
+"""Collect supported Julia C interop signatures from surface syntax."""
+function analyze_interop(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    signatures = InteropSignature[]
+    collect_interop!(signatures, tree, path, offsets)
+    return signatures
+end
+
+"""Visit @ccall, ccall, and @cfunction syntax forms."""
+function collect_interop!(signatures, node, path, offsets)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    signature = if kind == :macrocall && !isempty(children)
+        macro_name = String(JuliaSyntax.sourcetext(first(children)))
+        macro_name == "ccall" ? julia_macro_ccall(node, path, offsets) :
+            macro_name == "cfunction" ? julia_cfunction(node, path, offsets) : nothing
+    elseif kind == :call && !isempty(children) &&
+        String(JuliaSyntax.sourcetext(first(children))) == "ccall"
+        julia_ccall(node, path, offsets)
+    end
+    signature === nothing || push!(signatures, signature)
+    for child in children
+        collect_interop!(signatures, child, path, offsets)
+    end
+end
+
+"""Normalize one Julia @ccall signature."""
+function julia_macro_ccall(node, path, offsets)
+    children = something(JuliaSyntax.children(node), ())
+    length(children) >= 2 || return nothing
+    typed_call = children[2]
+    typed_children = something(JuliaSyntax.children(typed_call), ())
+    length(typed_children) == 2 || return nothing
+    call, return_type = typed_children
+    call_children = something(JuliaSyntax.children(call), ())
+    isempty(call_children) && return nothing
+    library, symbol = julia_interop_callee(first(call_children))
+    parameter_types = String[]
+    for argument in call_children[2:end]
+        argument_children = something(JuliaSyntax.children(argument), ())
+        Symbol(JuliaSyntax.kind(argument)) == :(::) && length(argument_children) == 2 ||
+            return nothing
+        push!(parameter_types, normalize_abi_type(last(argument_children)))
+    end
+    return julia_interop_signature(
+        node, path, offsets, symbol, "import", library, parameter_types,
+        abi_return_types(return_type))
+end
+
+"""Normalize one Julia ccall signature."""
+function julia_ccall(node, path, offsets)
+    children = something(JuliaSyntax.children(node), ())
+    length(children) >= 4 || return nothing
+    library, symbol = julia_ccall_target(children[2])
+    parameter_nodes = something(JuliaSyntax.children(children[4]), ())
+    return julia_interop_signature(
+        node, path, offsets, symbol, "import", library,
+        [normalize_abi_type(item) for item in parameter_nodes],
+        abi_return_types(children[3]))
+end
+
+"""Normalize one Julia @cfunction callback signature."""
+function julia_cfunction(node, path, offsets)
+    children = something(JuliaSyntax.children(node), ())
+    length(children) == 4 || return nothing
+    symbol = strip(String(JuliaSyntax.sourcetext(children[2])), '$')
+    parameter_nodes = something(JuliaSyntax.children(children[4]), ())
+    return julia_interop_signature(
+        node, path, offsets, symbol, "export", nothing,
+        [normalize_abi_type(item) for item in parameter_nodes],
+        abi_return_types(children[3]))
+end
+
+"""Return library and symbol names from an @ccall callee."""
+function julia_interop_callee(node)
+    if Symbol(JuliaSyntax.kind(node)) == :Identifier
+        return nothing, String(JuliaSyntax.sourcetext(node))
+    end
+    children = something(JuliaSyntax.children(node), ())
+    length(children) == 2 || return nothing, String(JuliaSyntax.sourcetext(node))
+    return String(JuliaSyntax.sourcetext(first(children))),
+        String(JuliaSyntax.sourcetext(last(children)))
+end
+
+"""Return library and symbol names from a ccall target tuple or symbol."""
+function julia_ccall_target(node)
+    children = something(JuliaSyntax.children(node), ())
+    if Symbol(JuliaSyntax.kind(node)) == :tuple && length(children) >= 2
+        symbol = strip(String(JuliaSyntax.sourcetext(first(children))), ':')
+        return String(JuliaSyntax.sourcetext(children[2])), symbol
+    end
+    return nothing, strip(String(JuliaSyntax.sourcetext(node)), ':')
+end
+
+"""Construct one normalized Julia interop signature at its source location."""
+function julia_interop_signature(
+    node, path, offsets, symbol, direction, library, parameters, returns)
+    byte_offset = JuliaSyntax.first_byte(node)
+    line = metric_line_for_offset(offsets, byte_offset)
+    return InteropSignature(
+        path, "julia", symbol, direction, library, "c", parameters, returns,
+        line, byte_offset - offsets[line] + 1)
+end
+
+"""Normalize a supported ABI type spelling across Julia and Odin."""
+function normalize_abi_type(node)
+    text = replace(strip(String(JuliaSyntax.sourcetext(node))), " " => "")
+    mappings = Dict(
+        "Cchar" => "i8", "Cuchar" => "u8", "Cshort" => "i16",
+        "Cushort" => "u16", "Cint" => "i32", "Cuint" => "u32",
+        "Clonglong" => "i64", "Culonglong" => "u64", "Cfloat" => "f32",
+        "Cdouble" => "f64", "Cvoid" => "void", "Cstring" => "cstring")
+    haskey(mappings, text) && return mappings[text]
+    startswith(text, "Ptr{") && endswith(text, "}") &&
+        return "^" * get(mappings, text[5:(end - 1)], text[5:(end - 1)])
+    return text
+end
+
+"""Represent a void result as an empty ABI return list."""
+function abi_return_types(node)
+    normalized = normalize_abi_type(node)
+    return normalized == "void" ? String[] : [normalized]
+end
+
+"""Collect parser-backed Julia using and import edges."""
+function analyze_dependencies(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    dependencies = DependencyEdge[]
+    collect_dependencies!(dependencies, tree, path, offsets)
+    return dependencies
+end
+
+"""Visit Julia syntax and append each directly imported module path."""
+function collect_dependencies!(dependencies, node, path, offsets)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind in (:using, :import)
+        for child in children
+            import_path = dependency_import_path(child)
+            import_path === nothing && continue
+            byte_offset = JuliaSyntax.first_byte(import_path)
+            line = metric_line_for_offset(offsets, byte_offset)
+            raw_target = String(JuliaSyntax.sourcetext(import_path))
+            leading_bytes = ncodeunits(raw_target) - ncodeunits(lstrip(raw_target))
+            push!(dependencies, DependencyEdge(
+                path,
+                strip(raw_target),
+                nothing,
+                "unresolved",
+                "julia",
+                String(kind),
+                line,
+                byte_offset - offsets[line] + leading_bytes + 1))
+        end
+        return
+    end
+    for child in children
+        collect_dependencies!(dependencies, child, path, offsets)
+    end
+end
+
+"""Resolve Julia imports against parser-derived repository module declarations."""
+function resolve_dependencies!(dependencies, root, files)
+    definitions = JuliaModuleDefinition[]
+    for file in files
+        endswith(file, ".jl") || continue
+        source = read(file, String)
+        append!(definitions, analyze_modules(relpath(file, root), source))
+    end
+    for index in eachindex(dependencies)
+        edge = dependencies[index]
+        edge.language == "julia" || continue
+        target_path, resolution = resolve_julia_target(edge, definitions)
+        dependencies[index] = DependencyEdge(
+            edge.source_path,
+            edge.target,
+            target_path,
+            resolution,
+            edge.language,
+            edge.kind,
+            edge.line,
+            edge.column)
+    end
+end
+
+"""Collect qualified module declarations and their lexical source ranges."""
+function analyze_modules(path, source)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    definitions = JuliaModuleDefinition[]
+    collect_modules!(definitions, tree, path, offsets, String[])
+    return definitions
+end
+
+"""Visit nested Julia modules while retaining their qualified identities."""
+function collect_modules!(definitions, node, path, offsets, parents)
+    children = something(JuliaSyntax.children(node), ())
+    if Symbol(JuliaSyntax.kind(node)) == :module && length(children) >= 2
+        module_name = strip(String(JuliaSyntax.sourcetext(first(children))))
+        qualified_parts = [parents; module_name]
+        start_line = metric_line_for_offset(offsets, JuliaSyntax.first_byte(node))
+        end_line = metric_line_for_offset(offsets, JuliaSyntax.last_byte(node))
+        push!(definitions, (
+            name=join(qualified_parts, "."),
+            path=path,
+            start_line,
+            end_line,
+            depth=length(qualified_parts)))
+        collect_modules!(definitions, last(children), path, offsets, qualified_parts)
+        return
+    end
+    for child in children
+        collect_modules!(definitions, child, path, offsets, parents)
+    end
+end
+
+"""Classify one Julia import as repository-owned, external, or unresolved."""
+function resolve_julia_target(edge, definitions)
+    relative_depth = count_leading_dots(edge.target)
+    target_name = lstrip(edge.target, '.')
+    candidate = target_name
+    if relative_depth > 0
+        source_module = innermost_source_module(edge, definitions)
+        source_module === nothing && return nothing, "unresolved"
+        source_parts = split(source_module.name, '.')
+        parent_depth = relative_depth - 1
+        parent_depth < length(source_parts) || return nothing, "unresolved"
+        base_parts = source_parts[1:(length(source_parts) - parent_depth)]
+        candidate = join([base_parts; split(target_name, '.')], ".")
+    end
+    matches = filter(definitions) do definition
+        candidate == definition.name ||
+            relative_depth == 0 && startswith(candidate, definition.name * ".")
+    end
+    if isempty(matches)
+        return nothing, relative_depth > 0 ? "unresolved" : "external"
+    end
+    target = first(sort!(matches; by=definition -> definition.depth, rev=true))
+    return target.path, "repository"
+end
+
+"""Return the lexical module containing one Julia import edge."""
+function innermost_source_module(edge, definitions)
+    matches = filter(definition ->
+        definition.path == edge.source_path &&
+            definition.start_line <= edge.line <= definition.end_line,
+        definitions)
+    isempty(matches) && return nothing
+    return first(sort!(matches; by=definition -> definition.depth, rev=true))
+end
+
+"""Count the relative-module prefix on one Julia import target."""
+function count_leading_dots(target)
+    count = 0
+    for character in target
+        character == '.' || break
+        count += 1
+    end
+    return count
+end
+
+"""Return the module path from one direct using or import child."""
+function dependency_import_path(node)
+    kind = Symbol(JuliaSyntax.kind(node))
+    kind == :importpath && return node
+    kind == :(:) || return nothing
+    children = something(JuliaSyntax.children(node), ())
+    return isempty(children) ? nothing : first(children)
+end
 
 """Run configured syntax, layout, and documentation checks on Julia source."""
 function check(

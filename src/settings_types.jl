@@ -344,6 +344,21 @@ struct AllocationSettings
     reviewed_policies::Vector{ReviewedAllocationPolicy}
 end
 
+struct ArchitectureLayer
+    name::String
+    paths::Vector{String}
+end
+
+struct ArchitectureDependency
+    source::String
+    target::String
+end
+
+struct ArchitectureSettings
+    layers::Vector{ArchitectureLayer}
+    allowed_dependencies::Vector{ArchitectureDependency}
+end
+
 struct AnalysisSettings
     profile::Symbol
     failure_threshold::FindingResponse
@@ -356,6 +371,7 @@ struct AnalysisSettings
     return_tuples::ReturnTupleSettings
     parameter_counts::ParameterCountSettings
     function_metrics::FunctionMetricSettings
+    architecture::ArchitectureSettings
     allocations::AllocationSettings
     report::ReportSettings
     extensions::Vector{AnalysisExtension}
@@ -373,6 +389,7 @@ struct EffectiveSettings
     return_tuples::ReturnTupleSettings
     parameter_counts::ParameterCountSettings
     function_metrics::FunctionMetricSettings
+    architecture::ArchitectureSettings
     allocations::AllocationSettings
     report::ReportSettings
     extensions::Vector{AnalysisExtension}
@@ -401,6 +418,7 @@ function AnalysisSettings(
         default_return_tuple_settings(),
         default_parameter_count_settings(),
         default_function_metric_settings(),
+        default_architecture_settings(),
         allocations,
         report)
 end
@@ -427,6 +445,7 @@ end
             default_return_tuple_settings(),
             default_parameter_count_settings(),
             default_function_metric_settings(),
+            default_architecture_settings(),
         allocations,
         report)
     end
@@ -441,19 +460,21 @@ end
         naming,
         jet,
         trailing...)
-        length(trailing) in 2:6 || throw(MethodError(
+        length(trailing) in 2:7 || throw(MethodError(
             AnalysisSettings,
             (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
                 trailing...)))
         odin_build = length(trailing) >= 3 ? trailing[1] :
             default_odin_build_settings()
-        return_tuples = length(trailing) in (4, 6) ? trailing[2] :
+        return_tuples = length(trailing) >= 4 ? trailing[2] :
             default_return_tuple_settings()
-        parameter_counts = length(trailing) in (5, 6) ? trailing[3] :
+        parameter_counts = length(trailing) >= 5 ? trailing[3] :
             default_parameter_count_settings()
-        function_metrics = length(trailing) == 6 ? trailing[4] :
+        function_metrics = length(trailing) >= 6 ? trailing[4] :
             default_function_metric_settings()
-        allocations, report = trailing[end - 1:end]
+        extensions = length(trailing) == 7 ? trailing[end] : AnalysisExtension[]
+        policy_end = length(trailing) == 7 ? length(trailing) - 1 : length(trailing)
+        allocations, report = trailing[(policy_end - 1):policy_end]
         return AnalysisSettings(
         profile,
         failure_threshold,
@@ -466,9 +487,10 @@ end
         return_tuples,
         parameter_counts,
         function_metrics,
+        default_architecture_settings(),
         allocations,
         report,
-        AnalysisExtension[])
+        extensions)
     end
 
     """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -505,6 +527,7 @@ end
         return_tuples,
         parameter_counts,
         function_metrics,
+        default_architecture_settings(),
         allocations,
         report,
         AnalysisExtension[],

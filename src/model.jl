@@ -91,6 +91,68 @@ struct FunctionAnalysis
     documented::Bool
 end
 
+struct DependencyEdge
+    source_path::String
+    target::String
+    target_path::Union{Nothing, String}
+    resolution::String
+    language::String
+    kind::String
+    line::Int
+    column::Int
+end
+
+struct DeclarationRecord
+    path::String
+    language::String
+    name::String
+    qualified_name::String
+    kind::String
+    scope::Union{Nothing, String}
+    line::Int
+    column::Int
+end
+
+struct ImportBinding
+    path::String
+    language::String
+    target::String
+    name::String
+    kind::String
+    line::Int
+    column::Int
+end
+
+struct ReferenceRecord
+    path::String
+    language::String
+    name::String
+    scope::Union{Nothing, String}
+    line::Int
+    column::Int
+end
+
+struct InteropSignature
+    path::String
+    language::String
+    symbol::String
+    direction::String
+    library::Union{Nothing, String}
+    calling_convention::String
+    parameter_types::Vector{String}
+    return_types::Vector{String}
+    line::Int
+    column::Int
+end
+
+struct InteropBridgePair
+    symbol::String
+    status::String
+    julia_path::Union{Nothing, String}
+    odin_path::Union{Nothing, String}
+    mismatch::Union{Nothing, String}
+end
+
 struct CodeStatistics
     files::Int
     functions::Int
@@ -137,6 +199,12 @@ struct AnalysisContext
     paths::Tuple
     files::Tuple
     functions::Tuple
+    dependencies::Tuple
+    declarations::Tuple
+    import_bindings::Tuple
+    references::Tuple
+    interop_signatures::Tuple
+    interop_pairs::Tuple
     statistics::Union{Nothing, RepositoryStatistics}
 end
 
@@ -161,6 +229,12 @@ struct AnalysisReport
     files_by_language::Dict{String, Int}
     files::Vector{FileAnalysis}
     functions::Vector{FunctionAnalysis}
+    dependencies::Vector{DependencyEdge}
+    declarations::Vector{DeclarationRecord}
+    import_bindings::Vector{ImportBinding}
+    references::Vector{ReferenceRecord}
+    interop_signatures::Vector{InteropSignature}
+    interop_pairs::Vector{InteropBridgePair}
     statistics::RepositoryStatistics
     diagnostics::Vector{Diagnostic}
     ignored_diagnostics::Vector{Diagnostic}
@@ -186,6 +260,18 @@ StructTypes.StructType(::Type{AnalysisThresholds}) = StructTypes.Struct()
 StructTypes.StructType(::Type{FileAnalysis}) = StructTypes.Struct()
 """Declare structural serialization for function analysis records."""
 StructTypes.StructType(::Type{FunctionAnalysis}) = StructTypes.Struct()
+"""Declare structural serialization for dependency graph edges."""
+StructTypes.StructType(::Type{DependencyEdge}) = StructTypes.Struct()
+"""Declare structural serialization for declaration inventory records."""
+StructTypes.StructType(::Type{DeclarationRecord}) = StructTypes.Struct()
+"""Declare structural serialization for import binding records."""
+StructTypes.StructType(::Type{ImportBinding}) = StructTypes.Struct()
+"""Declare structural serialization for identifier reference records."""
+StructTypes.StructType(::Type{ReferenceRecord}) = StructTypes.Struct()
+"""Declare structural serialization for normalized interop signatures."""
+StructTypes.StructType(::Type{InteropSignature}) = StructTypes.Struct()
+"""Declare structural serialization for interop bridge pairs."""
+StructTypes.StructType(::Type{InteropBridgePair}) = StructTypes.Struct()
 """Declare structural serialization for code statistics."""
 StructTypes.StructType(::Type{CodeStatistics}) = StructTypes.Struct()
 """Declare structural serialization for COCOMO estimates."""

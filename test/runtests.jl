@@ -57,6 +57,8 @@ function OdinJuliaAnalysis.analyze_extension(
     end
     artifacts = Dict{String, Any}(
         "path_count" => length(context.paths),
+        "dependency_count" => length(context.dependencies),
+        "declaration_count" => length(context.declarations),
         "prior_count" => length(prior_results))
     return ExtensionResult(
         extension.id,
@@ -114,6 +116,28 @@ function with_rules(
         configuration.function_metrics,
         configuration.allocations,
         configuration.report)
+end
+
+"""Return effective settings with replacement architecture policy."""
+function with_architecture(configuration, architecture)
+    return OdinJuliaAnalysis.EffectiveSettings(
+        configuration.profile,
+        configuration.failure_threshold,
+        configuration.thresholds,
+        configuration.enforcement_excludes,
+        configuration.rules,
+        configuration.naming,
+        configuration.jet,
+        configuration.odin_build,
+        configuration.return_tuples,
+        configuration.parameter_counts,
+        configuration.function_metrics,
+        architecture,
+        configuration.allocations,
+        configuration.report,
+        configuration.extensions,
+        configuration.rule_registry,
+        configuration.extension_rule_owners)
 end
 
 """Return effective settings with replacement allocation policies."""
@@ -393,6 +417,7 @@ end
             :context,
             :temporary,
             :heap,
+            :custom,
         ]
         @test [policy.id
             for policy in configuration.allocations.reviewed_policies] == [
@@ -635,6 +660,292 @@ end
             registry, owners = OdinJuliaAnalysis.merged_rule_registry(ordered)
             @test registry["DYNAMIC-FIXTURE"].language == "common"
             @test owners["DYNAMIC-FIXTURE"] == "dynamic"
+        end
+    end
+
+    @testset "dependency graph inventory" begin
+        mktempdir() do root
+            julia_path = joinpath(root, "app.jl")
+            odin_path = joinpath(root, "main.odin")
+            odin_package = joinpath(root, "lib", "math")
+            mkpath(odin_package)
+            write(julia_path, """
+                module App
+                using JSON3
+                module Local
+                import ..Local: value
+                end
+                import .Missing
+                end
+                """)
+            write(odin_path, """
+                package fixture
+                import "core:fmt"
+                import "lib/math"
+                """)
+            write(joinpath(odin_package, "math.odin"), """
+                package math
+                import "../.."
+                """)
+            base_configuration = with_odin_build_targets(
+                with_jet_entries(
+                    OdinJuliaAnalysis.load_settings(),
+                    JetEntryPoint[]),
+                OdinBuildTarget[])
+            architecture = ArchitectureSettings(
+                [
+                    ArchitectureLayer("application", ["."]),
+                    ArchitectureLayer("library", ["lib"]),
+                ],
+                [ArchitectureDependency("application", "library")])
+            architecture_rules = Dict(
+                rule_id => RuleSetting(rule_id, true, Warn)
+                for rule_id in (
+                    "ARCHITECTURE-FORBIDDEN-DEPENDENCY",
+                    "ARCHITECTURE-DEPENDENCY-CYCLE",
+                    "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT"))
+            configuration = with_architecture(
+                with_rules(base_configuration, architecture_rules),
+                architecture)
+
+            report = OdinJuliaAnalysis.check_repository(
+                root; configuration)
+            @test [
+                (
+                    edge.source_path,
+                    edge.target,
+                    edge.target_path,
+                    edge.resolution,
+                    edge.language,
+                    edge.kind)
+                for edge in report.dependencies
+            ] == [
+                ("app.jl", "JSON3", nothing, "external", "julia", "using"),
+                (
+                    "app.jl",
+                    "..Local",
+                    "app.jl",
+                    "repository",
+                    "julia",
+                    "import"),
+                (
+                    "app.jl",
+                    ".Missing",
+                    nothing,
+                    "unresolved",
+                    "julia",
+                    "import"),
+                (
+                    "lib/math/math.odin",
+                    "../..",
+                    ".",
+                    "repository",
+                    "odin",
+                    "import"),
+                (
+                    "main.odin",
+                    "core:fmt",
+                    nothing,
+                    "external",
+                    "odin",
+                    "import"),
+                (
+                    "main.odin",
+                    "lib/math",
+                    "lib/math",
+                    "repository",
+                    "odin",
+                    "import"),
+            ]
+            @test [
+                (item.qualified_name, item.kind, item.scope)
+                for item in report.declarations
+            ] == [
+                ("App", "module", nothing),
+                ("App.Local", "module", "App"),
+            ]
+            architecture_diagnostics = filter(
+                diagnostic -> startswith(diagnostic.rule_id, "ARCHITECTURE-"),
+                report.diagnostics)
+            @test sort!([
+                diagnostic.rule_id for diagnostic in architecture_diagnostics]) == [
+                "ARCHITECTURE-DEPENDENCY-CYCLE",
+                "ARCHITECTURE-FORBIDDEN-DEPENDENCY",
+                "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT",
+            ]
+            @test all(diagnostic -> diagnostic.response == Warn, architecture_diagnostics)
+            @test isempty(report.extensions)
+            @test any(
+                engine -> engine.name == "architecture" &&
+                    engine.status == "complete",
+                report.engines)
+            @test all(
+                summary -> summary.status == "evaluated" && summary.findings == 1,
+                filter(
+                    summary -> startswith(summary.rule_id, "ARCHITECTURE-"),
+                    report.rules))
+
+            @test_throws ArgumentError OdinJuliaAnalysis.validate_settings(
+                AnalysisSettings(
+                    base_configuration.profile,
+                    base_configuration.failure_threshold,
+                    base_configuration.thresholds,
+                    [ScanProfile(base_configuration.profile, String[])],
+                    collect(values(base_configuration.rules)),
+                    base_configuration.naming,
+                    base_configuration.jet,
+                    base_configuration.odin_build,
+                    base_configuration.return_tuples,
+                    base_configuration.parameter_counts,
+                    base_configuration.function_metrics,
+                    ArchitectureSettings(
+                        [ArchitectureLayer("duplicate", ["src", "src"])],
+                        ArchitectureDependency[]),
+                    base_configuration.allocations,
+                    base_configuration.report,
+                    AnalysisExtension[]))
+
+            json_output = IOBuffer()
+            OdinJuliaAnalysis.write_report(json_output, report, "json")
+            json = String(take!(json_output))
+            @test occursin("\"dependencies\"", json)
+            @test occursin("\"declarations\"", json)
+
+            markdown_output = IOBuffer()
+            OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
+            markdown = String(take!(markdown_output))
+            @test occursin("## Dependency Graph", markdown)
+            @test occursin("## Declaration Inventory", markdown)
+            @test occursin("`App.Local`", markdown)
+            @test occursin("`core:fmt`", markdown)
+            @test occursin("repository | `lib/math`", markdown)
+        end
+    end
+
+    @testset "declaration inventory" begin
+        mktempdir() do root
+            write(joinpath(root, "app.jl"), """
+                module App
+                const LIMIT = 2
+                struct Item
+                    value::Int
+                end
+                helper(value) = value
+                end
+                """)
+            odin_path = joinpath(root, "main.odin")
+            write(odin_path, """
+                package fixture
+                VALUE :: 1
+                run :: proc(item: int) {
+                    local := item
+                }
+                """)
+            configuration = with_odin_build_targets(
+                with_jet_entries(
+                    OdinJuliaAnalysis.load_settings(),
+                    JetEntryPoint[]),
+                OdinBuildTarget[])
+
+            report = OdinJuliaAnalysis.check_repository(root; configuration)
+
+            @test [
+                (
+                    item.path,
+                    item.qualified_name,
+                    item.kind,
+                    item.scope)
+                for item in report.declarations
+            ] == [
+                ("app.jl", "App", "module", nothing),
+                ("app.jl", "App.LIMIT", "constant", "App"),
+                ("app.jl", "App.Item", "type", "App"),
+                ("app.jl", "App.helper", "function", "App"),
+                ("main.odin", "VALUE", "constant", nothing),
+                ("main.odin", "run", "procedure", nothing),
+                ("main.odin", "run.item", "parameter", "run"),
+                ("main.odin", "run.local", "variable", "run"),
+            ]
+            @test report.schema_version == "3.13.0"
+        end
+    end
+
+    @testset "unused imports and interop bridges" begin
+        mktempdir() do root
+            write(joinpath(root, "bridge.jl"), """
+                import Dates
+                import Random: rand as random_value
+                Dates.now()
+                bridge(a::Cint, b::Cint) =
+                    @ccall bridge_add(a::Cint, b::Cint)::Cint
+                """)
+            write(joinpath(root, "bridge.odin"), """
+                package library
+                import fmt "core:fmt"
+                import path "core:path"
+                @(export, link_name="bridge_add")
+                add :: proc "c" (a, b: i32) -> i32 {
+                    fmt.println("bridge")
+                    return a + b
+                }
+                """)
+            configuration = with_odin_build_targets(
+                with_jet_entries(
+                    OdinJuliaAnalysis.load_settings(),
+                    JetEntryPoint[]),
+                OdinBuildTarget[])
+
+            report = OdinJuliaAnalysis.check_repository(root; configuration)
+
+            findings = filter(
+                item -> endswith(item.rule_id, "UNUSED-IMPORT"),
+                report.diagnostics)
+            @test sort([(item.rule_id, item.subject) for item in findings]) == [
+                ("JULIA-UNUSED-IMPORT", "random_value"),
+                ("ODIN-UNUSED-IMPORT", "path"),
+            ]
+            @test all(item -> item.certainty == "definite", findings)
+            @test length(report.import_bindings) == 4
+            @test !isempty(report.references)
+            @test [(item.symbol, item.status) for item in report.interop_pairs] ==
+                [("bridge_add", "matched")]
+            pair = only(report.interop_pairs)
+            @test pair.mismatch === nothing
+            @test report.schema_version == "3.13.0"
+
+            signatures = InteropSignature[
+                InteropSignature(
+                    "caller.jl", "julia", "mismatch", "import", nothing,
+                    "c", ["i32"], ["i32"], 1, 1),
+                InteropSignature(
+                    "exports.odin", "odin", "mismatch", "export", nothing,
+                    "c", ["i64"], ["i32"], 1, 1),
+                InteropSignature(
+                    "caller.jl", "julia", "julia_only", "import", nothing,
+                    "c", String[], String[], 2, 1),
+                InteropSignature(
+                    "exports.odin", "odin", "odin_only", "export", nothing,
+                    "c", String[], String[], 2, 1),
+                InteropSignature(
+                    "external.jl", "julia", "puts", "import", "libc",
+                    "c", ["cstring"], ["i32"], 1, 1),
+            ]
+            pairs = OdinJuliaAnalysis.pair_interop_signatures(signatures)
+            @test Dict(item.symbol => item.status for item in pairs) == Dict(
+                "julia_only" => "missing-odin",
+                "mismatch" => "signature-mismatch",
+                "odin_only" => "missing-julia",
+                "puts" => "external")
+            @test only(filter(item -> item.symbol == "mismatch", pairs)).mismatch ==
+                "parameter types i32 != i64"
+
+            output = IOBuffer()
+            OdinJuliaAnalysis.write_markdown_report(output, report)
+            markdown = String(take!(output))
+            @test occursin("## Import Bindings", markdown)
+            @test occursin("## Reference Inventory", markdown)
+            @test occursin("## Interop Bridge Pairs", markdown)
+            @test occursin("bridge_add", markdown)
         end
     end
 
@@ -1746,6 +2057,10 @@ end
             @test any(
                 engine -> engine.name == "jet" && engine.status == "complete",
                 report.engines)
+            @test any(
+                engine -> engine.name == "architecture" &&
+                    engine.status == "not-applicable",
+                report.engines)
             jet_rule = only(filter(
                 rule -> rule.rule_id == "JULIA-JET-POSSIBLE-ERROR",
                 report.rules))
@@ -1753,7 +2068,7 @@ end
 
             output = IOBuffer()
             OdinJuliaAnalysis.write_report(output, report, "json")
-            @test occursin("\"schema_version\": \"3.8.0\"", String(take!(output)))
+            @test occursin("\"schema_version\": \"3.13.0\"", String(take!(output)))
 
             settings_path = write_jet_settings(
                 tempname(),
@@ -2291,7 +2606,11 @@ end
         report = OdinJuliaAnalysis.check_repository(
             OdinJuliaAnalysis.ANALYSIS_ROOT)
         @test report.exit_code == 0
-        @test all(engine -> engine.status == "complete", report.engines)
+        @test all(
+            engine -> engine.status == "complete" ||
+                (engine.name == "architecture" &&
+                    engine.status == "not-applicable"),
+            report.engines)
         @test report.files_analyzed > 0
     end
 end

@@ -3,10 +3,15 @@ module OdinEngine
 using JSON3
 
 using ..OdinJuliaAnalysis: Diagnostic
+using ..OdinJuliaAnalysis: DeclarationRecord
+using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
 using ..OdinJuliaAnalysis: Fail
 using ..OdinJuliaAnalysis: FunctionAnalysis
 using ..OdinJuliaAnalysis: Ignore
+using ..OdinJuliaAnalysis: ImportBinding
+using ..OdinJuliaAnalysis: InteropSignature
+using ..OdinJuliaAnalysis: ReferenceRecord
 using ..OdinJuliaAnalysis: configured_diagnostic
 using ..OdinJuliaAnalysis: executable_source_lines
 using ..OdinJuliaAnalysis: load_settings
@@ -18,7 +23,7 @@ export analyze
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.5.0"
+const SCHEMA_VERSION = "3.7.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -53,6 +58,32 @@ const OdinDeclarationSymbol = @NamedTuple begin
     is_struct::Bool
 end
 
+const OdinImport = @NamedTuple begin
+    target::String
+    binding::String
+    is_using::Bool
+    line::Int
+    column::Int
+end
+
+const OdinReference = @NamedTuple begin
+    name::String
+    scope::String
+    line::Int
+    column::Int
+end
+
+const OdinInteropSignature = @NamedTuple begin
+    symbol::String
+    direction::String
+    library::String
+    calling_convention::String
+    parameter_types::Vector{String}
+    return_types::Vector{String}
+    line::Int
+    column::Int
+end
+
 const OdinFileSummary = @NamedTuple begin
     path::String
     parsed::Bool
@@ -62,6 +93,9 @@ const OdinFileSummary = @NamedTuple begin
     findings::Vector{OdinFinding}
     procedures::Vector{OdinProcedureMetric}
     symbols::Vector{OdinDeclarationSymbol}
+    imports::Vector{OdinImport}
+    references::Vector{OdinReference}
+    interop_signatures::Vector{OdinInteropSignature}
 end
 
 const OdinEngineResponse = @NamedTuple begin
@@ -83,10 +117,7 @@ function analyze(
     root::String,
     files::Vector{String},
     configuration::EffectiveSettings=load_settings())
-    isempty(files) && return (
-        diagnostics=Diagnostic[],
-        functions=FunctionAnalysis[],
-        struct_counts=Dict{String, Int}())
+    isempty(files) && return empty_analysis()
     ensure_engine()
 
     command = Cmd(vcat([ENGINE_BUILD], files))
@@ -94,20 +125,130 @@ function analyze(
     response.schema_version == SCHEMA_VERSION || error(
         "Odin engine schema mismatch: expected $SCHEMA_VERSION, " *
         "received $(response.schema_version)")
-
-    diagnostics = Diagnostic[]
-    functions = FunctionAnalysis[]
-    struct_counts = Dict{String, Int}()
+    analysis = empty_analysis()
     for summary in response.files
-        struct_counts[relpath(String(summary.path), root)] = Int(summary.struct_count)
-        append_summary_analysis!(diagnostics, functions, root, summary, configuration)
+        append_file_summary!(analysis, root, summary, configuration)
     end
     apply_reviewed_allocation_policies!(
-        diagnostics,
+        analysis.diagnostics,
         root,
         files,
         configuration)
-    return (; diagnostics, functions, struct_counts)
+    return analysis
+end
+
+"""Create mutable collections for one native Odin analysis response."""
+function empty_analysis()
+    return (
+        diagnostics=Diagnostic[],
+        functions=FunctionAnalysis[],
+        dependencies=DependencyEdge[],
+        declarations=DeclarationRecord[],
+        import_bindings=ImportBinding[],
+        references=ReferenceRecord[],
+        interop_signatures=InteropSignature[],
+        struct_counts=Dict{String, Int}())
+end
+
+"""Append all canonical facts from one native Odin file summary."""
+function append_file_summary!(analysis, root, summary, configuration)
+    source_path = relpath(String(summary.path), root)
+    analysis.struct_counts[source_path] = Int(summary.struct_count)
+    append_summary_analysis!(
+        analysis.diagnostics, analysis.functions, root, summary, configuration)
+    append!(analysis.declarations, declaration_records(source_path, summary))
+    append_import_records!(analysis, root, source_path, summary.imports)
+    append!(analysis.references, reference_records(source_path, summary.references))
+    append!(analysis.interop_signatures,
+        interop_records(source_path, summary.interop_signatures))
+end
+
+"""Append canonical dependency and binding records from native imports."""
+function append_import_records!(analysis, root, source_path, imports)
+    for item in imports
+        target = String(item.target)
+        binding = isempty(item.binding) ? splitpath(target)[end] : String(item.binding)
+        Bool(item.is_using) || push!(analysis.import_bindings, ImportBinding(
+            source_path, "odin", target, binding, "import",
+            Int(item.line), Int(item.column)))
+        target_path, resolution = resolve_odin_target(root, source_path, target)
+        push!(analysis.dependencies, DependencyEdge(
+            source_path, target, target_path, resolution, "odin", "import",
+            Int(item.line), Int(item.column)))
+    end
+end
+
+"""Convert native identifier references into canonical records."""
+function reference_records(source_path, references)
+    return [ReferenceRecord(
+        source_path, "odin", String(item.name),
+        isempty(item.scope) ? nothing : String(item.scope),
+        Int(item.line), Int(item.column)) for item in references]
+end
+
+"""Convert native ABI signatures into canonical normalized records."""
+function interop_records(source_path, signatures)
+    return [InteropSignature(
+        source_path, "odin", String(item.symbol), String(item.direction),
+        isempty(item.library) ? nothing : String(item.library),
+        String(item.calling_convention),
+        normalize_odin_abi_types(item.parameter_types),
+        normalize_odin_abi_types(item.return_types),
+        Int(item.line), Int(item.column)) for item in signatures]
+end
+
+"""Normalize a native ABI type list."""
+normalize_odin_abi_types(types) = [normalize_odin_abi_type(item) for item in types]
+
+"""Normalize source-level Odin ABI type spelling."""
+function normalize_odin_abi_type(type_name)
+    text = replace(strip(String(type_name)), " " => "")
+    mappings = Dict("rawptr" => "^void", "cstring" => "cstring")
+    return get(mappings, text, text)
+end
+
+"""Promote native parser symbols into canonical declaration records."""
+function declaration_records(source_path, summary)
+    declarations = DeclarationRecord[]
+    for symbol in summary.symbols
+        name = String(symbol.name)
+        scope = declaration_scope(symbol, summary)
+        qualified_name = scope === nothing ? name : "$scope.$name"
+        push!(declarations, DeclarationRecord(
+            source_path,
+            "odin",
+            name,
+            qualified_name,
+            String(symbol.kind),
+            scope,
+            Int(symbol.line),
+            Int(symbol.column)))
+    end
+    return declarations
+end
+
+"""Return the narrowest parser-measured procedure containing a declaration."""
+function declaration_scope(symbol, summary)
+    top_level_procedure(symbol, summary) && return nothing
+    line = Int(symbol.line)
+    enclosing = filter(
+        metric -> Int(metric.start_line) <= line <= Int(metric.end_line),
+        summary.procedures)
+    isempty(enclosing) && return nothing
+    metric = first(sort!(enclosing; by=item ->
+        Int(item.end_line) - Int(item.start_line)))
+    return String(metric.name)
+end
+
+"""Classify one parser-backed Odin package import against repository directories."""
+function resolve_odin_target(root, source_path, target)
+    occursin(':', target) && return nothing, "external"
+    candidate = normpath(joinpath(root, dirname(source_path), target))
+    relative_path = relpath(candidate, root)
+    parts = splitpath(relative_path)
+    repository_owned = isdir(candidate) && !isabspath(relative_path) &&
+        !isempty(parts) && first(parts) != ".."
+    return repository_owned ? (relative_path, "repository") : (nothing, "unresolved")
 end
 
 """Convert one native Odin file summary into configured diagnostics and metrics."""

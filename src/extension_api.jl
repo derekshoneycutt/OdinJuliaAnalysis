@@ -1,4 +1,4 @@
-const EXTENSION_API_VERSION = v"1.0.0"
+const EXTENSION_API_VERSION = v"1.3.0"
 const EXTENSION_RESULT_STATUSES = Set((
     "complete",
     "incomplete",
@@ -70,6 +70,12 @@ function run_extension_phase!(
     phase;
     files=FileAnalysis[],
     functions=FunctionAnalysis[],
+    dependencies=DependencyEdge[],
+    declarations=DeclarationRecord[],
+    import_bindings=ImportBinding[],
+    references=ReferenceRecord[],
+    interop_signatures=InteropSignature[],
+    interop_pairs=InteropBridgePair[],
     statistics=nothing)
     context = AnalysisContext(
         root,
@@ -78,6 +84,12 @@ function run_extension_phase!(
         Tuple(relpath(path, root) for path in paths),
         Tuple(files),
         Tuple(functions),
+        Tuple(dependencies),
+        Tuple(declarations),
+        Tuple(import_bindings),
+        Tuple(references),
+        Tuple(interop_signatures),
+        Tuple(interop_pairs),
         statistics)
     for extension in configuration.extensions
         phase in invoke_extension_phases(extension) || continue

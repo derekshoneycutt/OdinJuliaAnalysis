@@ -34,6 +34,7 @@ function validate_settings(
     validate_return_tuple_settings(settings.return_tuples)
     validate_parameter_count_settings(settings.parameter_counts)
     validate_function_metric_settings(settings.function_metrics)
+    validate_architecture_settings(settings.architecture)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
     return EffectiveSettings(
@@ -48,6 +49,7 @@ function validate_settings(
         settings.return_tuples,
         settings.parameter_counts,
         settings.function_metrics,
+        settings.architecture,
         settings.allocations,
         settings.report,
         extensions,

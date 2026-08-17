@@ -11,7 +11,9 @@ export FunctionMetricSettings, ResponseThresholds, ReviewedComplexity
 export AnalysisExtension, AnalysisPhase
 export AfterDiscovery, AfterLanguageAnalysis, AfterRepositoryAnalysis
 export AnalysisContext, ExtensionResult, RuleDefinition
-export Diagnostic
+export DeclarationRecord, DependencyEdge, Diagnostic, ImportBinding, ReferenceRecord
+export InteropSignature, InteropBridgePair
+export ArchitectureLayer, ArchitectureDependency, ArchitectureSettings
 export extension_id, extension_api_version, extension_rules
 export extension_phases, extension_dependencies, analyze_extension
 export EXTENSION_API_VERSION
@@ -23,6 +25,7 @@ export default_odin_build_settings
 export default_return_tuple_settings
 export default_parameter_count_settings
 export default_function_metric_settings
+export default_architecture_settings
 
 using JSON3
 using JuliaSyntax
@@ -34,6 +37,9 @@ include("statistics.jl")
 include("rule_registry.jl")
 include("extension_api.jl")
 include("settings_loader.jl")
+include("architecture_engine.jl")
+include("unused_imports.jl")
+include("interop_engine.jl")
 include("naming_policies.jl")
 include("reviewed_complexity.jl")
 include("discovery.jl")
@@ -218,24 +224,44 @@ end
 report_progress(progress, message) = progress === nothing || progress(message)
 
 """Run common and language-specific checks that operate on individual files."""
-function analyze_source_files!(diagnostics, functions, root, files, configuration)
+function analyze_source_files!(
+    state,
+    root,
+    files,
+    configuration)
     for path in files
         source = read(path, String)
         relative_path = relpath(path, root)
-        append!(diagnostics, check_common_rules(relative_path, source, configuration))
+        append!(state.diagnostics, check_common_rules(
+            relative_path, source, configuration))
 
         if endswith(path, ".jl")
             julia_diagnostics = JuliaEngine.check(
                 relative_path, source, configuration)
-            append!(diagnostics, julia_diagnostics)
+            append!(state.diagnostics, julia_diagnostics)
             syntax_failed = any(
                 item -> item.rule_id == "JULIA-SYNTAX", julia_diagnostics)
             syntax_failed || append!(
-                functions,
+                state.functions,
                 JuliaEngine.analyze_functions(relative_path, source))
+            syntax_failed || append!(
+                state.dependencies,
+                JuliaEngine.analyze_dependencies(relative_path, source))
+            syntax_failed || append!(
+                state.declarations,
+                JuliaEngine.analyze_declarations(relative_path, source))
+            syntax_failed || append!(
+                state.import_bindings,
+                JuliaEngine.analyze_import_bindings(relative_path, source))
+            syntax_failed || append!(
+                state.references,
+                JuliaEngine.analyze_references(relative_path, source))
+            syntax_failed || append!(
+                state.interop_signatures,
+                JuliaEngine.analyze_interop(relative_path, source))
         elseif endswith(path, ".md")
             append!(
-                diagnostics,
+                state.diagnostics,
                 MarkdownEngine.check(
                     relative_path,
                     source,
@@ -260,10 +286,7 @@ end
 
 """Run native Odin source analysis and merge its diagnostics and metrics."""
 function run_odin_analysis!(
-    diagnostics,
-    functions,
-    struct_counts,
-    engines,
+    state,
     root,
     files,
     configuration,
@@ -272,12 +295,33 @@ function run_odin_analysis!(
     report_progress(progress, "Running Odin analysis on $(length(odin_files)) files")
     try
         odin_analysis = OdinEngine.analyze(root, odin_files, configuration)
-        append!(diagnostics, odin_analysis.diagnostics)
-        append!(functions, odin_analysis.functions)
-        merge!(struct_counts, odin_analysis.struct_counts)
-        push!(engines, EngineStatus("odin", "complete", nothing))
+        append!(state.diagnostics, odin_analysis.diagnostics)
+        append!(state.functions, odin_analysis.functions)
+        append!(state.dependencies, odin_analysis.dependencies)
+        append!(state.declarations, odin_analysis.declarations)
+        append!(state.import_bindings, odin_analysis.import_bindings)
+        append!(state.references, odin_analysis.references)
+        append!(state.interop_signatures, odin_analysis.interop_signatures)
+        merge!(state.struct_counts, odin_analysis.struct_counts)
+        push!(state.engines, EngineStatus("odin", "complete", nothing))
     catch error
-        push!(engines, EngineStatus("odin", "failed", sprint(showerror, error)))
+        push!(state.engines, EngineStatus("odin", "failed", sprint(showerror, error)))
+    end
+end
+
+"""Run configured dependency architecture policy and record completion."""
+function run_architecture_analysis!(state, configuration)
+    if isempty(configuration.architecture.layers)
+        push!(state.engines, EngineStatus("architecture", "not-applicable", nothing))
+        return
+    end
+    try
+        append!(state.diagnostics, analyze_architecture(
+            state.dependencies, configuration))
+        push!(state.engines, EngineStatus("architecture", "complete", nothing))
+    catch error
+        push!(state.engines, EngineStatus(
+            "architecture", "failed", sprint(showerror, error)))
     end
 end
 
@@ -313,6 +357,12 @@ function assemble_analysis_report(
     odin_builds,
     configuration;
     struct_counts=Dict{String, Int}(),
+    dependencies=DependencyEdge[],
+    declarations=DeclarationRecord[],
+    import_bindings=ImportBinding[],
+    references=ReferenceRecord[],
+    interop_signatures=InteropSignature[],
+    interop_pairs=InteropBridgePair[],
     extension_results=ExtensionResult[])
     append!(diagnostics, function_metric_diagnostics(functions, configuration))
     apply_reviewed_complexity!(diagnostics, root, files, configuration)
@@ -328,6 +378,12 @@ function assemble_analysis_report(
         AfterRepositoryAnalysis;
         files=files_analysis,
         functions,
+        dependencies,
+        declarations,
+        import_bindings,
+        references,
+        interop_signatures,
+        interop_pairs,
         statistics)
     append!(engines, extension_engine_statuses(
         configuration.extensions, extension_results))
@@ -341,7 +397,9 @@ function assemble_analysis_report(
         ignored.counts,
         engines)
     return canonical_analysis_report((;
-        root, files, files_by_language, files_analysis, functions, statistics,
+        root, files, files_by_language, files_analysis, functions, dependencies,
+        declarations, import_bindings, references, interop_signatures, interop_pairs,
+        statistics,
         diagnostics, ignored, engines, odin_builds, extension_results,
         rule_summaries, exit_code, configuration))
 end
@@ -349,7 +407,7 @@ end
 """Construct the canonical report from fully analyzed repository state."""
 function canonical_analysis_report(state)
     return AnalysisReport(
-        "3.8.0",
+        "3.13.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -360,6 +418,12 @@ function canonical_analysis_report(state)
         state.files_by_language,
         state.files_analysis,
         state.functions,
+        state.dependencies,
+        state.declarations,
+        state.import_bindings,
+        state.references,
+        state.interop_signatures,
+        state.interop_pairs,
         state.statistics,
         state.diagnostics,
         state.ignored.diagnostics,
@@ -396,6 +460,12 @@ function repository_analysis_state()
     return (
         diagnostics=Diagnostic[],
         functions=FunctionAnalysis[],
+        dependencies=DependencyEdge[],
+        declarations=DeclarationRecord[],
+        import_bindings=ImportBinding[],
+        references=ReferenceRecord[],
+        interop_signatures=InteropSignature[],
+        interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
         extension_results=ExtensionResult[],
         odin_builds=OdinBuildAnalysis[],
@@ -416,17 +486,17 @@ function run_language_analysis!(state, root, files, configuration, progress)
         files,
         AfterDiscovery)
     analyze_source_files!(
-        state.diagnostics, state.functions, root, files, configuration)
-    run_jet_analysis!(state.diagnostics, state.engines, root, configuration, progress)
-    run_odin_analysis!(
-        state.diagnostics,
-        state.functions,
-        state.struct_counts,
-        state.engines,
+        state,
         root,
         files,
-        configuration,
-        progress)
+        configuration)
+    run_jet_analysis!(state.diagnostics, state.engines, root, configuration, progress)
+    run_odin_analysis!(state, root, files, configuration, progress)
+    append!(state.diagnostics, analyze_unused_imports(
+        state.import_bindings, state.references, configuration))
+    append!(state.interop_pairs, pair_interop_signatures(state.interop_signatures))
+    JuliaEngine.resolve_dependencies!(state.dependencies, root, files)
+    run_architecture_analysis!(state, configuration)
     language_files = analyze_files(
         root, files, state.functions, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
@@ -440,6 +510,12 @@ function run_language_analysis!(state, root, files, configuration, progress)
         AfterLanguageAnalysis;
         files=language_files,
         functions=state.functions,
+        dependencies=state.dependencies,
+        declarations=state.declarations,
+        import_bindings=state.import_bindings,
+        references=state.references,
+        interop_signatures=state.interop_signatures,
+        interop_pairs=state.interop_pairs,
         statistics=language_statistics)
 end
 
@@ -473,6 +549,12 @@ function check_repository(
         state.odin_builds,
         configuration;
         struct_counts=state.struct_counts,
+        dependencies=state.dependencies,
+        declarations=state.declarations,
+        import_bindings=state.import_bindings,
+        references=state.references,
+        interop_signatures=state.interop_signatures,
+        interop_pairs=state.interop_pairs,
         extension_results=state.extension_results)
 end
 
@@ -564,7 +646,9 @@ function summarize_rule_runs(
     for rule_id in sort!(collect(keys(configuration.rules)))
         setting = configuration.rules[rule_id]
         definition = configuration.rule_registry[rule_id]
-        files_checked = rule_id == "ODIN-BUILD-FAILED" ?
+        files_checked = startswith(rule_id, "ARCHITECTURE-") &&
+            isempty(configuration.architecture.layers) ? 0 :
+            rule_id == "ODIN-BUILD-FAILED" ?
             length(configuration.odin_build.targets) :
             startswith(rule_id, "JULIA-JET-") ?
             length(configuration.jet.entry_points) :
@@ -595,6 +679,7 @@ function rule_run_status(
     setting.enabled || return "disabled"
     files_checked == 0 && return "not-applicable"
     engine_name = extension_owner !== nothing ? "extension:$extension_owner" :
+        startswith(setting.rule_id, "ARCHITECTURE-") ? "architecture" :
         setting.rule_id == "ODIN-BUILD-FAILED" ? "odin-build" :
         startswith(setting.rule_id, "JULIA-JET-") ? "jet" :
         definition.language == "common" ? "common" : definition.language
