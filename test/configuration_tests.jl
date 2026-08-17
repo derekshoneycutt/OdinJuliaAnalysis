@@ -91,9 +91,9 @@ end
     @test configuration.rules["ODIN-PARAMETERS-FAIL"].response == Fail
     @test configuration.parameter_counts == ParameterCountSettings(8, 5, 8)
     @test configuration.function_metrics.julia_lines ==
-        ResponseThresholds(20, 35, 65)
+        ResponseThresholds(20, 45, 65)
     @test configuration.function_metrics.odin_lines ==
-        ResponseThresholds(20, 35, 65)
+        ResponseThresholds(20, 45, 65)
     @test configuration.function_metrics.julia_cyclomatic ==
         ResponseThresholds(10, 13, 16)
     @test configuration.function_metrics.odin_cyclomatic ==

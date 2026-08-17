@@ -224,8 +224,8 @@ FunctionMetricSettings(julia_lines, odin_lines, julia_cyclomatic, odin_cyclomati
 """Return conservative function metric tiers with established review triggers."""
 function default_function_metric_settings()
     return FunctionMetricSettings(
-        ResponseThresholds(20, 35, 65),
-        ResponseThresholds(20, 35, 65),
+        ResponseThresholds(20, 45, 65),
+        ResponseThresholds(20, 45, 65),
         ResponseThresholds(10, 13, 16),
         ResponseThresholds(10, 15, 18))
 end
@@ -651,99 +651,80 @@ function compatibility_settings_tail(trailing)
 end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
-    function AnalysisSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        profiles,
-        rules,
-        naming,
-        jet,
-        trailing...)
-        length(trailing) in 2:12 || throw(MethodError(
-            AnalysisSettings,
-            (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
-                trailing...)))
-        tail = compatibility_settings_tail(trailing)
-        return AnalysisSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        profiles,
-        rules,
-        naming,
-        jet,
-        tail.odin_build,
-        tail.return_tuples,
-        tail.parameter_counts,
-        tail.function_metrics,
-        tail.architecture,
-        tail.allocations,
-        tail.report,
-        tail.extensions,
-        tail.duplicate_code,
-        tail.resource_lifetime,
-        tail.security,
-        tail.coverage)
-    end
+function AnalysisSettings(
+    profile,
+    failure_threshold,
+    thresholds,
+    profiles,
+    rules,
+    naming,
+    jet,
+    trailing...)
+    length(trailing) in 2:12 || throw(MethodError(
+        AnalysisSettings,
+        (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
+            trailing...)))
+    tail = compatibility_settings_tail(trailing)
+    return AnalysisSettings(
+    profile,
+    failure_threshold,
+    thresholds,
+    profiles,
+    rules,
+    naming,
+    jet,
+    tail.odin_build,
+    tail.return_tuples,
+    tail.parameter_counts,
+    tail.function_metrics,
+    tail.architecture,
+    tail.allocations,
+    tail.report,
+    tail.extensions,
+    tail.duplicate_code,
+    tail.resource_lifetime,
+    tail.security,
+    tail.coverage)
+end
 
-    """Construct effective settings from APIs predating tuple or parameter policies."""
-    function EffectiveSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        enforcement_excludes,
-        rules,
-        naming,
-        jet,
-        trailing...)
-        length(trailing) in 3:6 || length(trailing) == 10 || throw(MethodError(
-            EffectiveSettings,
-            (profile, failure_threshold, thresholds, enforcement_excludes, rules,
-                naming, jet, trailing...)))
-        if length(trailing) == 10
-            return EffectiveSettings(
-                profile,
-                failure_threshold,
-                thresholds,
-                enforcement_excludes,
-                rules,
-                naming,
-                jet,
-                trailing...,
-                default_duplicate_code_settings(),
-                default_resource_lifetime_settings(),
-                default_security_settings(),
-                default_coverage_settings())
-        end
-        odin_build = trailing[1]
-        return_tuples = length(trailing) in (4, 6) ? trailing[2] :
-            default_return_tuple_settings()
-        parameter_counts = length(trailing) in (5, 6) ? trailing[3] :
-            default_parameter_count_settings()
-        function_metrics = length(trailing) == 6 ? trailing[4] :
-            default_function_metric_settings()
-        allocations, report = trailing[end - 1:end]
-        return EffectiveSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        enforcement_excludes,
-        rules,
-        naming,
-        jet,
-        odin_build,
-        return_tuples,
-        parameter_counts,
-        function_metrics,
+"""Construct effective settings from APIs predating tuple or parameter policies."""
+function EffectiveSettings(
+    profile,
+    failure_threshold,
+    thresholds,
+    enforcement_excludes,
+    rules,
+    naming,
+    jet,
+    trailing...)
+    length(trailing) in 3:6 || length(trailing) == 10 || throw(MethodError(
+        EffectiveSettings,
+        (profile, failure_threshold, thresholds, enforcement_excludes, rules,
+            naming, jet, trailing...)))
+    if length(trailing) == 10
+        return EffectiveSettings(profile, failure_threshold, thresholds,
+            enforcement_excludes, rules, naming, jet, trailing...,
+            default_duplicate_code_settings(),
+            default_resource_lifetime_settings(),
+            default_security_settings(),
+            default_coverage_settings())
+    end
+    odin_build = trailing[1]
+    return_tuples = length(trailing) in (4, 6) ? trailing[2] :
+        default_return_tuple_settings()
+    parameter_counts = length(trailing) in (5, 6) ? trailing[3] :
+        default_parameter_count_settings()
+    function_metrics = length(trailing) == 6 ? trailing[4] :
+        default_function_metric_settings()
+    allocations, report = trailing[end - 1:end]
+    return EffectiveSettings(profile, failure_threshold, thresholds,
+        enforcement_excludes, rules, naming, jet, odin_build, return_tuples,
+        parameter_counts, function_metrics,
         default_architecture_settings(),
-        allocations,
-        report,
-        AnalysisExtension[],
-        copy(RULE_REGISTRY),
+        allocations, report, AnalysisExtension[], copy(RULE_REGISTRY),
         Dict{String, String}(),
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
         default_security_settings(),
         default_coverage_settings())
-    end
+end

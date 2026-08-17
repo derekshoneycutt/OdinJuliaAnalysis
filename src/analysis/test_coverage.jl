@@ -119,8 +119,10 @@ function coverage_evidence_explanation(evidence_class)
     explanations = Dict(
         "corroborated" => "Static test reachability and runtime line coverage agree.",
         "static-only" => "Static test reachability was not corroborated at runtime.",
-        "runtime-only" => "Runtime coverage exists outside the resolved test-call closure.",
-        "uncovered" => "Neither static test reachability nor runtime execution was observed.",
+        "runtime-only" =>
+            "Runtime coverage exists outside the resolved test-call closure.",
+        "uncovered" =>
+            "Neither static test reachability nor runtime execution was observed.",
         "runtime-unavailable" => "No LCOV line intersects this declaration.",
         "static-unavailable" => "No static test root exists for this language.",
         "unavailable" => "Neither static test roots nor runtime lines are available.")

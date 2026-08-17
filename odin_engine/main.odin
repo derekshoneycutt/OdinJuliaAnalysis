@@ -134,19 +134,19 @@ Analysis_Visitor_Data :: struct {
     allocator: runtime.Allocator,
 }
 
+// Configure optional metadata for one allocation finding.
+Allocation_Finding_Options :: struct {
+    allocator: ^ast.Expr,
+    certainty: string,
+    target: string,
+}
+
 // Initialize Odin's global tokenizer table before parallel test workers run.
 @(init)
 initialize_tokenizer :: proc "contextless" () {
     context = runtime.default_context()
     warmup_tokenizer: tokenizer.Tokenizer
     tokenizer.init(&warmup_tokenizer, "", "")
-}
-
-// Configure optional metadata for one allocation finding.
-Allocation_Finding_Options :: struct {
-    allocator: ^ast.Expr,
-    certainty: string,
-    target: string,
 }
 
 // Record one identifier declaration for policy evaluation by the Julia adapter.

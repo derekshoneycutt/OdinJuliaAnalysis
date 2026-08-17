@@ -543,33 +543,10 @@ function run_language_analysis!(state, root, files, configuration, progress)
     append!(state.interop_pairs, pair_interop_signatures(state.interop_signatures))
     JuliaEngine.resolve_dependencies!(state.dependencies, root, files)
     run_architecture_analysis!(state, configuration)
-    append!(state.call_roots, collect_call_roots(
-        state.declarations, state.interop_signatures, configuration))
-    append!(state.diagnostics, analyze_reachability(
-        state.declarations, state.call_edges, state.call_roots, configuration))
-    push!(state.engines, EngineStatus(
-        "call-graph", isempty(state.call_roots) ? "not-applicable" : "complete", nothing))
-    clone_groups, clone_diagnostics = analyze_duplicate_code(
-        state.clone_candidates, configuration)
-    append!(state.clone_groups, clone_groups)
-    append!(state.diagnostics, clone_diagnostics)
-    push!(state.engines, EngineStatus(
-        "duplicate-code", configuration.duplicate_code.enabled ?
-            "complete" : "not-applicable", nothing))
-    resource_lifetimes, lifetime_status = analyze_resource_lifetimes(
-        state.resource_events, configuration)
-    append!(state.resource_lifetimes, resource_lifetimes)
-    lifetime_message = lifetime_status == "incomplete" ?
-        "One or more allocation events lack a unique lifetime contract." : nothing
-    push!(state.engines, EngineStatus(
-        "resource-lifetime", lifetime_status, lifetime_message))
-    security_analysis = analyze_security_boundaries(state.call_edges, configuration)
-    append!(state.security_paths, security_analysis.paths)
-    append!(state.diagnostics, security_analysis.diagnostics)
-    security_message = security_analysis.status == "incomplete" ?
-        "Dynamic calls prevent complete configured boundary analysis." : nothing
-    push!(state.engines, EngineStatus(
-        "security", security_analysis.status, security_message))
+    run_call_graph_analysis!(state, configuration)
+    run_duplicate_code_analysis!(state, configuration)
+    run_resource_lifetime_analysis!(state, configuration)
+    run_security_analysis!(state, configuration)
     run_test_coverage_analysis!(state, root, configuration)
     language_files = analyze_files(
         root, files, state.functions, state.struct_counts, state.diagnostics)
@@ -593,6 +570,49 @@ function run_language_analysis!(state, root, files, configuration, progress)
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         statistics=language_statistics)
+end
+
+"""Resolve configured call roots and reachability diagnostics."""
+function run_call_graph_analysis!(state, configuration)
+    append!(state.call_roots, collect_call_roots(
+        state.declarations, state.interop_signatures, configuration))
+    append!(state.diagnostics, analyze_reachability(
+        state.declarations, state.call_edges, state.call_roots, configuration))
+    push!(state.engines, EngineStatus(
+        "call-graph", isempty(state.call_roots) ? "not-applicable" : "complete", nothing))
+end
+
+"""Collect exact clone groups and duplicate-code diagnostics."""
+function run_duplicate_code_analysis!(state, configuration)
+    clone_groups, clone_diagnostics = analyze_duplicate_code(
+        state.clone_candidates, configuration)
+    append!(state.clone_groups, clone_groups)
+    append!(state.diagnostics, clone_diagnostics)
+    push!(state.engines, EngineStatus(
+        "duplicate-code", configuration.duplicate_code.enabled ?
+            "complete" : "not-applicable", nothing))
+end
+
+"""Resolve allocation events against configured lifetime contracts."""
+function run_resource_lifetime_analysis!(state, configuration)
+    resource_lifetimes, lifetime_status = analyze_resource_lifetimes(
+        state.resource_events, configuration)
+    append!(state.resource_lifetimes, resource_lifetimes)
+    lifetime_message = lifetime_status == "incomplete" ?
+        "One or more allocation events lack a unique lifetime contract." : nothing
+    push!(state.engines, EngineStatus(
+        "resource-lifetime", lifetime_status, lifetime_message))
+end
+
+"""Analyze configured source-to-sink security boundaries."""
+function run_security_analysis!(state, configuration)
+    security_analysis = analyze_security_boundaries(state.call_edges, configuration)
+    append!(state.security_paths, security_analysis.paths)
+    append!(state.diagnostics, security_analysis.diagnostics)
+    security_message = security_analysis.status == "incomplete" ?
+        "Dynamic calls prevent complete configured boundary analysis." : nothing
+    push!(state.engines, EngineStatus(
+        "security", security_analysis.status, security_message))
 end
 
 """Correlate configured runtime coverage with static test reachability."""
@@ -752,20 +772,8 @@ function summarize_rule_runs(
     for rule_id in sort!(collect(keys(configuration.rules)))
         setting = configuration.rules[rule_id]
         definition = configuration.rule_registry[rule_id]
-        files_checked = startswith(rule_id, "ARCHITECTURE-") &&
-            isempty(configuration.architecture.layers) ? 0 :
-            rule_id in ("DUPLICATE-CODE-POLICY-DRIFT", "JULIA-DUPLICATE-CODE",
-                "ODIN-DUPLICATE-CODE") && !configuration.duplicate_code.enabled ? 0 :
-            rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
-            !any(root -> root.language == "julia", call_roots) ? 0 :
-            rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
-            !any(root -> root.language == "odin", call_roots) ? 0 :
-            rule_id == "ODIN-BUILD-FAILED" ?
-            length(configuration.odin_build.targets) :
-            startswith(rule_id, "JULIA-JET-") ?
-            length(configuration.jet.entry_points) :
-            definition.language == "common" ?
-                sum(values(files_by_language)) : files_by_language[definition.language]
+        files_checked = rule_files_checked(
+            rule_id, definition, configuration, files_by_language, call_roots)
         owner = get(configuration.extension_rule_owners, rule_id, nothing)
         status = rule_run_status(
             setting, definition, engine_statuses, files_checked, owner)
@@ -779,6 +787,23 @@ function summarize_rule_runs(
             findings))
     end
     return summaries
+end
+
+"""Return the number of files or configured targets applicable to one rule."""
+function rule_files_checked(
+    rule_id, definition, configuration, files_by_language, call_roots)
+    startswith(rule_id, "ARCHITECTURE-") &&
+        isempty(configuration.architecture.layers) && return 0
+    rule_id in ("DUPLICATE-CODE-POLICY-DRIFT", "JULIA-DUPLICATE-CODE",
+        "ODIN-DUPLICATE-CODE") && !configuration.duplicate_code.enabled && return 0
+    rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
+        !any(root -> root.language == "julia", call_roots) && return 0
+    rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
+        !any(root -> root.language == "odin", call_roots) && return 0
+    rule_id == "ODIN-BUILD-FAILED" && return length(configuration.odin_build.targets)
+    startswith(rule_id, "JULIA-JET-") && return length(configuration.jet.entry_points)
+    return definition.language == "common" ?
+        sum(values(files_by_language)) : files_by_language[definition.language]
 end
 
 """Return the execution status for one configured analysis rule."""

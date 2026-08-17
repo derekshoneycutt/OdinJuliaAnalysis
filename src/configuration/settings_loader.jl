@@ -1,6 +1,50 @@
 const DEFAULT_SETTINGS_PATH = normpath(
     joinpath(@__DIR__, "..", "..", "settings.jl"))
 
+const SECURITY_SOURCE_CATEGORIES = Set((
+    :command_line, :environment, :file, :network, :interop, :user_input))
+const SECURITY_SINK_CATEGORIES = Set((
+    :command_execution, :path_access, :dynamic_evaluation, :unsafe_memory,
+    :external_write))
+const SECURITY_SANITIZER_CATEGORIES = Set((
+    :validation, :escaping, :canonicalization, :allowlist))
+
+const ALLOCATION_CATEGORIES = Set((
+    :implicit,
+    :unknown,
+    :context,
+    :heap,
+    :temporary,
+    :custom,
+    :dynamic_growth,
+    :arena,
+    :hidden))
+
+const NAMING_CASES = Set((
+    :any,
+    :lowercase,
+    :snake_case,
+    :camel_case,
+    :camel_or_screaming,
+    :ada_case,
+    :screaming_snake_case))
+
+const NAMING_KINDS = Dict(
+    :julia => Set((:module, :type, :function, :constant, :parameter, :variable, :field)),
+    :odin => Set((
+        :import,
+        :type,
+        :enum_value,
+        :procedure,
+        :constant,
+        :parameter,
+        :variable,
+        :field)))
+
+const RESOURCE_OWNERSHIP_KINDS = Set((:owned, :borrowed, :shared, :external))
+const RESOURCE_LIFETIME_KINDS = Set((
+    :procedure, :temporary, :arena, :service, :process, :external))
+
 """Load, validate, and resolve analyzer settings from a Julia file."""
 function load_settings(
     path::AbstractString=DEFAULT_SETTINGS_PATH;
@@ -81,30 +125,30 @@ function validate_duplicate_code_settings(settings::DuplicateCodeSettings)
     end
     ids = Set{String}()
     for policy in settings.reviewed_policies
-        isempty(strip(policy.id)) && throw(ArgumentError(
-            "reviewed clone policy ID cannot be empty"))
-        policy.id in ids && throw(ArgumentError(
-            "duplicate reviewed clone policy ID: $(policy.id)"))
-        push!(ids, policy.id)
-        policy.language in (:julia, :odin) || throw(ArgumentError(
-            "unsupported reviewed clone language: $(policy.language)"))
-        length(policy.fingerprint) == 64 &&
-            all(character -> isdigit(character) || character in 'a':'f',
-                policy.fingerprint) || throw(ArgumentError(
-            "reviewed clone fingerprint must be a lowercase SHA-256 value: " *
-                policy.id))
-        policy.response == Ignore && throw(ArgumentError(
-            "reviewed clone response cannot be Ignore: $(policy.id)"))
-        0 <= policy.minimum_matches <= policy.maximum_matches || throw(ArgumentError(
-            "invalid reviewed clone match bounds: $(policy.id)"))
-        isempty(strip(policy.reason)) && throw(ArgumentError(
-            "reviewed clone reason cannot be empty: $(policy.id)"))
+        validate_reviewed_clone_policy(policy, ids)
     end
 end
 
-const RESOURCE_OWNERSHIP_KINDS = Set((:owned, :borrowed, :shared, :external))
-const RESOURCE_LIFETIME_KINDS = Set((
-    :procedure, :temporary, :arena, :service, :process, :external))
+"""Validate one reviewed exact-clone policy and record its ID."""
+function validate_reviewed_clone_policy(policy, ids)
+    isempty(strip(policy.id)) && throw(ArgumentError(
+        "reviewed clone policy ID cannot be empty"))
+    policy.id in ids && throw(ArgumentError(
+        "duplicate reviewed clone policy ID: $(policy.id)"))
+    push!(ids, policy.id)
+    policy.language in (:julia, :odin) || throw(ArgumentError(
+        "unsupported reviewed clone language: $(policy.language)"))
+    length(policy.fingerprint) == 64 &&
+        all(character -> isdigit(character) || character in 'a':'f',
+            policy.fingerprint) || throw(ArgumentError(
+        "reviewed clone fingerprint must be a lowercase SHA-256 value: " * policy.id))
+    policy.response == Ignore && throw(ArgumentError(
+        "reviewed clone response cannot be Ignore: $(policy.id)"))
+    0 <= policy.minimum_matches <= policy.maximum_matches || throw(ArgumentError(
+        "invalid reviewed clone match bounds: $(policy.id)"))
+    isempty(strip(policy.reason)) && throw(ArgumentError(
+        "reviewed clone reason cannot be empty: $(policy.id)"))
+end
 
 """Validate configured ownership and lifetime contracts."""
 function validate_resource_lifetime_settings(settings::ResourceLifetimeSettings)
@@ -139,14 +183,6 @@ function validate_resource_lifetime_settings(settings::ResourceLifetimeSettings)
         push!(selectors, selector)
     end
 end
-
-const SECURITY_SOURCE_CATEGORIES = Set((
-    :command_line, :environment, :file, :network, :interop, :user_input))
-const SECURITY_SINK_CATEGORIES = Set((
-    :command_execution, :path_access, :dynamic_evaluation, :unsafe_memory,
-    :external_write))
-const SECURITY_SANITIZER_CATEGORIES = Set((
-    :validation, :escaping, :canonicalization, :allowlist))
 
 """Validate typed security source, sink, and sanitizer contracts."""
 function validate_security_settings(settings::SecuritySettings)
@@ -388,27 +424,6 @@ function validate_jet_settings(settings::JetSettings)
     end
 end
 
-const NAMING_CASES = Set((
-    :any,
-    :lowercase,
-    :snake_case,
-    :camel_case,
-    :camel_or_screaming,
-    :ada_case,
-    :screaming_snake_case))
-
-const NAMING_KINDS = Dict(
-    :julia => Set((:module, :type, :function, :constant, :parameter, :variable, :field)),
-    :odin => Set((
-        :import,
-        :type,
-        :enum_value,
-        :procedure,
-        :constant,
-        :parameter,
-        :variable,
-        :field)))
-
 """Validate naming convention languages, kinds, casing, and uniqueness."""
 function validate_naming_conventions(conventions)
     selectors = Set{Tuple{Symbol, Symbol}}()
@@ -503,17 +518,6 @@ function valid_identifier_name(name::AbstractString, convention::NamingConventio
         :screaming_snake_case => r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
     return occursin(patterns[convention.casing], candidate)
 end
-
-const ALLOCATION_CATEGORIES = Set((
-    :implicit,
-    :unknown,
-    :context,
-    :heap,
-    :temporary,
-    :custom,
-    :dynamic_growth,
-    :arena,
-    :hidden))
 
 """Validate known allocating procedure identities and certainty values."""
 function validate_known_allocating_procedures(procedures)

@@ -35,7 +35,9 @@ function write_markdown_test_coverage(io, report)
     statistics = report.test_coverage_statistics
     statistics === nothing && return println(io, "\nRuntime coverage is not configured.")
     counts = statistics.overall
-    println(io, "\n| Declarations | Static reachable | Runtime available | Runtime covered | ",
+    println(
+        io,
+        "\n| Declarations | Static reachable | Runtime available | Runtime covered | ",
         "Corroborated | Gaps | Dynamic edges |")
     println(io, "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     println(io, "| $(counts.declarations) | $(counts.static_reachable) | ",
@@ -47,7 +49,9 @@ function write_markdown_test_coverage(io, report)
     shown = first(gaps, min(length(gaps), statistics.high_risk_limit))
     println(io, "\n### High-Risk Coverage Gaps")
     isempty(shown) && return println(io, "\nNo coverage gaps were identified.")
-    println(io, "\n| Risk | Declaration | File | Static | Runtime | Lines | Class | Boundary |")
+    println(
+        io,
+        "\n| Risk | Declaration | File | Static | Runtime | Lines | Class | Boundary |")
     println(io, "| ---: | --- | --- | --- | --- | ---: | --- | --- |")
     for item in shown
         runtime = item.runtime_instrumented_lines == 0 ? "-" :
@@ -72,8 +76,8 @@ function write_markdown_security_paths(io, report)
     for item in report.security_paths
         source = "$(item.source_contract_id):$(item.source_call):$(item.source_line)"
         sink = "$(item.sink_contract_id):$(item.sink_call):$(item.sink_line)"
-        sanitizers = isempty(item.sanitizer_contract_ids) ? "-" :
-            join(("`$(markdown_cell(id))`" for id in item.sanitizer_contract_ids), ", ")
+        sanitizers = isempty(item.sanitizer_contract_ids) ? "-" : join(
+            ("`$(markdown_cell(id))`" for id in item.sanitizer_contract_ids), ", ")
         println(io, "| `$(markdown_cell(item.path))` | ",
             "`$(markdown_cell(item.declaration))` | `$(markdown_cell(source))` | ",
             "`$(markdown_cell(sink))` | $sanitizers | $(item.certainty) |")
@@ -111,7 +115,8 @@ function write_markdown_clone_groups(io, report)
     println(io, "| --- | --- | ---: | ---: | --- |")
     for group in report.clone_groups
         occurrences = join((
-            "`$(markdown_cell(item.path)):$(item.start_line)` ($(markdown_cell(item.declaration)))"
+            "`$(markdown_cell(item.path)):$(item.start_line)` " *
+            "($(markdown_cell(item.declaration)))"
             for item in group.occurrences), "<br>")
         println(io, "| `$(group.fingerprint)` | $(group.language) | ",
             "$(group.token_count) | $(group.executable_lines) | $occurrences |")

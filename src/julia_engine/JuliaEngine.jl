@@ -612,18 +612,8 @@ function collect_behavior!(
     kind = Symbol(JuliaSyntax.kind(node))
     children = something(JuliaSyntax.children(node), ())
     if kind == :function
-        name_node = declaration_identifier_node(node)
-        name = name_node === nothing ? nothing :
-            strip(String(JuliaSyntax.sourcetext(name_node)))
-        header = isempty(children) ? nothing : first(children)
-        function_parameters = header === nothing ? Set{String}() :
-            function_parameter_names(header, name_node)
-        for child in children
-            child === header && continue
-            collect_behavior!(
-                diagnostics, child, path, offsets, configuration,
-                name, function_parameters)
-        end
+        collect_function_behavior!(
+            diagnostics, node, children, path, offsets, configuration)
         return
     elseif kind == :catch
         append_catch_diagnostics!(diagnostics, node, path, offsets, configuration)
@@ -636,15 +626,34 @@ function collect_behavior!(
         !endswith(function_name, "!") && !isempty(children)
         target = mutated_parameter(first(children), parameters)
         target === nothing || append_behavior_diagnostic!(
-            diagnostics, "JULIA-UNSIGNALED-ARGUMENT-MUTATION", first(children),
+            diagnostics,
+            "JULIA-UNSIGNALED-ARGUMENT-MUTATION",
+            first(children),
             path, offsets, configuration,
-            "Function `$function_name` mutates argument `$target` without a trailing `!`.";
+            "Function `$function_name` mutates argument `$target` " *
+            "without a trailing `!`.";
             subject=target, operation="argument-mutation", certainty="definite")
     end
     for child in children
         collect_behavior!(
             diagnostics, child, path, offsets, configuration,
             function_name, parameters)
+    end
+end
+
+"""Visit a function body with its declaration context."""
+function collect_function_behavior!(
+    diagnostics, node, children, path, offsets, configuration)
+    name_node = declaration_identifier_node(node)
+    name = name_node === nothing ? nothing :
+        strip(String(JuliaSyntax.sourcetext(name_node)))
+    header = isempty(children) ? nothing : first(children)
+    parameters = header === nothing ? Set{String}() :
+        function_parameter_names(header, name_node)
+    for child in children
+        child === header && continue
+        collect_behavior!(
+            diagnostics, child, path, offsets, configuration, name, parameters)
     end
 end
 
@@ -656,7 +665,8 @@ function function_parameter_names(header, name_node)
         parameter = declaration_identifier_node(child)
         parameter === nothing && Symbol(JuliaSyntax.kind(child)) == :Identifier &&
             (parameter = child)
-        parameter === nothing || push!(names, String(JuliaSyntax.sourcetext(parameter)))
+        parameter === nothing ||
+            push!(names, String(JuliaSyntax.sourcetext(parameter)))
     end
     return names
 end
@@ -676,8 +686,9 @@ end
 """Report empty catches and broad catches that do not bind or use an exception."""
 function append_catch_diagnostics!(diagnostics, node, path, offsets, configuration)
     children = something(JuliaSyntax.children(node), ())
-    binding = !isempty(children) && Symbol(JuliaSyntax.kind(first(children))) == :Identifier ?
-        first(children) : nothing
+    has_binding = !isempty(children) &&
+        Symbol(JuliaSyntax.kind(first(children))) == :Identifier
+    binding = has_binding ? first(children) : nothing
     body = isempty(children) ? nothing : last(children)
     body === nothing && return append_behavior_diagnostic!(
         diagnostics, "JULIA-EMPTY-CATCH", node, path, offsets, configuration,
