@@ -5,6 +5,8 @@ using JuliaSyntax
 
 using ..OdinJuliaAnalysis: Diagnostic
 using ..OdinJuliaAnalysis: CallEdge
+using ..OdinJuliaAnalysis: CloneCandidate
+using ..OdinJuliaAnalysis: CloneOccurrence
 using ..OdinJuliaAnalysis: DeclarationRecord
 using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
@@ -23,6 +25,7 @@ export check_syntax
 export check
 export analyze_dependencies
 export analyze_calls
+export analyze_clone_candidates
 export analyze_declarations
 export analyze_functions
 export analyze_import_bindings
@@ -51,6 +54,63 @@ function analyze_declarations(path::String, source::String)
     declarations = DeclarationRecord[]
     collect_declarations!(declarations, tree, path, offsets, String[])
     return declarations
+end
+
+"""Collect canonical whole-body candidates for exact Julia clone grouping."""
+function analyze_clone_candidates(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    lines = split(source, '\n'; keepempty=true)
+    offsets = line_start_offsets(lines)
+    candidates = CloneCandidate[]
+    collect_clone_candidates!(candidates, tree, path, lines, offsets)
+    return candidates
+end
+
+"""Visit named Julia functions and retain parser-structural body forms."""
+function collect_clone_candidates!(candidates, node, path, lines, offsets)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :function && length(children) >= 2
+        name_node = declaration_identifier_node(node)
+        if name_node !== nothing
+            body = last(children)
+            start_line = metric_line_for_offset(offsets, JuliaSyntax.first_byte(body))
+            end_line = metric_line_for_offset(offsets, JuliaSyntax.last_byte(body))
+            canonical, token_count = canonical_syntax(body)
+            push!(candidates, CloneCandidate((
+                occurrence=CloneOccurrence(
+                    path,
+                    "julia",
+                    strip(String(JuliaSyntax.sourcetext(name_node))),
+                    start_line,
+                    end_line),
+                canonical_body=canonical,
+                token_count,
+                executable_lines=body_executable_lines(
+                    body, path, lines, offsets))))
+        end
+    end
+    for child in children
+        collect_clone_candidates!(candidates, child, path, lines, offsets)
+    end
+end
+
+"""Return a trivia-free parser-structural representation and leaf-token count."""
+function canonical_syntax(node)
+    children = something(JuliaSyntax.children(node), ())
+    kind = string(Symbol(JuliaSyntax.kind(node)))
+    if isempty(children)
+        text = strip(String(JuliaSyntax.sourcetext(node)))
+        return "$kind:$text", 1
+    end
+    parts = String[]
+    token_count = 0
+    for child in children
+        canonical, child_tokens = canonical_syntax(child)
+        push!(parts, canonical)
+        token_count += child_tokens
+    end
+    return "$kind($(join(parts, ',')))", token_count
 end
 
 """Visit explicit module, function, struct, and constant declarations."""

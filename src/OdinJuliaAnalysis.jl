@@ -11,7 +11,10 @@ export FunctionMetricSettings, ResponseThresholds, ReviewedComplexity
 export AnalysisExtension, AnalysisPhase
 export AfterDiscovery, AfterLanguageAnalysis, AfterRepositoryAnalysis
 export AnalysisContext, ExtensionResult, RuleDefinition
-export CallEdge, CallRoot, DeclarationRecord, DependencyEdge, Diagnostic, ImportBinding
+export CallEdge, CallRoot, CloneGroup, CloneOccurrence, DeclarationRecord
+export ResourceLifetimeSummary
+export SecurityBoundaryPath
+export DependencyEdge, Diagnostic, ImportBinding
 export ReferenceRecord
 export InteropSignature, InteropBridgePair
 export ArchitectureLayer, ArchitectureDependency, ArchitectureSettings
@@ -27,6 +30,10 @@ export default_return_tuple_settings
 export default_parameter_count_settings
 export default_function_metric_settings
 export default_architecture_settings
+export DuplicateCodeSettings, ReviewedClonePolicy, default_duplicate_code_settings
+export ResourceLifetimeContract, ResourceLifetimeSettings
+export default_resource_lifetime_settings
+export SecurityCallContract, SecuritySettings, default_security_settings
 
 using JSON3
 using JuliaSyntax
@@ -40,6 +47,9 @@ include("core/extension_api.jl")
 include("configuration/settings_loader.jl")
 include("analysis/architecture_engine.jl")
 include("analysis/reachability_engine.jl")
+include("analysis/duplicate_code.jl")
+include("analysis/resource_lifetime.jl")
+include("analysis/security_boundaries.jl")
 include("analysis/unused_imports.jl")
 include("analysis/interop_engine.jl")
 include("analysis/naming_policies.jl")
@@ -251,6 +261,9 @@ function analyze_julia_source_file!(relative_path, source, configuration, state)
         state.call_edges,
         JuliaEngine.analyze_calls(relative_path, source))
     syntax_failed || append!(
+        state.clone_candidates,
+        JuliaEngine.analyze_clone_candidates(relative_path, source))
+    syntax_failed || append!(
         state.interop_signatures,
         JuliaEngine.analyze_interop(relative_path, source))
 end
@@ -312,6 +325,8 @@ function run_odin_analysis!(
         append!(state.import_bindings, odin_analysis.import_bindings)
         append!(state.references, odin_analysis.references)
         append!(state.call_edges, odin_analysis.call_edges)
+        append!(state.clone_candidates, odin_analysis.clone_candidates)
+        append!(state.resource_events, odin_analysis.resource_events)
         append!(state.interop_signatures, odin_analysis.interop_signatures)
         merge!(state.struct_counts, odin_analysis.struct_counts)
         push!(state.engines, EngineStatus("odin", "complete", nothing))
@@ -374,6 +389,9 @@ function assemble_analysis_report(
     references=ReferenceRecord[],
     call_edges=CallEdge[],
     call_roots=CallRoot[],
+    clone_groups=CloneGroup[],
+    resource_lifetimes=ResourceLifetimeSummary[],
+    security_paths=SecurityBoundaryPath[],
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     extension_results=ExtensionResult[])
@@ -393,6 +411,9 @@ function assemble_analysis_report(
         references,
         call_edges,
         call_roots,
+        clone_groups,
+        resource_lifetimes,
+        security_paths,
         interop_signatures,
         interop_pairs,
         statistics)
@@ -405,7 +426,9 @@ function assemble_analysis_report(
         ignored.counts, engines, call_roots)
     return canonical_analysis_report((;
         root, files, files_by_language, files_analysis, functions, dependencies,
-        declarations, import_bindings, references, call_edges, call_roots,
+        declarations, import_bindings, references, call_edges, call_roots, clone_groups,
+        resource_lifetimes,
+        security_paths,
         interop_signatures, interop_pairs, statistics,
         diagnostics, ignored, engines, odin_builds, extension_results,
         rule_summaries, exit_code, configuration))
@@ -414,7 +437,7 @@ end
 """Construct the canonical report from fully analyzed repository state."""
 function canonical_analysis_report(state)
     return AnalysisReport(
-        "3.15.0",
+        "3.18.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -431,6 +454,9 @@ function canonical_analysis_report(state)
         state.references,
         state.call_edges,
         state.call_roots,
+        state.clone_groups,
+        state.resource_lifetimes,
+        state.security_paths,
         state.interop_signatures,
         state.interop_pairs,
         state.statistics,
@@ -475,6 +501,11 @@ function repository_analysis_state()
         references=ReferenceRecord[],
         call_edges=CallEdge[],
         call_roots=CallRoot[],
+        clone_candidates=CloneCandidate[],
+        clone_groups=CloneGroup[],
+        resource_events=Diagnostic[],
+        resource_lifetimes=ResourceLifetimeSummary[],
+        security_paths=SecurityBoundaryPath[],
         interop_signatures=InteropSignature[],
         interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
@@ -505,6 +536,27 @@ function run_language_analysis!(state, root, files, configuration, progress)
         state.declarations, state.call_edges, state.call_roots, configuration))
     push!(state.engines, EngineStatus(
         "call-graph", isempty(state.call_roots) ? "not-applicable" : "complete", nothing))
+    clone_groups, clone_diagnostics = analyze_duplicate_code(
+        state.clone_candidates, configuration)
+    append!(state.clone_groups, clone_groups)
+    append!(state.diagnostics, clone_diagnostics)
+    push!(state.engines, EngineStatus(
+        "duplicate-code", configuration.duplicate_code.enabled ?
+            "complete" : "not-applicable", nothing))
+    resource_lifetimes, lifetime_status = analyze_resource_lifetimes(
+        state.resource_events, configuration)
+    append!(state.resource_lifetimes, resource_lifetimes)
+    lifetime_message = lifetime_status == "incomplete" ?
+        "One or more allocation events lack a unique lifetime contract." : nothing
+    push!(state.engines, EngineStatus(
+        "resource-lifetime", lifetime_status, lifetime_message))
+    security_analysis = analyze_security_boundaries(state.call_edges, configuration)
+    append!(state.security_paths, security_analysis.paths)
+    append!(state.diagnostics, security_analysis.diagnostics)
+    security_message = security_analysis.status == "incomplete" ?
+        "Dynamic calls prevent complete configured boundary analysis." : nothing
+    push!(state.engines, EngineStatus(
+        "security", security_analysis.status, security_message))
     language_files = analyze_files(
         root, files, state.functions, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
@@ -519,6 +571,9 @@ function run_language_analysis!(state, root, files, configuration, progress)
         references=state.references,
         call_edges=state.call_edges,
         call_roots=state.call_roots,
+        clone_groups=state.clone_groups,
+        resource_lifetimes=state.resource_lifetimes,
+        security_paths=state.security_paths,
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         statistics=language_statistics)
@@ -560,6 +615,9 @@ function check_repository(
         references=state.references,
         call_edges=state.call_edges,
         call_roots=state.call_roots,
+        clone_groups=state.clone_groups,
+        resource_lifetimes=state.resource_lifetimes,
+        security_paths=state.security_paths,
         interop_signatures=state.interop_signatures,
         interop_pairs=state.interop_pairs,
         extension_results=state.extension_results)
@@ -656,6 +714,8 @@ function summarize_rule_runs(
         definition = configuration.rule_registry[rule_id]
         files_checked = startswith(rule_id, "ARCHITECTURE-") &&
             isempty(configuration.architecture.layers) ? 0 :
+            rule_id in ("DUPLICATE-CODE-POLICY-DRIFT", "JULIA-DUPLICATE-CODE",
+                "ODIN-DUPLICATE-CODE") && !configuration.duplicate_code.enabled ? 0 :
             rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
             !any(root -> root.language == "julia", call_roots) ? 0 :
             rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
@@ -694,6 +754,8 @@ function rule_run_status(
         startswith(setting.rule_id, "ARCHITECTURE-") ? "architecture" :
         setting.rule_id in ("CALL-GRAPH-UNRESOLVED-EDGE",
             "JULIA-UNREACHABLE-FUNCTION", "ODIN-UNREACHABLE-PROCEDURE") ? "call-graph" :
+        setting.rule_id in ("DUPLICATE-CODE-POLICY-DRIFT",
+            "JULIA-DUPLICATE-CODE", "ODIN-DUPLICATE-CODE") ? "duplicate-code" :
         setting.rule_id == "ODIN-BUILD-FAILED" ? "odin-build" :
         startswith(setting.rule_id, "JULIA-JET-") ? "jet" :
         definition.language == "common" ? "common" : definition.language

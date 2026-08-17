@@ -1,4 +1,12 @@
 const RULE_REGISTRY = Dict(
+    "SECURITY-UNSAFE-BOUNDARY" => RuleDefinition(
+        "SECURITY-UNSAFE-BOUNDARY", "common",
+        "Security > Configured Trust Boundaries",
+        "experimental", "potential", "report", false),
+    "DUPLICATE-CODE-POLICY-DRIFT" => RuleDefinition(
+        "DUPLICATE-CODE-POLICY-DRIFT", "common",
+        "Duplicate Code > Reviewed Policies",
+        "experimental", "stable", "error", true),
     "CALL-GRAPH-UNRESOLVED-EDGE" => RuleDefinition(
         "CALL-GRAPH-UNRESOLVED-EDGE", "common",
         "Call-Graph Reachability > Unresolved Edges",
@@ -56,6 +64,9 @@ const RULE_REGISTRY = Dict(
         "JULIA-UNREACHABLE-FUNCTION", "julia",
         "Call-Graph Reachability > Julia Functions",
         "experimental", "probable", "report", false),
+    "JULIA-DUPLICATE-CODE" => RuleDefinition(
+        "JULIA-DUPLICATE-CODE", "julia", "Duplicate Code > Exact Clones",
+        "experimental", "definite", "report", false),
     "JULIA-NAMING" => RuleDefinition(
         "JULIA-NAMING", "julia", "Julia Rules > Naming and API Semantics",
         "mature", "stable", "report", false),
@@ -122,6 +133,9 @@ const RULE_REGISTRY = Dict(
         "ODIN-UNREACHABLE-PROCEDURE", "odin",
         "Call-Graph Reachability > Odin Procedures",
         "experimental", "probable", "report", false),
+    "ODIN-DUPLICATE-CODE" => RuleDefinition(
+        "ODIN-DUPLICATE-CODE", "odin", "Duplicate Code > Exact Clones",
+        "experimental", "definite", "report", false),
     "ODIN-DECLARATION-ORDER" => RuleDefinition(
         "ODIN-DECLARATION-ORDER", "odin",
         "Global Rules > Declaration Order",

@@ -36,6 +36,9 @@ function validate_settings(
     validate_parameter_count_settings(settings.parameter_counts)
     validate_function_metric_settings(settings.function_metrics)
     validate_architecture_settings(settings.architecture)
+    validate_duplicate_code_settings(settings.duplicate_code)
+    validate_resource_lifetime_settings(settings.resource_lifetime)
+    validate_security_settings(settings.security)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -43,7 +46,119 @@ function validate_settings(
         copy(profiles[selected_profile].enforcement_excludes),
         rules, settings.naming, settings.jet, settings.odin_build, settings.return_tuples,
         settings.parameter_counts, settings.function_metrics, settings.architecture,
-        settings.allocations, settings.report, extensions, rule_registry, rule_owners)
+        settings.allocations, settings.report, extensions, rule_registry, rule_owners,
+        settings.duplicate_code, settings.resource_lifetime, settings.security)
+end
+
+"""Validate duplicate-code thresholds, exclusions, and reviewed selectors."""
+function validate_duplicate_code_settings(settings::DuplicateCodeSettings)
+    settings.minimum_tokens > 0 || throw(ArgumentError(
+        "duplicate-code minimum tokens must be positive"))
+    settings.minimum_executable_lines > 0 || throw(ArgumentError(
+        "duplicate-code minimum executable lines must be positive"))
+    settings.minimum_occurrences >= 2 || throw(ArgumentError(
+        "duplicate-code minimum occurrences must be at least two"))
+    for path in settings.excluded_paths
+        validate_repository_path(path, "duplicate-code excluded path")
+    end
+    ids = Set{String}()
+    for policy in settings.reviewed_policies
+        isempty(strip(policy.id)) && throw(ArgumentError(
+            "reviewed clone policy ID cannot be empty"))
+        policy.id in ids && throw(ArgumentError(
+            "duplicate reviewed clone policy ID: $(policy.id)"))
+        push!(ids, policy.id)
+        policy.language in (:julia, :odin) || throw(ArgumentError(
+            "unsupported reviewed clone language: $(policy.language)"))
+        length(policy.fingerprint) == 64 &&
+            all(character -> isdigit(character) || character in 'a':'f',
+                policy.fingerprint) || throw(ArgumentError(
+            "reviewed clone fingerprint must be a lowercase SHA-256 value: " *
+                policy.id))
+        policy.response == Ignore && throw(ArgumentError(
+            "reviewed clone response cannot be Ignore: $(policy.id)"))
+        0 <= policy.minimum_matches <= policy.maximum_matches || throw(ArgumentError(
+            "invalid reviewed clone match bounds: $(policy.id)"))
+        isempty(strip(policy.reason)) && throw(ArgumentError(
+            "reviewed clone reason cannot be empty: $(policy.id)"))
+    end
+end
+
+const RESOURCE_OWNERSHIP_KINDS = Set((:owned, :borrowed, :shared, :external))
+const RESOURCE_LIFETIME_KINDS = Set((
+    :procedure, :temporary, :arena, :service, :process, :external))
+
+"""Validate configured ownership and lifetime contracts."""
+function validate_resource_lifetime_settings(settings::ResourceLifetimeSettings)
+    ids = Set{String}()
+    selectors = Set{NamedTuple}()
+    for contract in settings.contracts
+        isempty(strip(contract.id)) && throw(ArgumentError(
+            "resource lifetime contract ID cannot be empty"))
+        contract.id in ids && throw(ArgumentError(
+            "duplicate resource lifetime contract ID: $(contract.id)"))
+        push!(ids, contract.id)
+        contract.category in ALLOCATION_CATEGORIES || throw(ArgumentError(
+            "unknown resource lifetime category: $(contract.category)"))
+        contract.ownership in RESOURCE_OWNERSHIP_KINDS || throw(ArgumentError(
+            "unknown resource ownership: $(contract.ownership)"))
+        contract.lifetime in RESOURCE_LIFETIME_KINDS || throw(ArgumentError(
+            "unknown resource lifetime: $(contract.lifetime)"))
+        isempty(strip(contract.reason)) && throw(ArgumentError(
+            "resource lifetime contract reason cannot be empty: $(contract.id)"))
+        for (label, value) in (("operation", contract.operation),
+            ("allocator source", contract.allocator_source),
+            ("release operation", contract.release_operation))
+            value === nothing || !isempty(strip(value)) || throw(ArgumentError(
+                "resource lifetime $label cannot be empty: $(contract.id)"))
+        end
+        selector = (
+            category=contract.category,
+            operation=contract.operation,
+            allocator_source=contract.allocator_source)
+        selector in selectors && throw(ArgumentError(
+            "duplicate resource lifetime selector: $(contract.id)"))
+        push!(selectors, selector)
+    end
+end
+
+const SECURITY_SOURCE_CATEGORIES = Set((
+    :command_line, :environment, :file, :network, :interop, :user_input))
+const SECURITY_SINK_CATEGORIES = Set((
+    :command_execution, :path_access, :dynamic_evaluation, :unsafe_memory,
+    :external_write))
+const SECURITY_SANITIZER_CATEGORIES = Set((
+    :validation, :escaping, :canonicalization, :allowlist))
+
+"""Validate typed security source, sink, and sanitizer contracts."""
+function validate_security_settings(settings::SecuritySettings)
+    ids = Set{String}()
+    selectors = Set{Tuple{Symbol, String, Symbol}}()
+    groups = (
+        ("source", settings.sources, SECURITY_SOURCE_CATEGORIES),
+        ("sink", settings.sinks, SECURITY_SINK_CATEGORIES),
+        ("sanitizer", settings.sanitizers, SECURITY_SANITIZER_CATEGORIES))
+    for (kind, contracts, categories) in groups
+        for contract in contracts
+            isempty(strip(contract.id)) && throw(ArgumentError(
+                "security $kind contract ID cannot be empty"))
+            contract.id in ids && throw(ArgumentError(
+                "duplicate security contract ID: $(contract.id)"))
+            push!(ids, contract.id)
+            contract.language in (:julia, :odin) || throw(ArgumentError(
+                "unsupported security contract language: $(contract.language)"))
+            isempty(strip(contract.declaration)) && throw(ArgumentError(
+                "security $kind declaration cannot be empty: $(contract.id)"))
+            contract.category in categories || throw(ArgumentError(
+                "unsupported security $kind category: $(contract.category)"))
+            isempty(strip(contract.reason)) && throw(ArgumentError(
+                "security $kind reason cannot be empty: $(contract.id)"))
+            selector = (contract.language, contract.declaration, contract.category)
+            selector in selectors && throw(ArgumentError(
+                "duplicate security contract selector: $(contract.id)"))
+            push!(selectors, selector)
+        end
+    end
 end
 
 """Validate extension contracts and return deterministic dependency order."""

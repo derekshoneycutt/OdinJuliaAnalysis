@@ -4,6 +4,8 @@ using JSON3
 
 using ..OdinJuliaAnalysis: Diagnostic
 using ..OdinJuliaAnalysis: CallEdge
+using ..OdinJuliaAnalysis: CloneCandidate
+using ..OdinJuliaAnalysis: CloneOccurrence
 using ..OdinJuliaAnalysis: DeclarationRecord
 using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
@@ -24,7 +26,7 @@ export analyze
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.8.0"
+const SCHEMA_VERSION = "3.9.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -82,6 +84,13 @@ const OdinCallEdge = @NamedTuple begin
     column::Int
 end
 
+const OdinProcedureBody = @NamedTuple begin
+    name::String
+    tokens::Vector{String}
+    start_line::Int
+    end_line::Int
+end
+
 const OdinInteropSignature = @NamedTuple begin
     symbol::String
     direction::String
@@ -105,6 +114,7 @@ const OdinFileSummary = @NamedTuple begin
     imports::Vector{OdinImport}
     references::Vector{OdinReference}
     call_edges::Vector{OdinCallEdge}
+    procedure_bodies::Vector{OdinProcedureBody}
     interop_signatures::Vector{OdinInteropSignature}
 end
 
@@ -157,6 +167,8 @@ function empty_analysis()
         import_bindings=ImportBinding[],
         references=ReferenceRecord[],
         call_edges=CallEdge[],
+        clone_candidates=CloneCandidate[],
+        resource_events=Diagnostic[],
         interop_signatures=InteropSignature[],
         struct_counts=Dict{String, Int}())
 end
@@ -166,13 +178,32 @@ function append_file_summary!(analysis, root, summary, configuration)
     source_path = relpath(String(summary.path), root)
     analysis.struct_counts[source_path] = Int(summary.struct_count)
     append_summary_analysis!(
-        analysis.diagnostics, analysis.functions, root, summary, configuration)
+        analysis.diagnostics,
+        analysis.resource_events,
+        analysis.functions,
+        root,
+        summary,
+        configuration)
     append!(analysis.declarations, declaration_records(source_path, summary))
     append_import_records!(analysis, root, source_path, summary.imports)
     append!(analysis.references, reference_records(source_path, summary.references))
     append!(analysis.call_edges, call_edge_records(source_path, summary.call_edges))
+    append!(analysis.clone_candidates, clone_candidate_records(
+        source_path, summary.procedure_bodies))
     append!(analysis.interop_signatures,
         interop_records(source_path, summary.interop_signatures))
+end
+
+"""Convert native parser-tokenized procedure bodies into clone candidates."""
+function clone_candidate_records(source_path, bodies)
+    return [CloneCandidate((
+        occurrence=CloneOccurrence(
+            source_path, "odin", String(body.name),
+            Int(body.start_line), Int(body.end_line)),
+        canonical_body=join(String.(body.tokens), '\x1f'),
+        token_count=length(body.tokens),
+        executable_lines=max(Int(body.end_line) - Int(body.start_line) - 1, 0)))
+        for body in bodies]
 end
 
 """Convert native explicit calls into canonical call graph edges."""
@@ -272,7 +303,13 @@ function resolve_odin_target(root, source_path, target)
 end
 
 """Convert one native Odin file summary into configured diagnostics and metrics."""
-function append_summary_analysis!(diagnostics, functions, root, summary, configuration)
+function append_summary_analysis!(
+    diagnostics,
+    resource_events,
+    functions,
+    root,
+    summary,
+    configuration)
     if !summary.parsed || summary.syntax_errors != 0
         diagnostic = configured_diagnostic(
             configuration,
@@ -280,9 +317,10 @@ function append_summary_analysis!(diagnostics, functions, root, summary, configu
         diagnostic === nothing || push!(diagnostics, diagnostic)
     end
     for finding in summary.findings
-        diagnostic = configured_diagnostic(
-            configuration,
-            backend_diagnostic(root, summary, finding, configuration))
+        raw_diagnostic = backend_diagnostic(root, summary, finding, configuration)
+        startswith(raw_diagnostic.rule_id, "ODIN-ALLOCATION-") &&
+            push!(resource_events, raw_diagnostic)
+        diagnostic = configured_diagnostic(configuration, raw_diagnostic)
         diagnostic === nothing || push!(diagnostics, diagnostic)
     end
     append!(diagnostics, naming_diagnostics(root, summary, configuration))

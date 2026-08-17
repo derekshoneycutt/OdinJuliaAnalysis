@@ -150,6 +150,57 @@ struct CallRoot
     category::String
 end
 
+struct CloneOccurrence
+    path::String
+    language::String
+    declaration::String
+    start_line::Int
+    end_line::Int
+end
+
+struct CloneGroup
+    fingerprint::String
+    language::String
+    token_count::Int
+    executable_lines::Int
+    occurrences::Vector{CloneOccurrence}
+end
+
+struct ResourceLifetimeSummary
+    path::String
+    line::Int
+    procedure::Union{Nothing, String}
+    operation::Union{Nothing, String}
+    target::Union{Nothing, String}
+    allocator_source::Union{Nothing, String}
+    category::String
+    contract_id::Union{Nothing, String}
+    ownership::String
+    lifetime::String
+    release_operation::Union{Nothing, String}
+    allows_escape::Union{Nothing, Bool}
+    certainty::Union{Nothing, String}
+    status::String
+    explanation::String
+end
+
+struct SecurityBoundaryPath
+    path::String
+    language::String
+    declaration::String
+    source_contract_id::String
+    source_call::String
+    source_category::String
+    source_line::Int
+    sink_contract_id::String
+    sink_call::String
+    sink_category::String
+    sink_line::Int
+    sanitizer_contract_ids::Vector{String}
+    certainty::String
+    explanation::String
+end
+
 struct InteropSignature
     path::String
     language::String
@@ -223,6 +274,9 @@ struct AnalysisContext
     references::Tuple
     call_edges::Tuple
     call_roots::Tuple
+    clone_groups::Tuple
+    resource_lifetimes::Tuple
+    security_paths::Tuple
     interop_signatures::Tuple
     interop_pairs::Tuple
     statistics::Union{Nothing, RepositoryStatistics}
@@ -255,6 +309,9 @@ struct AnalysisReport
     references::Vector{ReferenceRecord}
     call_edges::Vector{CallEdge}
     call_roots::Vector{CallRoot}
+    clone_groups::Vector{CloneGroup}
+    resource_lifetimes::Vector{ResourceLifetimeSummary}
+    security_paths::Vector{SecurityBoundaryPath}
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
     statistics::RepositoryStatistics
@@ -294,6 +351,14 @@ StructTypes.StructType(::Type{ReferenceRecord}) = StructTypes.Struct()
 StructTypes.StructType(::Type{CallEdge}) = StructTypes.Struct()
 """Declare structural serialization for configured and inferred call roots."""
 StructTypes.StructType(::Type{CallRoot}) = StructTypes.Struct()
+"""Declare structural serialization for one duplicate-code occurrence."""
+StructTypes.StructType(::Type{CloneOccurrence}) = StructTypes.Struct()
+"""Declare structural serialization for one exact duplicate-code group."""
+StructTypes.StructType(::Type{CloneGroup}) = StructTypes.Struct()
+"""Declare structural serialization for configured resource lifetime summaries."""
+StructTypes.StructType(::Type{ResourceLifetimeSummary}) = StructTypes.Struct()
+"""Declare structural serialization for configured security boundary paths."""
+StructTypes.StructType(::Type{SecurityBoundaryPath}) = StructTypes.Struct()
 """Declare structural serialization for normalized interop signatures."""
 StructTypes.StructType(::Type{InteropSignature}) = StructTypes.Struct()
 """Declare structural serialization for interop bridge pairs."""

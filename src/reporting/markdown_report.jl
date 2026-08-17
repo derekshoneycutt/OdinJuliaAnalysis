@@ -13,15 +13,75 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_references(io, report)
     write_markdown_call_roots(io, report)
     write_markdown_call_graph(io, report)
+    write_markdown_clone_groups(io, report)
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
     write_markdown_odin_builds(io, report)
     write_markdown_findings(io, report)
     write_markdown_allocations(io, report)
+    write_markdown_resource_lifetimes(io, report)
+    write_markdown_security_paths(io, report)
     write_markdown_ignored(io, report)
     write_markdown_rules(io, report)
     write_markdown_extensions(io, report)
     write_markdown_engines(io, report)
+end
+
+"""Write configured source-before-sink security boundary evidence."""
+function write_markdown_security_paths(io, report)
+    println(io)
+    println(io, "## Security Boundary Paths")
+    println(io)
+    isempty(report.security_paths) && return println(io, "No security boundary paths.")
+    println(io, "| File | Declaration | Source | Sink | Sanitizers | Certainty |")
+    println(io, "| --- | --- | --- | --- | --- | --- |")
+    for item in report.security_paths
+        source = "$(item.source_contract_id):$(item.source_call):$(item.source_line)"
+        sink = "$(item.sink_contract_id):$(item.sink_call):$(item.sink_line)"
+        sanitizers = isempty(item.sanitizer_contract_ids) ? "-" :
+            join(("`$(markdown_cell(id))`" for id in item.sanitizer_contract_ids), ", ")
+        println(io, "| `$(markdown_cell(item.path))` | ",
+            "`$(markdown_cell(item.declaration))` | `$(markdown_cell(source))` | ",
+            "`$(markdown_cell(sink))` | $sanitizers | $(item.certainty) |")
+    end
+end
+
+"""Write configured ownership and lifetime summaries for allocation events."""
+function write_markdown_resource_lifetimes(io, report)
+    println(io)
+    println(io, "## Resource Lifetime Summaries")
+    println(io)
+    isempty(report.resource_lifetimes) &&
+        return println(io, "No resource lifetime summaries.")
+    println(io, "| Status | File:line | Procedure | Allocation | Contract | Ownership | ",
+        "Lifetime | Release | Escape | Explanation |")
+    println(io, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for item in report.resource_lifetimes
+        allocation = "$(item.category):$(something(item.operation, "-"))"
+        escape = item.allows_escape === nothing ? "-" :
+            item.allows_escape ? "allowed" : "prohibited"
+        println(io, "| $(item.status) | `$(markdown_cell(item.path)):$(item.line)` | ",
+            "$(markdown_optional(item.procedure)) | `$(markdown_cell(allocation))` | ",
+            "$(markdown_optional(item.contract_id)) | $(item.ownership) | ",
+            "$(item.lifetime) | $(markdown_optional(item.release_operation)) | ",
+            "$escape | $(markdown_cell(item.explanation)) |")
+    end
+end
+
+"""Write exact same-language implementation clone groups."""
+function write_markdown_clone_groups(io, report)
+    println(io)
+    println(io, "## Exact Clone Groups")
+    isempty(report.clone_groups) && return println(io, "\nNo exact clones found.")
+    println(io, "\n| Fingerprint | Language | Tokens | Lines | Occurrences |")
+    println(io, "| --- | --- | ---: | ---: | --- |")
+    for group in report.clone_groups
+        occurrences = join((
+            "`$(markdown_cell(item.path)):$(item.start_line)` ($(markdown_cell(item.declaration)))"
+            for item in group.occurrences), "<br>")
+        println(io, "| `$(group.fingerprint)` | $(group.language) | ",
+            "$(group.token_count) | $(group.executable_lines) | $occurrences |")
+    end
 end
 
 """Write configured and inferred call roots by lifecycle category."""

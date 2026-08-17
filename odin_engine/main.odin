@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.8.0"
-ENGINE_VERSION :: "0.11.0"
+SCHEMA_VERSION :: "3.9.0"
+ENGINE_VERSION :: "0.12.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -70,6 +70,13 @@ Call_Edge :: struct {
     column: int,
 }
 
+Procedure_Body :: struct {
+    name: string,
+    tokens: [dynamic]string,
+    start_line: int,
+    end_line: int,
+}
+
 Interop_Signature :: struct {
     symbol: string,
     direction: string,
@@ -93,6 +100,7 @@ File_Summary :: struct {
     imports: [dynamic]Import_Edge,
     references: [dynamic]Reference_Record,
     call_edges: [dynamic]Call_Edge,
+    procedure_bodies: [dynamic]Procedure_Body,
     interop_signatures: [dynamic]Interop_Signature,
 }
 
@@ -121,8 +129,17 @@ Analysis_Visitor_Data :: struct {
     imports: ^[dynamic]Import_Edge,
     references: ^[dynamic]Reference_Record,
     call_edges: ^[dynamic]Call_Edge,
+    procedure_bodies: ^[dynamic]Procedure_Body,
     interop_signatures: ^[dynamic]Interop_Signature,
     allocator: runtime.Allocator,
+}
+
+// Initialize Odin's global tokenizer table before parallel test workers run.
+@(init)
+initialize_tokenizer :: proc "contextless" () {
+    context = runtime.default_context()
+    warmup_tokenizer: tokenizer.Tokenizer
+    tokenizer.init(&warmup_tokenizer, "", "")
 }
 
 // Configure optional metadata for one allocation finding.
@@ -447,6 +464,13 @@ expression_source :: proc(source: string, expression: ^ast.Expr) -> string {
     return strings.trim_space(source[start:end])
 }
 
+// Return the exact source text covered by an AST statement.
+statement_source :: proc(source: string, statement: ^ast.Stmt) -> string {
+    start := clamp(statement.pos.offset, 0, len(source))
+    end := clamp(statement.end.offset, start, len(source))
+    return strings.trim_space(source[start:end])
+}
+
 // Return the terminal identifier represented by an identifier or selector.
 identifier_name :: proc(expression: ^ast.Expr) -> (string, bool) {
     normalized_expression := ast.unparen_expr(expression)
@@ -608,6 +632,36 @@ register_procedure_scopes :: proc(
                 start_offset = value.pos.offset,
                 end_offset = value.end.offset,
             })
+            if procedure.body != nil {
+                append(data.procedure_bodies, Procedure_Body {
+                    name = name,
+                    tokens = canonical_body_tokens(
+                        statement_source(data.source, procedure.body),
+                        data.allocator),
+                    start_line = procedure.body.pos.line,
+                    end_line = procedure.body.end.line,
+                })
+            }
+        }
+    }
+}
+
+// Return parser-tokenized procedure body text without comments or formatting.
+canonical_body_tokens :: proc(
+    source: string,
+    allocator: runtime.Allocator) -> [dynamic]string {
+    tokens := make([dynamic]string, 0, allocator)
+    body_tokenizer: tokenizer.Tokenizer
+    tokenizer.init(&body_tokenizer, source, "")
+    for {
+        token := tokenizer.scan(&body_tokenizer)
+        #partial switch token.kind {
+        case .Comment:
+            continue
+        case .EOF:
+            return tokens
+        case:
+            append(&tokens, token.text)
         }
     }
 }
@@ -831,6 +885,7 @@ check_allocations :: proc(
         imports = &summary.imports,
         references = &summary.references,
         call_edges = &summary.call_edges,
+        procedure_bodies = &summary.procedure_bodies,
         interop_signatures = &summary.interop_signatures,
         allocator = allocator,
     }

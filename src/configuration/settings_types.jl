@@ -362,6 +362,114 @@ struct ArchitectureSettings
     allowed_dependencies::Vector{ArchitectureDependency}
 end
 
+struct ReviewedClonePolicy
+    id::String
+    language::Symbol
+    fingerprint::String
+    response::FindingResponse
+    minimum_matches::Int
+    maximum_matches::Int
+    reason::String
+end
+
+"""Construct an exact-clone review policy with bounded match defaults."""
+function ReviewedClonePolicy(
+    id::String,
+    language::Symbol,
+    fingerprint::String,
+    reason::String;
+    response::FindingResponse=Report,
+    minimum_matches::Int=1,
+    maximum_matches::Int=1)
+    return ReviewedClonePolicy(
+        id,
+        language,
+        fingerprint,
+        response,
+        minimum_matches,
+        maximum_matches,
+        reason)
+end
+
+struct DuplicateCodeSettings
+    enabled::Bool
+    minimum_tokens::Int
+    minimum_executable_lines::Int
+    minimum_occurrences::Int
+    excluded_paths::Vector{String}
+    reviewed_policies::Vector{ReviewedClonePolicy}
+end
+
+"""Return duplicate-code analysis disabled for compatibility and opt-in rollout."""
+default_duplicate_code_settings() = DuplicateCodeSettings(
+    false, 40, 6, 2, String[], ReviewedClonePolicy[])
+
+struct ResourceLifetimeContract
+    id::String
+    category::Symbol
+    operation::Union{Nothing, String}
+    allocator_source::Union{Nothing, String}
+    ownership::Symbol
+    lifetime::Symbol
+    release_operation::Union{Nothing, String}
+    allows_escape::Bool
+    reason::String
+end
+
+"""Construct a configured ownership and lifetime contract."""
+function ResourceLifetimeContract(
+    id::String,
+    category::Symbol,
+    ownership::Symbol,
+    lifetime::Symbol,
+    reason::String;
+    operation::Union{Nothing, String}=nothing,
+    allocator_source::Union{Nothing, String}=nothing,
+    release_operation::Union{Nothing, String}=nothing,
+    allows_escape::Bool=false)
+    return ResourceLifetimeContract(
+        id,
+        category,
+        operation,
+        allocator_source,
+        ownership,
+        lifetime,
+        release_operation,
+        allows_escape,
+        reason)
+end
+
+struct ResourceLifetimeSettings
+    enabled::Bool
+    contracts::Vector{ResourceLifetimeContract}
+end
+
+"""Return resource lifetime analysis disabled for opt-in rollout."""
+default_resource_lifetime_settings() = ResourceLifetimeSettings(
+    false, ResourceLifetimeContract[])
+
+struct SecurityCallContract
+    id::String
+    language::Symbol
+    declaration::String
+    category::Symbol
+    reason::String
+end
+
+struct SecuritySettings
+    enabled::Bool
+    sources::Vector{SecurityCallContract}
+    sinks::Vector{SecurityCallContract}
+    sanitizers::Vector{SecurityCallContract}
+end
+
+"""Return conservative security boundary analysis disabled by default."""
+default_security_settings() = SecuritySettings(
+    false,
+    SecurityCallContract[],
+    SecurityCallContract[],
+    SecurityCallContract[])
+
 struct AnalysisSettings
     profile::Symbol
     failure_threshold::FindingResponse
@@ -378,6 +486,9 @@ struct AnalysisSettings
     allocations::AllocationSettings
     report::ReportSettings
     extensions::Vector{AnalysisExtension}
+    duplicate_code::DuplicateCodeSettings
+    resource_lifetime::ResourceLifetimeSettings
+    security::SecuritySettings
 end
 
 struct EffectiveSettings
@@ -398,6 +509,9 @@ struct EffectiveSettings
     extensions::Vector{AnalysisExtension}
     rule_registry::Dict{String, RuleDefinition}
     extension_rule_owners::Dict{String, String}
+    duplicate_code::DuplicateCodeSettings
+    resource_lifetime::ResourceLifetimeSettings
+    security::SecuritySettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -423,7 +537,11 @@ function AnalysisSettings(
         default_function_metric_settings(),
         default_architecture_settings(),
         allocations,
-        report)
+        report,
+        AnalysisExtension[],
+        default_duplicate_code_settings(),
+        default_resource_lifetime_settings(),
+        default_security_settings())
 end
 
     """Construct settings from the pre-entry-point API using default JET settings."""
@@ -450,8 +568,64 @@ end
             default_function_metric_settings(),
             default_architecture_settings(),
         allocations,
-        report)
+        report,
+        AnalysisExtension[],
+        default_duplicate_code_settings(),
+        default_resource_lifetime_settings(),
+        default_security_settings())
     end
+
+struct CompatibilitySettingsTail
+    odin_build
+    return_tuples
+    parameter_counts
+    function_metrics
+    architecture
+    allocations
+    report
+    extensions
+    duplicate_code
+    resource_lifetime
+    security
+end
+
+"""Decode settings fields added across compatibility constructor versions."""
+function compatibility_settings_tail(trailing)
+    odin_build = length(trailing) >= 3 ? trailing[1] : default_odin_build_settings()
+    return_tuples = length(trailing) >= 4 ? trailing[2] :
+        default_return_tuple_settings()
+    parameter_counts = length(trailing) >= 5 ? trailing[3] :
+        default_parameter_count_settings()
+    function_metrics = length(trailing) >= 6 ? trailing[4] :
+        default_function_metric_settings()
+    has_architecture = length(trailing) >= 7 && trailing[5] isa ArchitectureSettings
+    architecture = has_architecture ? trailing[5] : default_architecture_settings()
+    duplicate_code_index = has_architecture ? 9 : 8
+    duplicate_code = length(trailing) >= duplicate_code_index ?
+        trailing[duplicate_code_index] : default_duplicate_code_settings()
+    lifetime_index = duplicate_code_index + 1
+    resource_lifetime = length(trailing) >= lifetime_index ?
+        trailing[lifetime_index] : default_resource_lifetime_settings()
+    security_index = lifetime_index + 1
+    security = length(trailing) >= security_index ?
+        trailing[security_index] : default_security_settings()
+    extensions = has_architecture && length(trailing) >= 8 ? trailing[8] :
+        !has_architecture && length(trailing) >= 7 ? trailing[7] : AnalysisExtension[]
+    policy_end = has_architecture ? 7 : min(length(trailing), 6)
+    allocations, report = trailing[(policy_end - 1):policy_end]
+    return CompatibilitySettingsTail(
+        odin_build,
+        return_tuples,
+        parameter_counts,
+        function_metrics,
+        architecture,
+        allocations,
+        report,
+        extensions,
+        duplicate_code,
+        resource_lifetime,
+        security)
+end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
     function AnalysisSettings(
@@ -463,21 +637,11 @@ end
         naming,
         jet,
         trailing...)
-        length(trailing) in 2:7 || throw(MethodError(
+        length(trailing) in 2:11 || throw(MethodError(
             AnalysisSettings,
             (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
                 trailing...)))
-        odin_build = length(trailing) >= 3 ? trailing[1] :
-            default_odin_build_settings()
-        return_tuples = length(trailing) >= 4 ? trailing[2] :
-            default_return_tuple_settings()
-        parameter_counts = length(trailing) >= 5 ? trailing[3] :
-            default_parameter_count_settings()
-        function_metrics = length(trailing) >= 6 ? trailing[4] :
-            default_function_metric_settings()
-        extensions = length(trailing) == 7 ? trailing[end] : AnalysisExtension[]
-        policy_end = length(trailing) == 7 ? length(trailing) - 1 : length(trailing)
-        allocations, report = trailing[(policy_end - 1):policy_end]
+        tail = compatibility_settings_tail(trailing)
         return AnalysisSettings(
         profile,
         failure_threshold,
@@ -486,14 +650,17 @@ end
         rules,
         naming,
         jet,
-        odin_build,
-        return_tuples,
-        parameter_counts,
-        function_metrics,
-        default_architecture_settings(),
-        allocations,
-        report,
-        extensions)
+        tail.odin_build,
+        tail.return_tuples,
+        tail.parameter_counts,
+        tail.function_metrics,
+        tail.architecture,
+        tail.allocations,
+        tail.report,
+        tail.extensions,
+        tail.duplicate_code,
+        tail.resource_lifetime,
+        tail.security)
     end
 
     """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -506,10 +673,24 @@ end
         naming,
         jet,
         trailing...)
-        length(trailing) in 3:6 || throw(MethodError(
+        length(trailing) in 3:6 || length(trailing) == 10 || throw(MethodError(
             EffectiveSettings,
             (profile, failure_threshold, thresholds, enforcement_excludes, rules,
                 naming, jet, trailing...)))
+        if length(trailing) == 10
+            return EffectiveSettings(
+                profile,
+                failure_threshold,
+                thresholds,
+                enforcement_excludes,
+                rules,
+                naming,
+                jet,
+                trailing...,
+                default_duplicate_code_settings(),
+                default_resource_lifetime_settings(),
+                default_security_settings())
+        end
         odin_build = trailing[1]
         return_tuples = length(trailing) in (4, 6) ? trailing[2] :
             default_return_tuple_settings()
@@ -535,5 +716,8 @@ end
         report,
         AnalysisExtension[],
         copy(RULE_REGISTRY),
-        Dict{String, String}())
+        Dict{String, String}(),
+        default_duplicate_code_settings(),
+        default_resource_lifetime_settings(),
+        default_security_settings())
     end

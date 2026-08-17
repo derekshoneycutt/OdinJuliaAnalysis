@@ -876,7 +876,7 @@ end
                 ("main.odin", "run.item", "parameter", "run"),
                 ("main.odin", "run.local", "variable", "run"),
             ]
-            @test report.schema_version == "3.15.0"
+            @test report.schema_version == "3.18.0"
         end
     end
 
@@ -928,7 +928,7 @@ end
                 [("bridge_add", "matched")]
             pair = only(report.interop_pairs)
             @test pair.mismatch === nothing
-            @test report.schema_version == "3.15.0"
+            @test report.schema_version == "3.18.0"
 
             signatures = InteropSignature[
                 InteropSignature(
@@ -2253,7 +2253,7 @@ end
 
             output = IOBuffer()
             OdinJuliaAnalysis.write_report(output, report, "json")
-            @test occursin("\"schema_version\": \"3.15.0\"", String(take!(output)))
+            @test occursin("\"schema_version\": \"3.18.0\"", String(take!(output)))
 
             settings_path = write_jet_settings(
                 tempname(),
@@ -2787,13 +2787,396 @@ end
         @test occursin("Finished 3 tests", text)
     end
 
+    @testset "Phase 3 exact duplicate code" begin
+        base_configuration = OdinJuliaAnalysis.load_settings()
+        """Return validated settings for one duplicate-code test configuration."""
+        function duplicate_code_configuration(duplicate_code)
+            settings = AnalysisSettings(
+                base_configuration.profile,
+                base_configuration.failure_threshold,
+                base_configuration.thresholds,
+                [ScanProfile(base_configuration.profile, String[])],
+                collect(values(base_configuration.rules)),
+                base_configuration.naming,
+                JetSettings(JetEntryPoint[]),
+                OdinBuildSettings(OdinBuildTarget[]),
+                base_configuration.return_tuples,
+                base_configuration.parameter_counts,
+                base_configuration.function_metrics,
+                base_configuration.architecture,
+                base_configuration.allocations,
+                base_configuration.report,
+                AnalysisExtension[],
+                duplicate_code)
+            return OdinJuliaAnalysis.validate_settings(settings)
+        end
+
+        enabled = DuplicateCodeSettings(
+            true, 1, 1, 2, String[], ReviewedClonePolicy[])
+        report = mktempdir() do root
+            write(joinpath(root, "clones.jl"), """
+            function first_clone(value)
+                result = value + 1
+                return result * 2
+            end
+
+            function second_clone(value)
+                result = value + 1
+                return result * 2
+            end
+
+            function different(value)
+                return value - 1
+            end
+            """)
+            write(joinpath(root, "clones.odin"), """
+            package fixture
+
+            first_clone :: proc(value: int) -> int {
+                result := value + 1
+                return result * 2
+            }
+
+            second_clone :: proc(value: int) -> int {
+                result := value + 1
+                return result * 2
+            }
+
+            different :: proc(value: int) -> int {
+                return value - 1
+            }
+            """)
+            OdinJuliaAnalysis.check_repository(
+                root; configuration=duplicate_code_configuration(enabled))
+        end
+        @test report.schema_version == "3.18.0"
+        @test [group.language for group in report.clone_groups] == ["julia", "odin"]
+        @test all(group -> length(group.occurrences) == 2, report.clone_groups)
+        @test all(group -> group.token_count > 0, report.clone_groups)
+        @test all(group -> group.executable_lines > 0, report.clone_groups)
+        @test !any(occurrence -> occurrence.declaration == "different",
+            Iterators.flatten(group.occurrences for group in report.clone_groups))
+        @test count(diagnostic -> endswith(diagnostic.rule_id, "-DUPLICATE-CODE"),
+            report.diagnostics) == 2
+        @test any(engine -> engine.name == "duplicate-code" &&
+            engine.status == "complete", report.engines)
+
+        json_output = IOBuffer()
+        OdinJuliaAnalysis.write_report(json_output, report, "json")
+        @test occursin("\"clone_groups\"", String(take!(json_output)))
+        markdown_output = IOBuffer()
+        OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
+        @test occursin("## Exact Clone Groups", String(take!(markdown_output)))
+
+        julia_group = only(filter(group -> group.language == "julia", report.clone_groups))
+        candidates = [
+            (
+                occurrence=CloneOccurrence(
+                    occurrence.path,
+                    occurrence.language,
+                    occurrence.declaration,
+                    occurrence.start_line,
+                    occurrence.end_line),
+                canonical_body="shared-body",
+                token_count=10,
+                executable_lines=3)
+            for occurrence in julia_group.occurrences
+        ]
+        reviewed_fingerprint = OdinJuliaAnalysis.exact_clone_groups(candidates)[1].fingerprint
+        reviewed = DuplicateCodeSettings(true, 1, 1, 2, String[], [
+            ReviewedClonePolicy(
+                "shared-julia-body",
+                :julia,
+                reviewed_fingerprint,
+                "The fixture intentionally verifies reviewed exact clones.";
+                response=Warn),
+        ])
+        groups, diagnostics = OdinJuliaAnalysis.analyze_duplicate_code(
+            candidates, duplicate_code_configuration(reviewed))
+        @test length(groups) == 1
+        @test only(diagnostics).response == Warn
+        @test only(diagnostics).reviewed_policy_id == "shared-julia-body"
+
+        excluded = DuplicateCodeSettings(
+            true, 1, 1, 2, ["clones.jl"], ReviewedClonePolicy[])
+        groups, diagnostics = OdinJuliaAnalysis.analyze_duplicate_code(
+            candidates, duplicate_code_configuration(excluded))
+        @test isempty(groups)
+        @test isempty(diagnostics)
+
+        high_threshold = DuplicateCodeSettings(
+            true, 11, 4, 2, String[], ReviewedClonePolicy[])
+        groups, diagnostics = OdinJuliaAnalysis.analyze_duplicate_code(
+            candidates, duplicate_code_configuration(high_threshold))
+        @test isempty(groups)
+        @test isempty(diagnostics)
+
+        stale = DuplicateCodeSettings(true, 1, 1, 2, String[], [
+            ReviewedClonePolicy(
+                "stale", :julia, repeat("0", 64), "Must match one clone."),
+        ])
+        _, diagnostics = OdinJuliaAnalysis.analyze_duplicate_code(
+            candidates, duplicate_code_configuration(stale))
+        @test any(diagnostic -> diagnostic.rule_id == "DUPLICATE-CODE-POLICY-DRIFT" &&
+            diagnostic.response == Fail, diagnostics)
+
+        ambiguous = DuplicateCodeSettings(true, 1, 1, 2, String[], [
+            ReviewedClonePolicy("first", :julia, reviewed_fingerprint, "First review."),
+            ReviewedClonePolicy("second", :julia, reviewed_fingerprint, "Second review."),
+        ])
+        _, diagnostics = OdinJuliaAnalysis.analyze_duplicate_code(
+            candidates, duplicate_code_configuration(ambiguous))
+        @test any(diagnostic -> diagnostic.rule_id == "DUPLICATE-CODE-POLICY-DRIFT" &&
+            occursin("multiple reviewed policies", diagnostic.message), diagnostics)
+    end
+
+    @testset "Phase 3 resource lifetime summaries" begin
+        base_configuration = OdinJuliaAnalysis.load_settings()
+        """Return validated settings for one resource lifetime configuration."""
+        function lifetime_configuration(resource_lifetime)
+            settings = AnalysisSettings(
+                base_configuration.profile,
+                base_configuration.failure_threshold,
+                base_configuration.thresholds,
+                [ScanProfile(base_configuration.profile, String[])],
+                collect(values(base_configuration.rules)),
+                base_configuration.naming,
+                JetSettings(JetEntryPoint[]),
+                OdinBuildSettings(OdinBuildTarget[]),
+                base_configuration.return_tuples,
+                base_configuration.parameter_counts,
+                base_configuration.function_metrics,
+                base_configuration.architecture,
+                base_configuration.allocations,
+                base_configuration.report,
+                AnalysisExtension[],
+                base_configuration.duplicate_code,
+                resource_lifetime)
+            return OdinJuliaAnalysis.validate_settings(settings)
+        end
+
+        contract = ResourceLifetimeContract(
+            "temporary-slice",
+            :temporary,
+            :borrowed,
+            :temporary,
+            "The context temporary allocator owns storage until the temporary scope ends.";
+            operation="make",
+            allocator_source="context.temp_allocator",
+            allows_escape=false)
+        configured = ResourceLifetimeSettings(true, [contract])
+        report = mktempdir() do root
+            write(joinpath(root, "lifetime.odin"), """
+            package fixture
+
+            // Build temporary values for one operation.
+            build_values :: proc() {
+                values := make([]int, 0, context.temp_allocator)
+                _ = values
+            }
+            """)
+            OdinJuliaAnalysis.check_repository(
+                root; configuration=lifetime_configuration(configured))
+        end
+        @test length(report.resource_lifetimes) == 1
+        summary = only(report.resource_lifetimes)
+        @test summary.status == "complete"
+        @test summary.contract_id == "temporary-slice"
+        @test summary.ownership == "borrowed"
+        @test summary.lifetime == "temporary"
+        @test summary.allows_escape == false
+        @test any(engine -> engine.name == "resource-lifetime" &&
+            engine.status == "complete", report.engines)
+
+        json_output = IOBuffer()
+        OdinJuliaAnalysis.write_report(json_output, report, "json")
+        @test occursin("\"resource_lifetimes\"", String(take!(json_output)))
+        markdown_output = IOBuffer()
+        OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
+        @test occursin("## Resource Lifetime Summaries", String(take!(markdown_output)))
+
+        event = Diagnostic(
+            "ODIN-ALLOCATION-TEMPORARY",
+            Ignore,
+            "fixture.odin",
+            3,
+            1,
+            "make may allocate memory.",
+            nothing,
+            nothing,
+            "odin-ast",
+            "make",
+            "make",
+            "context.temp_allocator",
+            "definite",
+            "build_values",
+            "[]int",
+            nothing,
+            nothing)
+        summaries, status = OdinJuliaAnalysis.analyze_resource_lifetimes(
+            [event], lifetime_configuration(ResourceLifetimeSettings(
+                true, ResourceLifetimeContract[])))
+        @test status == "incomplete"
+        @test only(summaries).status == "unresolved"
+
+        broad = ResourceLifetimeContract(
+            "all-temporary", :temporary, :borrowed, :temporary,
+            "All temporary allocations use scoped storage.")
+        summaries, status = OdinJuliaAnalysis.analyze_resource_lifetimes(
+            [event], lifetime_configuration(ResourceLifetimeSettings(
+                true, [broad, contract])))
+        @test status == "incomplete"
+        @test only(summaries).status == "ambiguous"
+
+        @test_throws ArgumentError OdinJuliaAnalysis.validate_settings(
+            AnalysisSettings(
+                base_configuration.profile,
+                base_configuration.failure_threshold,
+                base_configuration.thresholds,
+                [ScanProfile(base_configuration.profile, String[])],
+                collect(values(base_configuration.rules)),
+                base_configuration.naming,
+                base_configuration.jet,
+                base_configuration.odin_build,
+                base_configuration.return_tuples,
+                base_configuration.parameter_counts,
+                base_configuration.function_metrics,
+                base_configuration.architecture,
+                base_configuration.allocations,
+                base_configuration.report,
+                AnalysisExtension[],
+                base_configuration.duplicate_code,
+                ResourceLifetimeSettings(true, [
+                    ResourceLifetimeContract(
+                        "invalid", :temporary, :unknown, :temporary,
+                        "Invalid ownership fixture."),
+                ])))
+    end
+
+    @testset "Phase 3 configured security boundaries" begin
+        base_configuration = OdinJuliaAnalysis.load_settings()
+        """Return validated settings for one configured security analysis."""
+        function security_configuration(security)
+            settings = AnalysisSettings(
+                base_configuration.profile,
+                base_configuration.failure_threshold,
+                base_configuration.thresholds,
+                [ScanProfile(base_configuration.profile, String[])],
+                collect(values(base_configuration.rules)),
+                base_configuration.naming,
+                JetSettings(JetEntryPoint[]),
+                OdinBuildSettings(OdinBuildTarget[]),
+                base_configuration.return_tuples,
+                base_configuration.parameter_counts,
+                base_configuration.function_metrics,
+                base_configuration.architecture,
+                base_configuration.allocations,
+                base_configuration.report,
+                AnalysisExtension[],
+                base_configuration.duplicate_code,
+                base_configuration.resource_lifetime,
+                security)
+            return OdinJuliaAnalysis.validate_settings(settings)
+        end
+
+        security = SecuritySettings(
+            true,
+            [
+                SecurityCallContract(
+                    "julia-input", :julia, "readline", :user_input,
+                    "Interactive input is untrusted."),
+                SecurityCallContract(
+                    "odin-input", :odin, "read_external", :interop,
+                    "Interop input crosses a trust boundary."),
+            ],
+            [
+                SecurityCallContract(
+                    "julia-process", :julia, "run", :command_execution,
+                    "The call executes a process."),
+                SecurityCallContract(
+                    "odin-write", :odin, "write_external", :external_write,
+                    "The call writes across a trust boundary."),
+            ],
+            [
+                SecurityCallContract(
+                    "julia-allowlist", :julia, "validate_input", :allowlist,
+                    "The call validates input against an allowlist."),
+            ])
+        report = mktempdir() do root
+            write(joinpath(root, "boundary.jl"), """
+            function main()
+                value = readline()
+                checked = validate_input(value)
+                run(checked)
+            end
+            """)
+            write(joinpath(root, "boundary.odin"), """
+            package fixture
+
+            // Forward external data to a configured boundary.
+            forward :: proc() {
+                value := read_external()
+                write_external(value)
+            }
+            """)
+            OdinJuliaAnalysis.check_repository(
+                root; configuration=security_configuration(security))
+        end
+        @test report.schema_version == "3.18.0"
+        @test length(report.security_paths) == 2
+        @test Set(path.language for path in report.security_paths) == Set(("julia", "odin"))
+        julia_path = only(filter(path -> path.language == "julia", report.security_paths))
+        @test julia_path.sanitizer_contract_ids == ["julia-allowlist"]
+        @test julia_path.certainty == "potential"
+        @test occursin("Argument flow is not yet proven", julia_path.explanation)
+        @test count(diagnostic -> diagnostic.rule_id == "SECURITY-UNSAFE-BOUNDARY",
+            report.diagnostics) == 2
+        @test any(engine -> engine.name == "security" &&
+            engine.status == "complete", report.engines)
+
+        json_output = IOBuffer()
+        OdinJuliaAnalysis.write_report(json_output, report, "json")
+        @test occursin("\"security_paths\"", String(take!(json_output)))
+        markdown_output = IOBuffer()
+        OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
+        @test occursin("## Security Boundary Paths", String(take!(markdown_output)))
+
+        reversed = [
+            CallEdge("x.jl", "julia", "main", "run", "direct", 2, 1),
+            CallEdge("x.jl", "julia", "main", "readline", "direct", 3, 1),
+        ]
+        analysis = OdinJuliaAnalysis.analyze_security_boundaries(
+            reversed, security_configuration(security))
+        @test isempty(analysis.paths)
+        @test isempty(analysis.diagnostics)
+        @test analysis.status == "complete"
+
+        dynamic = [
+            CallEdge("x.jl", "julia", "main", "readline", "direct", 2, 1),
+            CallEdge("x.jl", "julia", "main", "callable", "dynamic", 3, 1),
+            CallEdge("x.jl", "julia", "main", "run", "direct", 4, 1),
+        ]
+        analysis = OdinJuliaAnalysis.analyze_security_boundaries(
+            dynamic, security_configuration(security))
+        @test length(analysis.paths) == 1
+        @test analysis.status == "incomplete"
+
+        invalid = SecuritySettings(true, [
+            SecurityCallContract(
+                "bad", :python, "input", :user_input, "Unsupported language."),
+        ], SecurityCallContract[], SecurityCallContract[])
+        @test_throws ArgumentError security_configuration(invalid)
+    end
+
     @testset "self analysis" begin
         report = OdinJuliaAnalysis.check_repository(
             OdinJuliaAnalysis.ANALYSIS_ROOT)
         @test report.exit_code == 0
         @test all(
             engine -> engine.status == "complete" ||
-                (engine.name == "architecture" &&
+                (engine.name in (
+                    "architecture", "duplicate-code", "resource-lifetime",
+                    "security") &&
                     engine.status == "not-applicable"),
             report.engines)
         @test report.files_analyzed > 0

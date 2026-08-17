@@ -56,7 +56,7 @@ project-specific trusted extensions.
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `3.15.0` |
+| Analysis schema | `3.18.0` |
 | Extension API | `1.5.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 57 |
@@ -171,7 +171,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 3.15.0]
+    Statistics --> Report[AnalysisReport schema 3.18.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
@@ -453,7 +453,7 @@ end
 | `extension_dependencies` | Name extensions whose results may be consumed |
 | `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
 
-Default methods provide API version `1.5.0`, repository phase, no rules, and no
+Default methods provide API version `1.7.0`, repository phase, no rules, and no
 dependencies. `extension_id` and `analyze_extension` must be implemented.
 
 ### Lifecycle and Dependencies
@@ -533,6 +533,56 @@ Layer paths are repository-relative. More-specific paths take precedence over br
 paths, allowing a root layer such as `.` with nested subsystem layers. Julia resolution
 uses parser-derived qualified module declarations. Odin collection imports such as
 `core:fmt` are external; plain package paths resolve to existing repository directories.
+
+## Resource Lifetime Summaries
+
+Resource lifetime analysis maps parser-backed Odin allocation events to typed project
+contracts. Contracts select an allocation category and may narrow by operation or exact
+allocator source. Each match records ownership, lifetime, release expectations, escape
+permission, and the reason for the contract:
+
+```julia
+ResourceLifetimeSettings(true, [
+  ResourceLifetimeContract(
+    "temporary-slice",
+    :temporary,
+    :borrowed,
+    :temporary,
+    "The temporary allocator owns storage until its scope ends.";
+    operation="make",
+    allocator_source="context.temp_allocator",
+    allows_escape=false),
+])
+```
+
+The engine is `incomplete` when an allocation has no unique matching contract. This is
+intentional: summaries describe configured ownership evidence but do not yet claim
+path-sensitive release, transfer, or escape verification.
+
+## Security Boundary Paths
+
+Security analysis uses typed Julia and Odin call contracts for trust-boundary sources,
+sinks, and sanitizers. When a configured source call precedes a configured sink call in
+the same declaration, the report records a `potential` `SECURITY-UNSAFE-BOUNDARY` path:
+
+```julia
+SecuritySettings(
+  true,
+  [SecurityCallContract(
+    "interactive-input", :julia, "readline", :user_input,
+    "Interactive input is untrusted.")],
+  [SecurityCallContract(
+    "process-execution", :julia, "run", :command_execution,
+    "The call executes a process.")],
+  [SecurityCallContract(
+    "input-allowlist", :julia, "validate_input", :allowlist,
+    "The call validates input against an allowlist.")])
+```
+
+Observed sanitizer calls are retained as evidence and do not automatically suppress the
+path. Dynamic calls make the security engine incomplete. The analyzer does not yet claim
+argument-level taint flow, command injection, or path traversal; those rules require
+parser-backed assignment and argument propagation.
 Empty architecture settings are the default, preserve dependency inventory reporting,
 and make all three rules `not-applicable`. The default rule responses are `Report` so a
 project can add layers without immediately enforcing uncharacterized boundaries.
@@ -545,7 +595,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.15.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.18.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
 
 The canonical report includes:
@@ -553,6 +603,7 @@ The canonical report includes:
 | Section | Contents |
 | --- | --- |
 | Metadata | Schema, tool version, root, profile, thresholds, and exit code |
+| Exact clones | SHA-256 fingerprints, language, size, and every occurrence |
 | Files | Language, line classes, parse state, function count, and struct count |
 | Functions | Location, physical/executable lines, parameters, returns, and complexity |
 | Dependencies | Parser-backed Julia `using`/`import` and Odin package-import edges |

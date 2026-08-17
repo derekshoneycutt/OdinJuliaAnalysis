@@ -132,6 +132,18 @@ find_test_call_edge :: proc(
     return nil, false
 }
 
+// Return one parser-tokenized procedure body by declaration name.
+find_test_procedure_body :: proc(
+    summary: ^File_Summary,
+    name: string) -> (^Procedure_Body, bool) {
+    for &body in summary.procedure_bodies {
+        if body.name == name {
+            return &body, true
+        }
+    }
+    return nil, false
+}
+
 // Verify procedure counts, return counts, complexity, and documentation state.
 verify_test_procedure_metrics :: proc(t: ^testing.T, summary: ^File_Summary) {
     choose, choose_found := find_test_procedure(summary, "choose")
@@ -209,6 +221,16 @@ verify_test_call_edges :: proc(t: ^testing.T, summary: ^File_Summary) {
     }
 }
 
+// Verify native body tokenization excludes formatting while retaining syntax.
+verify_test_procedure_bodies :: proc(t: ^testing.T, summary: ^File_Summary) {
+    body, found := find_test_procedure_body(summary, "caller")
+    testing.expect(t, found)
+    if found {
+        testing.expect(t, len(body.tokens) > 0)
+        testing.expect_value(t, body.tokens[0], "{")
+    }
+}
+
 // Verify representative implicit, growth, and explicit allocation findings.
 verify_test_allocation_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
     implicit, implicit_found := find_test_finding(
@@ -260,6 +282,7 @@ odin_engine_test_procedure_metrics :: proc(t: ^testing.T) {
     verify_test_analysis_findings(t, &summary)
     verify_test_declaration_symbols(t, &summary)
     verify_test_call_edges(t, &summary)
+    verify_test_procedure_bodies(t, &summary)
 }
 
 // Verify allocation findings retain category, procedure, target, and certainty.
