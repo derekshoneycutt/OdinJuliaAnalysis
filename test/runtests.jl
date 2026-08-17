@@ -1764,6 +1764,9 @@ end
                 bad_enum :: enum {
                     bad_value,
                 }
+                Vector2 :: rl.Vector2
+                bad_forward :: rl.Vector2
+                FORWARDED_CONSTANT :: rl.FORWARDED_CONSTANT
                 bad_constant :: 1
                 Bad_Procedure :: proc(Bad_Parameter: int) {
                     _ = Bad_Parameter
@@ -1782,14 +1785,15 @@ end
                 "Bad_Field",
                 "bad_enum",
                 "bad_value",
+                "bad_forward",
                 "bad_constant",
                 "Bad_Procedure",
                 "Bad_Parameter",
                 "Bad_Local",
             ]
             @test [item.operation for item in diagnostics] == [
-                "import", "type", "field", "type", "enum_value", "constant",
-                "procedure", "parameter", "variable"]
+                "import", "type", "field", "type", "enum_value", "type",
+                "constant", "procedure", "parameter", "variable"]
             @test all(item -> item.response == Warn, diagnostics)
             @test "_" ∉ [item.subject for item in diagnostics]
 

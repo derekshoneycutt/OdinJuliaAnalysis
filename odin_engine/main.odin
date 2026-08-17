@@ -189,10 +189,47 @@ append_value_declaration_symbols :: proc(
         case ^ast.Union_Type, ^ast.Distinct_Type, ^ast.Bit_Set_Type:
             append_symbol(data, name, "type")
         case:
-            kind := "constant" if !declaration.is_mutable else "variable"
-            append_symbol(data, name, kind)
+            append_symbol(data, name, value_declaration_kind(declaration, value))
         }
     }
+}
+
+// Classify a value declaration after structural type forms have been handled.
+value_declaration_kind :: proc(
+    declaration: ^ast.Value_Decl,
+    value: ^ast.Expr) -> string {
+    if declaration.is_mutable {
+        return "variable"
+    }
+    return "type" if is_clear_type_forward(value) else "constant"
+}
+
+// Return whether an immutable identifier or selector clearly names an Odin type.
+is_clear_type_forward :: proc(expression: ^ast.Expr) -> bool {
+    name, named := identifier_name(expression)
+    if !named || len(name) < 2 || name[0] < 'A' || name[0] > 'Z' {
+        return false
+    }
+    segment_start := false
+    has_lowercase := false
+    for character in name[1:] {
+        if character == '_' {
+            if segment_start {
+                return false
+            }
+            segment_start = true
+        } else if segment_start {
+            if character < 'A' || character > 'Z' {
+                return false
+            }
+            segment_start = false
+        } else if character >= 'a' && character <= 'z' {
+            has_lowercase = true
+        } else if character < '0' || character > '9' {
+            return false
+        }
+    }
+    return !segment_start && has_lowercase
 }
 
 // Return whether a declaration has one identifier attribute.

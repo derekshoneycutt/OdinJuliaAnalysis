@@ -23,6 +23,8 @@ Sample_Enum :: enum {
 }
 
 SAMPLE_CONSTANT :: 1
+Forwarded_Type :: external.Forwarded_Type
+FORWARDED_CONSTANT :: external.FORWARDED_CONSTANT
 PACKAGE_GLOBAL := 2
 
 // Return the selected value.
@@ -161,6 +163,9 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     _, enum_found := find_test_symbol(summary, "Sample_Enum", "type")
     _, enum_value_found := find_test_symbol(summary, "Sample_Value", "enum_value")
     _, constant_found := find_test_symbol(summary, "SAMPLE_CONSTANT", "constant")
+    _, forwarded_type_found := find_test_symbol(summary, "Forwarded_Type", "type")
+    _, forwarded_constant_found := find_test_symbol(
+        summary, "FORWARDED_CONSTANT", "constant")
     _, procedure_found := find_test_symbol(summary, "choose", "procedure")
     _, parameter_found := find_test_symbol(summary, "a", "parameter")
     _, variable_found := find_test_symbol(summary, "local_value", "variable")
@@ -169,6 +174,8 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     testing.expect(t, enum_found)
     testing.expect(t, enum_value_found)
     testing.expect(t, constant_found)
+    testing.expect(t, forwarded_type_found)
+    testing.expect(t, forwarded_constant_found)
     testing.expect(t, procedure_found)
     testing.expect(t, parameter_found)
     testing.expect(t, variable_found)
