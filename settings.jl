@@ -68,84 +68,19 @@ AnalysisSettings(
         RuleSetting("MARKDOWN-RELATIVE-LINK", true, Warn),
         RuleSetting("MARKDOWN-IMAGE-ALT-TEXT", true, Warn),
     ],
-    NamingSettings(
-        default_naming_settings().conventions,
-        ReviewedNamingPolicy[
-            ReviewedNamingPolicy(
-                "diagnostic-convenience-constructors",
-                "src/core/model.jl",
-                :julia,
-                :function,
-                "Diagnostic",
-                "Outer constructors conventionally use the constructed Julia type name.";
-                minimum_matches=1,
-                maximum_matches=1),
-            ReviewedNamingPolicy(
-                "naming-convention-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "NamingConvention",
-                "The convenience constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "reviewed-naming-policy-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "ReviewedNamingPolicy",
-                "The convenience constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "naming-settings-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "NamingSettings",
-                "The compatibility constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "reviewed-allocation-policy-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "ReviewedAllocationPolicy",
-                "The convenience constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "reviewed-complexity-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "ReviewedComplexity",
-                "The convenience constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "extension-result-constructor",
-                "src/core/extension_api.jl",
-                :julia,
-                :function,
-                "ExtensionResult",
-                "The convenience constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "function-metric-settings-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "FunctionMetricSettings",
-                "The compatibility constructor uses the constructed Julia type name."),
-            ReviewedNamingPolicy(
-                "analysis-settings-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "AnalysisSettings",
-                "Compatibility constructors use the constructed Julia type name.";
-                minimum_matches=3,
-                maximum_matches=3),
-            ReviewedNamingPolicy(
-                "effective-settings-constructor",
-                "src/configuration/settings_types.jl",
-                :julia,
-                :function,
-                "EffectiveSettings",
-                "The compatibility constructor uses the constructed Julia type name."),
-        ]),
+    NamingSettings([
+        convention.language == :julia && convention.kind == :function ?
+            NamingConvention(
+                convention.language,
+                convention.kind,
+                convention.casing;
+                allow_leading_underscore=convention.allow_leading_underscore,
+                allow_trailing_bang=convention.allow_trailing_bang,
+                allow_constructor_names=true,
+                ignored_names=convention.ignored_names,
+                ignored_patterns=convention.ignored_patterns) : convention
+        for convention in default_naming_settings().conventions
+    ]),
     JetSettings([
         JetEntryPoint(
             "analyzer-cli",

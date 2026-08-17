@@ -58,7 +58,8 @@ function write_markdown_interop(io, report)
     if isempty(report.interop_signatures)
         println(io, "\nNo supported interop signatures found.")
     else
-        println(io, "\n| Source | Language | Direction | Symbol | ABI | Parameters | Returns |")
+        println(io, "\n| Source | Language | Direction | Symbol | ABI | Parameters" *
+            " | Returns |")
         println(io, "| --- | --- | --- | --- | --- | --- | --- |")
         for signature in report.interop_signatures
             parameters = join(signature.parameter_types, ", ")
@@ -116,7 +117,8 @@ function write_markdown_dependencies(io, report)
         return
     end
     println(io)
-    println(io, "| Source | Language | Kind | Target | Resolution | Target path | Location |")
+    println(io, "| Source | Language | Kind | Target | Resolution" *
+        " | Target path | Location |")
     println(io, "| --- | --- | --- | --- | --- | --- | ---: |")
     for edge in report.dependencies
         target_path = something(edge.target_path, "-")

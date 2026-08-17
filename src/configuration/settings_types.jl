@@ -58,6 +58,7 @@ struct NamingConvention
     casing::Symbol
     allow_leading_underscore::Bool
     allow_trailing_bang::Bool
+    allow_constructor_names::Bool
     ignored_names::Vector{String}
     ignored_patterns::Vector{Regex}
 end
@@ -104,6 +105,7 @@ function NamingConvention(
     casing::Symbol;
     allow_leading_underscore::Bool=false,
     allow_trailing_bang::Bool=false,
+    allow_constructor_names::Bool=false,
     ignored_names::Vector{String}=String[],
     ignored_patterns::Vector{Regex}=Regex[])
     return NamingConvention(
@@ -112,6 +114,7 @@ function NamingConvention(
         casing,
         allow_leading_underscore,
         allow_trailing_bang,
+        allow_constructor_names,
         ignored_names,
         ignored_patterns)
 end

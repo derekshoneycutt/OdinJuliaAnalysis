@@ -223,6 +223,33 @@ end
 """Report one analysis milestone when progress output is enabled."""
 report_progress(progress, message) = progress === nothing || progress(message)
 
+"""Run julia-specific checks on an individual julia file."""
+function analyze_julia_source_file!(relative_path, source, configuration, state)
+    julia_diagnostics = JuliaEngine.check(
+        relative_path, source, configuration)
+    append!(state.diagnostics, julia_diagnostics)
+    syntax_failed = any(
+        item -> item.rule_id == "JULIA-SYNTAX", julia_diagnostics)
+    syntax_failed || append!(
+        state.functions,
+        JuliaEngine.analyze_functions(relative_path, source))
+    syntax_failed || append!(
+        state.dependencies,
+        JuliaEngine.analyze_dependencies(relative_path, source))
+    syntax_failed || append!(
+        state.declarations,
+        JuliaEngine.analyze_declarations(relative_path, source))
+    syntax_failed || append!(
+        state.import_bindings,
+        JuliaEngine.analyze_import_bindings(relative_path, source))
+    syntax_failed || append!(
+        state.references,
+        JuliaEngine.analyze_references(relative_path, source))
+    syntax_failed || append!(
+        state.interop_signatures,
+        JuliaEngine.analyze_interop(relative_path, source))
+end
+
 """Run common and language-specific checks that operate on individual files."""
 function analyze_source_files!(
     state,
@@ -236,29 +263,7 @@ function analyze_source_files!(
             relative_path, source, configuration))
 
         if endswith(path, ".jl")
-            julia_diagnostics = JuliaEngine.check(
-                relative_path, source, configuration)
-            append!(state.diagnostics, julia_diagnostics)
-            syntax_failed = any(
-                item -> item.rule_id == "JULIA-SYNTAX", julia_diagnostics)
-            syntax_failed || append!(
-                state.functions,
-                JuliaEngine.analyze_functions(relative_path, source))
-            syntax_failed || append!(
-                state.dependencies,
-                JuliaEngine.analyze_dependencies(relative_path, source))
-            syntax_failed || append!(
-                state.declarations,
-                JuliaEngine.analyze_declarations(relative_path, source))
-            syntax_failed || append!(
-                state.import_bindings,
-                JuliaEngine.analyze_import_bindings(relative_path, source))
-            syntax_failed || append!(
-                state.references,
-                JuliaEngine.analyze_references(relative_path, source))
-            syntax_failed || append!(
-                state.interop_signatures,
-                JuliaEngine.analyze_interop(relative_path, source))
+            analyze_julia_source_file!(relative_path, source, configuration, state)
         elseif endswith(path, ".md")
             append!(
                 state.diagnostics,
@@ -366,15 +371,11 @@ function assemble_analysis_report(
     extension_results=ExtensionResult[])
     append!(diagnostics, function_metric_diagnostics(functions, configuration))
     apply_reviewed_complexity!(diagnostics, root, files, configuration)
+    apply_constructor_naming_convention!(diagnostics, declarations, configuration)
     apply_reviewed_naming_policies!(diagnostics, root, files, configuration)
     files_analysis = analyze_files(root, files, functions, struct_counts, diagnostics)
     statistics = calculate_repository_statistics(files_analysis, functions)
-    run_extension_phase!(
-        extension_results,
-        diagnostics,
-        configuration,
-        root,
-        files,
+    run_extension_phase!(extension_results, diagnostics, configuration, root, files,
         AfterRepositoryAnalysis;
         files=files_analysis,
         functions,
@@ -390,12 +391,8 @@ function assemble_analysis_report(
     sort!(diagnostics; by=diagnostic_sort_key)
     ignored = remove_ignored_diagnostics!(diagnostics)
     exit_code = analysis_exit_code(diagnostics, engines, configuration)
-    rule_summaries = summarize_rule_runs(
-        configuration,
-        files_by_language,
-        diagnostics,
-        ignored.counts,
-        engines)
+    rule_summaries = summarize_rule_runs(configuration, files_by_language, diagnostics,
+        ignored.counts, engines)
     return canonical_analysis_report((;
         root, files, files_by_language, files_analysis, functions, dependencies,
         declarations, import_bindings, references, interop_signatures, interop_pairs,
@@ -478,18 +475,9 @@ end
 
 """Run built-in and extension analysis through the language-analysis phase."""
 function run_language_analysis!(state, root, files, configuration, progress)
-    run_extension_phase!(
-        state.extension_results,
-        state.diagnostics,
-        configuration,
-        root,
-        files,
-        AfterDiscovery)
-    analyze_source_files!(
-        state,
-        root,
-        files,
-        configuration)
+    run_extension_phase!(state.extension_results, state.diagnostics, configuration,
+        root, files, AfterDiscovery)
+    analyze_source_files!(state, root, files, configuration)
     run_jet_analysis!(state.diagnostics, state.engines, root, configuration, progress)
     run_odin_analysis!(state, root, files, configuration, progress)
     append!(state.diagnostics, analyze_unused_imports(
@@ -501,13 +489,8 @@ function run_language_analysis!(state, root, files, configuration, progress)
         root, files, state.functions, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
         language_files, state.functions)
-    run_extension_phase!(
-        state.extension_results,
-        state.diagnostics,
-        configuration,
-        root,
-        files,
-        AfterLanguageAnalysis;
+    run_extension_phase!(state.extension_results, state.diagnostics,
+        configuration, root, files, AfterLanguageAnalysis;
         files=language_files,
         functions=state.functions,
         dependencies=state.dependencies,

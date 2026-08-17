@@ -811,6 +811,17 @@ function check_naming(path, source, configuration)
     diagnostics = Diagnostic[]
     offsets = line_start_offsets(split(source, '\n'; keepempty=true))
     collect_naming!(diagnostics, tree, path, offsets, conventions, :top_level)
+    function_convention = get(conventions, :function, nothing)
+    if function_convention !== nothing && function_convention.allow_constructor_names
+        type_names = Set(
+            declaration.name
+            for declaration in analyze_declarations(path, source)
+            if declaration.kind == "type")
+        filter!(diagnostic ->
+            diagnostic.operation != "function" ||
+                !(diagnostic.subject in type_names),
+            diagnostics)
+    end
     configured = Diagnostic[]
     for diagnostic in diagnostics
         item = configured_diagnostic(configuration, diagnostic)

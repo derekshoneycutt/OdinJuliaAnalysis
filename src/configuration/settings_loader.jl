@@ -38,24 +38,12 @@ function validate_settings(
     validate_architecture_settings(settings.architecture)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
-    return EffectiveSettings(
-        selected_profile,
-        settings.failure_threshold,
+    return EffectiveSettings(selected_profile, settings.failure_threshold,
         settings.thresholds,
         copy(profiles[selected_profile].enforcement_excludes),
-        rules,
-        settings.naming,
-        settings.jet,
-        settings.odin_build,
-        settings.return_tuples,
-        settings.parameter_counts,
-        settings.function_metrics,
-        settings.architecture,
-        settings.allocations,
-        settings.report,
-        extensions,
-        rule_registry,
-        rule_owners)
+        rules, settings.naming, settings.jet, settings.odin_build, settings.return_tuples,
+        settings.parameter_counts, settings.function_metrics, settings.architecture,
+        settings.allocations, settings.report, extensions, rule_registry, rule_owners)
 end
 
 """Validate extension contracts and return deterministic dependency order."""
@@ -298,6 +286,10 @@ function validate_naming_conventions(conventions)
             "unsupported $(convention.language) naming kind: $(convention.kind)"))
         convention.casing in NAMING_CASES || throw(ArgumentError(
             "unsupported naming case: $(convention.casing)"))
+        convention.allow_constructor_names &&
+            (convention.language != :julia || convention.kind != :function) &&
+            throw(ArgumentError(
+                "constructor names are supported only for Julia functions"))
         selector = (convention.language, convention.kind)
         selector in selectors && throw(ArgumentError(
             "duplicate naming convention: $(convention.language).$(convention.kind)"))

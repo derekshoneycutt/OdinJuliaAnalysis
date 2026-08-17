@@ -753,23 +753,18 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
 // Walk a parsed file to collect documentation and allocation findings.
 check_allocations :: proc(
     file: ^ast.File,
-    findings: ^[dynamic]Finding,
-    procedures: ^[dynamic]Procedure_Metric,
-    symbols: ^[dynamic]Declaration_Symbol,
-    imports: ^[dynamic]Import_Edge,
-    references: ^[dynamic]Reference_Record,
-    interop_signatures: ^[dynamic]Interop_Signature,
+    summary: ^File_Summary,
     allocator: runtime.Allocator) {
     procedure_scopes := make([dynamic]Procedure_Scope, 0, allocator)
     data := Analysis_Visitor_Data {
         source = file.src,
-        findings = findings,
+        findings = &summary.findings,
         procedure_scopes = &procedure_scopes,
-        procedures = procedures,
-        symbols = symbols,
-        imports = imports,
-        references = references,
-        interop_signatures = interop_signatures,
+        procedures = &summary.procedures,
+        symbols = &summary.symbols,
+        imports = &summary.imports,
+        references = &summary.references,
+        interop_signatures = &summary.interop_signatures,
         allocator = allocator,
     }
     visitor := ast.Visitor {
@@ -853,15 +848,7 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
     summary.syntax_errors = file.syntax_error_count
     summary.syntax_warnings = file.syntax_warning_count
     if summary.parsed && summary.syntax_errors == 0 {
-        check_allocations(
-            file,
-            &summary.findings,
-            &summary.procedures,
-            &summary.symbols,
-            &summary.imports,
-            &summary.references,
-            &summary.interop_signatures,
-            allocator)
+        check_allocations(file, &summary, allocator)
         for symbol in summary.symbols {
             if symbol.is_struct {
                 summary.struct_count += 1

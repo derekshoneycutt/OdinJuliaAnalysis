@@ -1,3 +1,26 @@
+"""Remove Julia constructor naming findings backed by declared repository types."""
+function apply_constructor_naming_convention!(
+    diagnostics,
+    declarations,
+    configuration)
+    convention = findfirst(
+        item -> item.language == :julia && item.kind == :function,
+        configuration.naming.conventions)
+    convention === nothing && return diagnostics
+    configuration.naming.conventions[convention].allow_constructor_names ||
+        return diagnostics
+    type_names = Set(
+        declaration.name
+        for declaration in declarations
+        if declaration.language == "julia" && declaration.kind == "type")
+    filter!(diagnostic ->
+        diagnostic.rule_id != "JULIA-NAMING" ||
+            diagnostic.operation != "function" ||
+            !(diagnostic.subject in type_names),
+        diagnostics)
+    return diagnostics
+end
+
 """Apply reviewed naming policies and report stale or ambiguous policy matches."""
 function apply_reviewed_naming_policies!(
     diagnostics::Vector{Diagnostic},

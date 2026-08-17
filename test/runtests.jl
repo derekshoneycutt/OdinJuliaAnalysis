@@ -485,8 +485,10 @@ end
             :snake_case;
             allow_leading_underscore=true,
             allow_trailing_bang=true,
+            allow_constructor_names=true,
             ignored_names=["Base.show"],
             ignored_patterns=[r"^ccall_"])
+        @test function_convention.allow_constructor_names
         @test OdinJuliaAnalysis.valid_identifier_name(
             "_parse_value!", function_convention)
         @test OdinJuliaAnalysis.valid_identifier_name(
@@ -499,6 +501,14 @@ end
             NamingSettings([
                 NamingConvention(:julia, :function, :snake_case),
                 NamingConvention(:julia, :function, :lowercase),
+            ]))
+        @test_throws ArgumentError OdinJuliaAnalysis.validate_naming_settings(
+            NamingSettings([
+                NamingConvention(
+                    :odin,
+                    :procedure,
+                    :snake_case;
+                    allow_constructor_names=true),
             ]))
         invalid_naming_policy = ReviewedNamingPolicy(
             "invalid-response",
@@ -1159,6 +1169,105 @@ end
             item -> item.rule_id == "JULIA-NAMING",
             OdinJuliaAnalysis.JuliaEngine.check(
                 "fixture.jl", source, disabled)))
+
+        constructor_source = """
+            struct Example
+                value::Int
+            end
+            Example(value::Int) = Example(value)
+            function UtilityFunction()
+                return nothing
+            end
+            """
+        function_conventions = [
+            convention.kind == :function ?
+                NamingConvention(
+                    :julia,
+                    :function,
+                    convention.casing;
+                    allow_leading_underscore=convention.allow_leading_underscore,
+                    allow_trailing_bang=convention.allow_trailing_bang,
+                    allow_constructor_names=true,
+                    ignored_names=convention.ignored_names,
+                    ignored_patterns=convention.ignored_patterns) : convention
+            for convention in configuration.naming.conventions]
+        constructor_configuration = OdinJuliaAnalysis.EffectiveSettings(
+            configuration.profile,
+            configuration.failure_threshold,
+            configuration.thresholds,
+            configuration.enforcement_excludes,
+            configuration.rules,
+            NamingSettings(function_conventions),
+            configuration.jet,
+            configuration.odin_build,
+            configuration.return_tuples,
+            configuration.parameter_counts,
+            configuration.function_metrics,
+            configuration.architecture,
+            configuration.allocations,
+            configuration.report,
+            configuration.extensions,
+            configuration.rule_registry,
+            configuration.extension_rule_owners)
+        constructor_diagnostics = filter(
+            item -> item.rule_id == "JULIA-NAMING",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "constructors.jl", constructor_source, constructor_configuration))
+        @test [item.subject for item in constructor_diagnostics] == [
+            "UtilityFunction"]
+
+        disabled_function_conventions = [
+            convention.kind == :function ?
+                NamingConvention(
+                    :julia,
+                    :function,
+                    convention.casing;
+                    allow_leading_underscore=convention.allow_leading_underscore,
+                    allow_trailing_bang=convention.allow_trailing_bang,
+                    ignored_names=convention.ignored_names,
+                    ignored_patterns=convention.ignored_patterns) : convention
+            for convention in configuration.naming.conventions]
+        disabled_constructor_configuration = OdinJuliaAnalysis.EffectiveSettings(
+            configuration.profile,
+            configuration.failure_threshold,
+            configuration.thresholds,
+            configuration.enforcement_excludes,
+            configuration.rules,
+            NamingSettings(disabled_function_conventions),
+            configuration.jet,
+            configuration.odin_build,
+            configuration.return_tuples,
+            configuration.parameter_counts,
+            configuration.function_metrics,
+            configuration.architecture,
+            configuration.allocations,
+            configuration.report,
+            configuration.extensions,
+            configuration.rule_registry,
+            configuration.extension_rule_owners)
+        disabled_constructor_diagnostics = filter(
+            item -> item.rule_id == "JULIA-NAMING",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "constructors.jl",
+                constructor_source,
+                disabled_constructor_configuration))
+        @test [item.subject for item in disabled_constructor_diagnostics] == [
+            "Example", "UtilityFunction"]
+
+        cross_file_diagnostics = filter(
+            item -> item.rule_id == "JULIA-NAMING",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "constructor.jl",
+                "Example(value::Int) = Example(value)",
+                constructor_configuration))
+        type_declarations = OdinJuliaAnalysis.JuliaEngine.analyze_declarations(
+            "type.jl",
+            "struct Example\nvalue::Int\nend")
+        OdinJuliaAnalysis.apply_constructor_naming_convention!(
+            cross_file_diagnostics,
+            type_declarations,
+            constructor_configuration)
+        @test isempty(cross_file_diagnostics)
     end
 
     @testset "Julia non-const globals" begin
