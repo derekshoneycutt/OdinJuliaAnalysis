@@ -83,13 +83,14 @@ function check_common_rules(
     diagnostics = Diagnostic[]
     lines = split(source, '\n'; keepempty=true)
     line_length_exemptions = find_line_length_exemptions(path, lines)
+    line_length_widths = effective_line_length_widths(path, source, lines)
 
     for (line_number, line) in enumerate(lines)
         line_number in line_length_exemptions || check_line_length!(
             diagnostics,
             path,
             line_number,
-            line,
+            line_length_widths[line_number],
             configuration)
         check_tabs!(diagnostics, path, line_number, line, configuration)
     end
@@ -111,6 +112,93 @@ function find_line_length_exemptions(path, lines)
         "/*",
         "*/")
     return Set{Int}()
+end
+
+"""Return source widths after applying language-specific line-length exclusions."""
+function effective_line_length_widths(path, source, lines)
+    endswith(path, ".jl") && return julia_line_length_widths(source, length(lines))
+    endswith(path, ".odin") && return odin_line_length_widths(source, length(lines))
+    return length.(lines)
+end
+
+"""Return Julia line widths with string-only overflow removed."""
+function julia_line_length_widths(source, line_count)
+    widths = zeros(Int, line_count)
+    trailing_delimiter_widths = zeros(Int, line_count)
+    string_suffixes = falses(line_count)
+    line_number = 1
+
+    for token in JuliaSyntax.tokenize(source)
+        token_range = getfield(token, :range)
+        token_text = SubString(
+            source,
+            thisind(source, Int(first(token_range))),
+            thisind(source, Int(last(token_range))))
+        is_string = is_julia_string_token(token)
+        for character in token_text
+            if character == '\n'
+                line_number += 1
+            elseif is_string
+                string_suffixes[line_number] = true
+                trailing_delimiter_widths[line_number] = 0
+            else
+                widths[line_number] += 1
+                if string_suffixes[line_number] &&
+                        (isspace(character) || character in (')', ']', '}'))
+                    trailing_delimiter_widths[line_number] += 1
+                else
+                    string_suffixes[line_number] = false
+                    trailing_delimiter_widths[line_number] = 0
+                end
+            end
+        end
+    end
+    return widths .- trailing_delimiter_widths
+end
+
+"""Return whether a JuliaSyntax token belongs to a string literal."""
+function is_julia_string_token(token)
+    return string(JuliaSyntax.kind(token)) in ("String", "\"", "\"\"\"")
+end
+
+"""Return Odin line widths with quoted and raw string content removed."""
+function odin_line_length_widths(source, line_count)
+    widths = zeros(Int, line_count)
+    trailing_delimiter_widths = zeros(Int, line_count)
+    string_suffixes = falses(line_count)
+    line_number = 1
+    string_delimiter = nothing
+    escaped = false
+
+    for character in source
+        if character == '\n'
+            line_number += 1
+        elseif string_delimiter !== nothing
+            string_suffixes[line_number] = true
+            trailing_delimiter_widths[line_number] = 0
+            if escaped
+                escaped = false
+            elseif string_delimiter == '"' && character == '\\'
+                escaped = true
+            elseif character == string_delimiter
+                string_delimiter = nothing
+            end
+        elseif character in ('"', '`')
+            string_delimiter = character
+            string_suffixes[line_number] = true
+            trailing_delimiter_widths[line_number] = 0
+        else
+            widths[line_number] += 1
+            if string_suffixes[line_number] &&
+                    (isspace(character) || character in (')', ']', '}'))
+                trailing_delimiter_widths[line_number] += 1
+            else
+                string_suffixes[line_number] = false
+                trailing_delimiter_widths[line_number] = 0
+            end
+        end
+    end
+    return widths .- trailing_delimiter_widths
 end
 
 """Return Markdown lines exempt because of structural content."""
@@ -252,15 +340,20 @@ function marker_at(line, marker, index)
 end
 
 """Append configured line-length diagnostics for one source line."""
-function check_line_length!(diagnostics, path, line_number, line, configuration)
-    diagnostic = line_length_diagnostic(path, line_number, line, configuration.thresholds)
+function check_line_length!(
+    diagnostics,
+    path,
+    line_number,
+    width,
+    configuration)
+    diagnostic = line_length_diagnostic(
+        path, line_number, width, configuration.thresholds)
     diagnostic === nothing || add_configured_diagnostic!(
         diagnostics, configuration, diagnostic)
 end
 
 """Return the highest configured line-length tier exceeded by one line."""
-function line_length_diagnostic(path, line_number, line, thresholds)
-    width = length(line)
+function line_length_diagnostic(path, line_number, width, thresholds)
     tier = line_length_tier(width, thresholds)
     tier === nothing && return nothing
     return Diagnostic(

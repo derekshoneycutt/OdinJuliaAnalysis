@@ -21,6 +21,30 @@
         @test [item.line for item in odin_diagnostics] == [5]
     end
 
+    @testset "ignores string content for line length" begin
+        long_text = repeat("x", 121)
+        source = join([
+            "value = wrapper(\"$long_text\")",
+            "text = \"\"\"",
+            long_text,
+            "\"\"\"",
+            repeat("x", 91) * " * \"ignored\"",
+        ], '\n')
+        diagnostics = OdinJuliaAnalysis.check_common_rules("fixture.jl", source)
+
+        @test [item.line for item in diagnostics] == [5]
+        @test only(diagnostics).measured == 94
+
+        odin_source = join([
+            "value := wrapper(\"$long_text\")",
+            "text := `first",
+            long_text,
+            "last`",
+        ], '\n')
+        @test isempty(OdinJuliaAnalysis.check_common_rules(
+            "fixture.odin", odin_source))
+    end
+
     @testset "exempts Markdown links and table rows" begin
         long_text = repeat("x", 121)
         markdown_source = """
