@@ -784,8 +784,16 @@ append_call_edge :: proc(data: ^Analysis_Visitor_Data, call: ^ast.Call_Expr) {
     if callee == "" {
         return
     }
-    _, direct := ast.unparen_expr(call.expr).derived.(^ast.Ident)
-    _, qualified := ast.unparen_expr(call.expr).derived.(^ast.Selector_Expr)
+    callee_expression := ast.unparen_expr(call.expr)
+    // `(^T)(value)` conversions and `#directive(...)` forms are not call graph edges.
+    if is_type_expression(callee_expression) {
+        return
+    }
+    if _, directive := callee_expression.derived.(^ast.Basic_Directive); directive {
+        return
+    }
+    _, direct := callee_expression.derived.(^ast.Ident)
+    _, qualified := callee_expression.derived.(^ast.Selector_Expr)
     kind := "direct" if direct else "qualified" if qualified else "dynamic"
     append(data.call_edges, Call_Edge {
         caller = containing_procedure(data, call.pos.offset),
