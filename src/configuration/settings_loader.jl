@@ -29,6 +29,28 @@ const NAMING_CASES = Set((
     :ada_case,
     :screaming_snake_case))
 
+# Greek letters name mathematical quantities rather than words, so they carry no
+# word casing and satisfy either case class.
+const GREEK_LETTERS = "\u0370-\u03ff\u1f00-\u1fff"
+const NAMING_LOWER = "a-z$(GREEK_LETTERS)"
+const NAMING_UPPER = "A-Z$(GREEK_LETTERS)"
+const NAMING_LETTER = "A-Za-z$(GREEK_LETTERS)"
+
+const NAMING_PATTERNS = Dict(
+    :any => r"^.*$",
+    :lowercase => Regex("^[$NAMING_LOWER][$(NAMING_LOWER)0-9_]*\$"),
+    :snake_case => Regex(
+        "^[$NAMING_LOWER][$(NAMING_LOWER)0-9]*(?:_[$(NAMING_LOWER)0-9]+)*\$"),
+    :camel_case => Regex("^[$NAMING_UPPER][$(NAMING_LETTER)0-9]*\$"),
+    :camel_or_screaming => Regex(
+        "^(?:[$NAMING_UPPER][$(NAMING_LETTER)0-9]*" *
+        "|[$NAMING_UPPER][$(NAMING_UPPER)0-9]*(?:_[$(NAMING_UPPER)0-9]+)*)\$"),
+    :ada_case => Regex(
+        "^[$NAMING_UPPER][$(NAMING_LOWER)0-9]*" *
+        "(?:_[$NAMING_UPPER][$(NAMING_LOWER)0-9]*)*\$"),
+    :screaming_snake_case => Regex(
+        "^[$NAMING_UPPER][$(NAMING_UPPER)0-9]*(?:_[$(NAMING_UPPER)0-9]+)*\$"))
+
 const NAMING_KINDS = Dict(
     :julia => Set((:module, :type, :function, :constant, :parameter, :variable, :field)),
     :odin => Set((
@@ -539,15 +561,7 @@ function valid_identifier_name(name::AbstractString, convention::NamingConventio
         candidate = lstrip(candidate, '_')
     end
     isempty(candidate) && return name == "_"
-    patterns = Dict(
-        :any => r"^.*$",
-        :lowercase => r"^[a-z][a-z0-9_]*$",
-        :snake_case => r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
-        :camel_case => r"^[A-Z][A-Za-z0-9]*$",
-        :camel_or_screaming => r"^(?:[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)$",
-        :ada_case => r"^[A-Z][a-z0-9]*(?:_[A-Z][a-z0-9]*)*$",
-        :screaming_snake_case => r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
-    return occursin(patterns[convention.casing], candidate)
+    return occursin(NAMING_PATTERNS[convention.casing], candidate)
 end
 
 """Validate known allocating procedure identities and certainty values."""

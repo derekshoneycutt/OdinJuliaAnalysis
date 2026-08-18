@@ -248,6 +248,13 @@ end
         "ccall_ABI", function_convention)
     @test !OdinJuliaAnalysis.valid_identifier_name(
         "ParseValue", function_convention)
+
+    greek_convention = NamingConvention(:julia, :parameter, :snake_case)
+    @test OdinJuliaAnalysis.valid_identifier_name("start_θ", greek_convention)
+    @test OdinJuliaAnalysis.valid_identifier_name("ω_0", greek_convention)
+    @test !OdinJuliaAnalysis.valid_identifier_name("penFloorθ", greek_convention)
+    @test OdinJuliaAnalysis.valid_identifier_name(
+        "MAX_Θ", NamingConvention(:julia, :constant, :screaming_snake_case))
     @test_throws ArgumentError OdinJuliaAnalysis.validate_naming_settings(
         NamingSettings([
             NamingConvention(:julia, :function, :snake_case),
