@@ -149,11 +149,9 @@
         markdown_output = IOBuffer()
         OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
         markdown = String(take!(markdown_output))
-        @test occursin("## Dependency Graph", markdown)
-        @test occursin("## Declaration Inventory", markdown)
-        @test occursin("`App.Local`", markdown)
-        @test occursin("`core:fmt`", markdown)
-        @test occursin("repository | `lib/math`", markdown)
+        @test !occursin("## Dependency Graph", markdown)
+        @test !occursin("## Declaration Inventory", markdown)
+        @test occursin("## Repository Statistics", markdown)
     end
 end
 
@@ -284,11 +282,11 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_markdown_report(output, report)
         markdown = String(take!(output))
-        @test occursin("## Import Bindings", markdown)
-        @test occursin("## Reference Inventory", markdown)
-        @test occursin("## Call Graph", markdown)
-        @test occursin("## Interop Bridge Pairs", markdown)
-        @test occursin("bridge_add", markdown)
+        @test !occursin("## Import Bindings", markdown)
+        @test !occursin("## Reference Inventory", markdown)
+        @test !occursin("## Call Graph", markdown)
+        @test !occursin("## Interop Bridge Pairs", markdown)
+        @test occursin("JULIA-UNUSED-IMPORT", markdown)
     end
 end
 

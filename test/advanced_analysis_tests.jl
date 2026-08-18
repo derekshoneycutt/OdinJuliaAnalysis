@@ -77,7 +77,9 @@
     @test occursin("\"clone_groups\"", String(take!(json_output)))
     markdown_output = IOBuffer()
     OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
-    @test occursin("## Exact Clone Groups", String(take!(markdown_output)))
+    markdown = String(take!(markdown_output))
+    @test !occursin("## Exact Clone Groups", markdown)
+    @test occursin("ODIN-DUPLICATE-CODE", markdown)
 
     julia_group = only(filter(group -> group.language == "julia", report.clone_groups))
     candidates = [
@@ -204,7 +206,9 @@ end
     @test occursin("\"resource_lifetimes\"", String(take!(json_output)))
     markdown_output = IOBuffer()
     OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
-    @test occursin("## Resource Lifetime Summaries", String(take!(markdown_output)))
+    markdown = String(take!(markdown_output))
+    @test !occursin("## Resource Lifetime Summaries", markdown)
+    @test occursin("ODIN-ALLOCATION-TEMPORARY", markdown)
 
     event = Diagnostic(
         "ODIN-ALLOCATION-TEMPORARY",
@@ -350,7 +354,9 @@ end
     @test occursin("\"security_paths\"", String(take!(json_output)))
     markdown_output = IOBuffer()
     OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
-    @test occursin("## Security Boundary Paths", String(take!(markdown_output)))
+    markdown = String(take!(markdown_output))
+    @test !occursin("## Security Boundary Paths", markdown)
+    @test occursin("SECURITY-UNSAFE-BOUNDARY", markdown)
 
     reversed = [
         CallEdge("x.jl", "julia", "main", "run", "direct", 2, 1),
@@ -543,7 +549,7 @@ end
     markdown = String(take!(markdown_output))
     @test occursin("## Test Coverage Evidence", markdown)
     @test occursin("### High-Risk Coverage Gaps", markdown)
-    coverage_section = first(split(markdown, "\n## Security Boundary Paths"))
+    coverage_section = first(split(markdown, "\n## Analytical Odin Builds"))
     coverage_section = last(split(coverage_section, "## Test Coverage Evidence"))
     @test length(collect(eachmatch(
         r"(?m)^\| \d+ \| `uncovered_", coverage_section))) == 1

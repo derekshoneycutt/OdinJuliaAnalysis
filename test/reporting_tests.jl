@@ -185,22 +185,22 @@ end
             "check", root, "--format=text", "--report=$report_path",
             "--settings=$settings_path"]) == 0
         report_text = read(report_path, String)
-        @test occursin("## File Inventory", report_text)
+        @test !occursin("## File Inventory", report_text)
         @test occursin("## Repository Statistics", report_text)
         @test occursin("| Odin |", report_text)
         @test occursin("| Julia |", report_text)
         @test occursin("| Total |", report_text)
         @test occursin("### COCOMO Development Estimate", report_text)
         @test occursin("### LOCOMO Regeneration Estimate", report_text)
-        @test occursin("## Function And Procedure Inventory", report_text)
+        @test !occursin("## Function And Procedure Inventory", report_text)
         @test occursin("## Analytical Odin Builds", report_text)
         @test occursin("No analytical Odin builds were configured.", report_text)
-        @test occursin("## Allocation Ledger", report_text)
+        @test !occursin("## Allocation Ledger", report_text)
         @test occursin("## Rule Coverage", report_text)
-        @test occursin("## Extension Results", report_text)
-        @test occursin("No extensions were configured.", report_text)
+        @test !occursin("## Extension Results", report_text)
+        @test occursin("## Complete Findings By File", report_text)
         @test occursin("Functions within thresholds", report_text)
-        @test occursin("`choose`", report_text)
+        @test occursin("ODIN-ALLOCATION", report_text)
         @test OdinJuliaAnalysis.main([
             "check", root, "--format=text", "--settings=$settings_path"]) == 0
         @test OdinJuliaAnalysis.main(["check", "--help"]) == 0

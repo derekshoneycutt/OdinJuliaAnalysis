@@ -101,7 +101,7 @@ julia --project=. analyze.jl check /path/to/project \
   --settings=/path/to/project/analysis_settings.jl
 ```
 
-Write machine output and a complete Markdown audit report:
+Write machine output and a compact Markdown review report:
 
 ```sh
 julia --project=. analyze.jl check /path/to/project \
@@ -131,7 +131,7 @@ implemented.
 | `--color` | `auto`, `always`, `never` | `auto` | Control ANSI styling in text output |
 | `--progress` | `auto`, `always`, `never` | `auto` | Control milestones written to stderr |
 | `--settings` | File path | Packaged `settings.jl` | Load an `AnalysisSettings` value |
-| `--report` | File path | None | Write the comprehensive Markdown artifact |
+| `--report` | File path | None | Write the compact Markdown review artifact |
 | `-h`, `--help` | - | - | Show command help |
 
 Progress always uses stderr. Text or JSON report data always uses stdout, so machine
@@ -220,7 +220,7 @@ flowchart TD
 | [`src/odin_engine/`](src/odin_engine/) | Julia adapter for the native Odin engine |
 | [`odin_engine/`](odin_engine/) | Native Odin parser, analyzer, and native tests |
 | [`src/markdown_engine/`](src/markdown_engine/) | Markdown structure checks |
-| [`src/reporting/`](src/reporting/) | Text, JSON, and comprehensive Markdown renderers |
+| [`src/reporting/`](src/reporting/) | Text, JSON, and compact Markdown renderers |
 | [`test/`](test/) | Analyzer regression suite |
 | [`sample/`](sample/) | Standalone Odin/Julia consumer and integration example |
 
@@ -655,34 +655,26 @@ of the same analysis state.
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
 | JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.19.0 |
-| Markdown | `--report=PATH` | Review, archival, and audit | Complete human-readable artifact |
+| Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
 
 The canonical report includes:
 
 | Section | Contents |
 | --- | --- |
 | Metadata | Schema, tool version, root, profile, thresholds, and exit code |
-| Exact clones | SHA-256 fingerprints, language, size, and every occurrence |
-| Files | Language, line classes, parse state, function count, and struct count |
-| Functions | Location, physical/executable lines, parameters, returns, and complexity |
-| Dependencies | Parser-backed Julia `using`/`import` and Odin package-import edges |
-| Declarations | Qualified parser-backed declaration names, kinds, scopes, and locations |
-| Import bindings | Explicit Julia and Odin names eligible for unused-import analysis |
-| References | Parser-visible identifier names, lexical scopes, and locations |
-| Interop | Normalized ABI signatures and matched, mismatched, external, or missing bridge pairs |
-| Test coverage | Declaration-level static/runtime evidence, classes, risk, and aggregate counts |
 | Statistics | Language totals, complexity density, COCOMO, and LOCOMO |
-| Diagnostics | Visible and ignored findings with evidence and reviewed-policy metadata |
+| Function thresholds | Configured metric response thresholds |
+| Test coverage | Aggregate static/runtime evidence and bounded high-risk gaps |
+| Diagnostics | Complete visible report, warning, and failure findings with evidence |
 | Engines | Completion status and failure messages |
 | Rules | Response, evaluation status, files checked, and finding count |
 | Odin builds | Commands, flags, streams, artifacts, status, and exit codes |
-| Extensions | Phase results, status, messages, diagnostics, and generic artifacts |
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |
 | `.build/odin-engine` | Analyzer package | Cached native Odin analysis executable |
 | `<target>/.build/analysis/odin/` | Analyzed repository | Configured analytical Odin build artifacts |
-| User-selected `--report` path | Caller | Comprehensive Markdown report |
+| User-selected `--report` path | Caller | Compact Markdown review report |
 
 Generated `.build` directories are excluded from source discovery.
 

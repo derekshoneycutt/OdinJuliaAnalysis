@@ -352,9 +352,8 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_markdown_report(output, report)
         report_text = String(take!(output))
-        @test occursin("## Extension Results", report_text)
-        @test occursin("`project`", report_text)
-        @test occursin("prior_count", report_text)
+        @test !occursin("## Extension Results", report_text)
+        @test occursin("extension:project", report_text)
 
         failing = FixtureExtension(
             "failing", String[], all_phases, "complete", true)

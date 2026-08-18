@@ -26,7 +26,7 @@ function write_report(
     write_text_report(io, report, color, warning_limit, report_limit)
 end
 
-"""Write the complete human-readable analysis report."""
+"""Write the human-readable analysis report."""
 function write_text_report(io, report, color, warning_limit, report_limit)
     use_color = color_enabled(io, color)
     println(io, styled("OdinJuliaAnalysis $(report.tool_version)", "\e[1m", use_color))

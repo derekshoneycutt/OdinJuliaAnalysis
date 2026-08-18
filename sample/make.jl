@@ -31,7 +31,7 @@ function print_help(io::IO=stdout)
     println(io, "  --color=MODE       auto, always, or never")
     println(io, "  --format=FORMAT    text or complete JSON")
     println(io, "  --settings=PATH    Load alternate analyzer settings")
-    println(io, "  --report=PATH      Write the comprehensive Markdown report")
+    println(io, "  --report=PATH      Write the compact Markdown report")
 end
 
 """Run one command from the sample root and return its exit code."""
