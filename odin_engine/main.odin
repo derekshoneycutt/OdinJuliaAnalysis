@@ -10,7 +10,7 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.9.0"
+SCHEMA_VERSION :: "3.10.0"
 ENGINE_VERSION :: "0.12.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
@@ -35,6 +35,7 @@ Procedure_Metric :: struct {
     return_count: int,
     cyclomatic_complexity: int,
     documented: bool,
+    documentation: string,
     start_offset: int,
     end_offset: int,
 }
@@ -629,6 +630,7 @@ register_procedure_scopes :: proc(
                 return_count = return_count(procedure.type.results),
                 cyclomatic_complexity = 1,
                 documented = declaration.docs != nil,
+                documentation = comment_group_source(data.source, declaration.docs),
                 start_offset = value.pos.offset,
                 end_offset = value.end.offset,
             })
@@ -644,6 +646,16 @@ register_procedure_scopes :: proc(
             }
         }
     }
+}
+
+// Return exact source text for one parser-attached comment group.
+comment_group_source :: proc(source: string, group: ^ast.Comment_Group) -> string {
+    if group == nil {
+        return ""
+    }
+    start := clamp(group.pos.offset, 0, len(source))
+    end := clamp(group.end.offset, start, len(source))
+    return strings.trim_space(source[start:end])
 }
 
 // Return parser-tokenized procedure body text without comments or formatting.

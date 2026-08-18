@@ -1216,9 +1216,11 @@ end
 function check_documentation(path, source, configuration)
     diagnostics = Diagnostic[]
     functions = analyze_functions(path, source)
-    documented_names = Set(
-        item.name for item in functions
-        if item.documented && item.name != "<anonymous>")
+    documentation = function_documentation(source)
+    documented_names = Set(name for (name, texts) in documentation
+        if any(
+            text -> occursin(configuration.documentation.julia_template, text),
+            texts))
     reported_names = Set{String}()
     for item in functions
         (item.name == "<anonymous>" || item.name in documented_names ||
@@ -1230,14 +1232,59 @@ function check_documentation(path, source, configuration)
             path,
             item.start_line,
             1,
-            "Julia function family `$(item.name)` requires at least one docstring.",
+            "Julia function family `$(item.name)` requires at least one " *
+                "docstring matching the configured template.",
             nothing,
             nothing,
-            "julia-syntax")
+            "julia-syntax",
+            item.name,
+            "documentation",
+            nothing,
+            "stable")
         configured = configured_diagnostic(configuration, diagnostic)
         configured === nothing || push!(diagnostics, configured)
     end
     return diagnostics
+end
+
+"""Return parser-attached docstring text grouped by Julia function family."""
+function function_documentation(source)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source)
+    documentation = Dict{String, Vector{String}}()
+    collect_function_documentation!(documentation, tree)
+    return documentation
+end
+
+"""Collect doc node text for directly attached named function declarations."""
+function collect_function_documentation!(documentation, node)
+    children = something(JuliaSyntax.children(node), ())
+    if Symbol(JuliaSyntax.kind(node)) == :doc && length(children) >= 2
+        declaration = last(children)
+        if Symbol(JuliaSyntax.kind(declaration)) == :function
+            name = first_measure(
+                CYCLOMATIC, String(JuliaSyntax.sourcetext(declaration))).name
+            text = documentation_text(first(children))
+            push!(get!(documentation, name, String[]), text)
+        end
+        collect_function_documentation!(documentation, declaration)
+        return
+    end
+    for child in children
+        collect_function_documentation!(documentation, child)
+    end
+end
+
+"""Return content text from a JuliaSyntax string node."""
+function documentation_text(node)
+    children = something(JuliaSyntax.children(node), ())
+    if Symbol(JuliaSyntax.kind(node)) == :string
+        return join(String(JuliaSyntax.sourcetext(child)) for child in children)
+    end
+    for child in children
+        text = documentation_text(child)
+        isempty(text) || return text
+    end
+    return ""
 end
 
 """Return a configured diagnostic when Julia source cannot be parsed."""

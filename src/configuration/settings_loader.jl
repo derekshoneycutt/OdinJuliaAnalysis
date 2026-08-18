@@ -84,6 +84,7 @@ function validate_settings(
     validate_resource_lifetime_settings(settings.resource_lifetime)
     validate_security_settings(settings.security)
     validate_coverage_settings(settings.coverage)
+    validate_documentation_settings(settings.documentation)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -93,7 +94,17 @@ function validate_settings(
         settings.parameter_counts, settings.function_metrics, settings.architecture,
         settings.allocations, settings.report, extensions, rule_registry, rule_owners,
         settings.duplicate_code, settings.resource_lifetime, settings.security,
-        settings.coverage)
+        settings.coverage, settings.documentation)
+end
+
+"""Reject documentation templates that can match an empty comment."""
+function validate_documentation_settings(settings::DocumentationSettings)
+    for (language, template) in (
+    "Julia" => settings.julia_template,
+    "Odin" => settings.odin_template)
+    occursin(template, "") && throw(ArgumentError(
+        "$language documentation template must require nonempty text"))
+    end
 end
 
 """Validate configured LCOV inputs and report presentation limits."""

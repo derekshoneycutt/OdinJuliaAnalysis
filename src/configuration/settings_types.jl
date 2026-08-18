@@ -479,6 +479,14 @@ end
 """Return runtime coverage correlation disabled by default."""
 default_coverage_settings() = CoverageSettings(false, String[], 20)
 
+struct DocumentationSettings
+    julia_template::Regex
+    odin_template::Regex
+end
+
+"""Require nonempty Julia docstrings and Odin doc comments by default."""
+default_documentation_settings() = DocumentationSettings(r"\S", r"\S")
+
 struct AnalysisSettings
     profile::Symbol
     failure_threshold::FindingResponse
@@ -499,6 +507,7 @@ struct AnalysisSettings
     resource_lifetime::ResourceLifetimeSettings
     security::SecuritySettings
     coverage::CoverageSettings
+    documentation::DocumentationSettings
 end
 
 struct EffectiveSettings
@@ -523,6 +532,7 @@ struct EffectiveSettings
     resource_lifetime::ResourceLifetimeSettings
     security::SecuritySettings
     coverage::CoverageSettings
+    documentation::DocumentationSettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -553,40 +563,42 @@ function AnalysisSettings(
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
         default_security_settings(),
-        default_coverage_settings())
+        default_coverage_settings(),
+        default_documentation_settings())
 end
 
-    """Construct settings from the pre-entry-point API using default JET settings."""
-    function AnalysisSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        profiles,
-        rules,
-        naming,
-        allocations,
-        report)
-        return AnalysisSettings(
-        profile,
-        failure_threshold,
-        thresholds,
-        profiles,
-        rules,
-        naming,
-        default_jet_settings(),
-            default_odin_build_settings(),
-            default_return_tuple_settings(),
-            default_parameter_count_settings(),
-            default_function_metric_settings(),
-            default_architecture_settings(),
-        allocations,
-        report,
-        AnalysisExtension[],
-        default_duplicate_code_settings(),
-        default_resource_lifetime_settings(),
-        default_security_settings(),
-        default_coverage_settings())
-    end
+"""Construct settings from the pre-entry-point API using default JET settings."""
+function AnalysisSettings(
+    profile,
+    failure_threshold,
+    thresholds,
+    profiles,
+    rules,
+    naming,
+    allocations,
+    report)
+    return AnalysisSettings(
+    profile,
+    failure_threshold,
+    thresholds,
+    profiles,
+    rules,
+    naming,
+    default_jet_settings(),
+    default_odin_build_settings(),
+    default_return_tuple_settings(),
+    default_parameter_count_settings(),
+    default_function_metric_settings(),
+    default_architecture_settings(),
+    allocations,
+    report,
+    AnalysisExtension[],
+    default_duplicate_code_settings(),
+    default_resource_lifetime_settings(),
+    default_security_settings(),
+    default_coverage_settings(),
+    default_documentation_settings())
+end
 
 struct CompatibilitySettingsTail
     odin_build
@@ -601,12 +613,19 @@ struct CompatibilitySettingsTail
     resource_lifetime
     security
     coverage
+    documentation
 end
 
 """Decode the extension list from either compatible settings layout."""
 function compatibility_extensions(trailing, has_architecture)
     index = has_architecture ? 8 : 7
     return length(trailing) >= index ? trailing[index] : AnalysisExtension[]
+end
+
+"""Decode documentation settings added after runtime coverage."""
+function compatibility_documentation(trailing, index)
+    return length(trailing) >= index ?
+        trailing[index] : default_documentation_settings()
 end
 
 """Decode settings fields added across compatibility constructor versions."""
@@ -632,6 +651,8 @@ function compatibility_settings_tail(trailing)
     coverage_index = security_index + 1
     coverage = length(trailing) >= coverage_index ?
         trailing[coverage_index] : default_coverage_settings()
+    documentation_index = coverage_index + 1
+    documentation = compatibility_documentation(trailing, documentation_index)
     extensions = compatibility_extensions(trailing, has_architecture)
     policy_end = has_architecture ? 7 : min(length(trailing), 6)
     allocations, report = trailing[(policy_end - 1):policy_end]
@@ -647,7 +668,8 @@ function compatibility_settings_tail(trailing)
         duplicate_code,
         resource_lifetime,
         security,
-        coverage)
+        coverage,
+        documentation)
 end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
@@ -660,7 +682,7 @@ function AnalysisSettings(
     naming,
     jet,
     trailing...)
-    length(trailing) in 2:12 || throw(MethodError(
+    length(trailing) in 2:13 || throw(MethodError(
         AnalysisSettings,
         (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
             trailing...)))
@@ -684,7 +706,8 @@ function AnalysisSettings(
     tail.duplicate_code,
     tail.resource_lifetime,
     tail.security,
-    tail.coverage)
+    tail.coverage,
+    tail.documentation)
 end
 
 """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -697,7 +720,7 @@ function EffectiveSettings(
     naming,
     jet,
     trailing...)
-    length(trailing) in 3:6 || length(trailing) == 10 || throw(MethodError(
+    length(trailing) in 3:6 || length(trailing) in (10, 15) || throw(MethodError(
         EffectiveSettings,
         (profile, failure_threshold, thresholds, enforcement_excludes, rules,
             naming, jet, trailing...)))
@@ -707,7 +730,12 @@ function EffectiveSettings(
             default_duplicate_code_settings(),
             default_resource_lifetime_settings(),
             default_security_settings(),
-            default_coverage_settings())
+            default_coverage_settings(),
+            default_documentation_settings())
+    elseif length(trailing) == 15
+        return EffectiveSettings(profile, failure_threshold, thresholds,
+            enforcement_excludes, rules, naming, jet, trailing...,
+            default_documentation_settings())
     end
     odin_build = trailing[1]
     return_tuples = length(trailing) in (4, 6) ? trailing[2] :
@@ -726,5 +754,6 @@ function EffectiveSettings(
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
         default_security_settings(),
-        default_coverage_settings())
+        default_coverage_settings(),
+        default_documentation_settings())
 end

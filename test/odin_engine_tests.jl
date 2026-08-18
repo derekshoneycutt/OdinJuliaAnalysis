@@ -36,6 +36,36 @@ end
             "local_undocumented",
         ]
         @test all(item -> item.response == Fail, missing_docs)
+
+        template_configuration = with_documentation(
+            OdinJuliaAnalysis.load_settings(),
+            DocumentationSettings(r"\S", r"(?m)^Parameters:$"))
+        template_configuration = with_rules(template_configuration, Dict(
+            "ODIN-DOC-MISSING" => RuleSetting(
+                "ODIN-DOC-MISSING", true, Report)))
+        write(path, """
+            package fixture
+
+            // Summary only.
+            missing_parameters :: proc(value: int) {}
+
+            // Summary.
+            // Parameters:
+            // - value: Ignored value.
+            documented_parameters :: proc(value: int) {}
+
+            //
+            empty_documentation :: proc() {}
+            """)
+        template_diagnostics = OdinJuliaAnalysis.OdinEngine.check_syntax(
+            root, [path], template_configuration)
+        template_findings = filter(
+            item -> item.rule_id == "ODIN-DOC-MISSING", template_diagnostics)
+        @test [item.subject for item in template_findings] == [
+            "missing_parameters",
+            "empty_documentation",
+        ]
+        @test all(item -> item.response == Report, template_findings)
     end
 end
 

@@ -36,6 +36,7 @@ export ResourceLifetimeContract, ResourceLifetimeSettings
 export default_resource_lifetime_settings
 export SecurityCallContract, SecuritySettings, default_security_settings
 export CoverageSettings, default_coverage_settings
+export DocumentationSettings, default_documentation_settings
 
 using JSON3
 using JuliaSyntax

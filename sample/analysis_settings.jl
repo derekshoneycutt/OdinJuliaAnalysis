@@ -45,4 +45,5 @@ AnalysisSettings(
     default_duplicate_code_settings(),
     default_resource_lifetime_settings(),
     default_security_settings(),
-    default_coverage_settings())
+    default_coverage_settings(),
+    default_documentation_settings())

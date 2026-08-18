@@ -328,11 +328,30 @@ before source discovery begins.
 | `resource_lifetime` | Configured ownership and lifetime summaries |
 | `security` | Configured trust-boundary source, sink, and sanitizer calls |
 | `coverage` | LCOV tracefiles and Markdown high-risk presentation limit |
+| `documentation` | Required Julia docstring and Odin doc-comment regex templates |
 
 Settings validation rejects malformed thresholds, duplicate profile names, unknown rules,
 duplicate rule IDs, invalid reviewed policies, invalid build targets, malformed or
 overlapping architecture ownership, extension API mismatches, unknown extension
 dependencies, and extension dependency cycles.
+
+### Documentation Templates
+
+`DocumentationSettings` defines one regex template per language. Both default to
+`r"\S"`, requiring parser-attached documentation with at least one non-whitespace
+character. A stricter policy can require named sections:
+
+```julia
+DocumentationSettings(
+  r"(?m)^# Parameters$",
+  r"(?m)^Parameters:$")
+```
+
+Julia applies the template to docstring content and accepts a function family when at
+least one overload has a matching docstring. Odin applies it to attached procedure doc
+comments after removing comment delimiters. Configure finding severity through the
+existing `JULIA-DOC-MISSING` and `ODIN-DOC-MISSING` `RuleSetting` entries using
+`Report`, `Warn`, or `Fail`. Templates that match empty text are rejected.
 
 ### Responses and Exit Behavior
 

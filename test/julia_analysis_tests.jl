@@ -30,6 +30,33 @@ end
     @test occursin("undocumented", only(missing).message)
     @test occursin("at least one docstring", only(missing).message)
 
+    template_configuration = with_documentation(
+        OdinJuliaAnalysis.load_settings(),
+        DocumentationSettings(r"(?m)^# Parameters$", r"\S"))
+    template_configuration = with_rules(template_configuration, Dict(
+        "JULIA-DOC-MISSING" => RuleSetting(
+            "JULIA-DOC-MISSING", true, Warn)))
+    template_source = """
+        \"\"\"Summary only.\"\"\"
+        missing_parameters(value) = value
+
+        \"\"\"Summary.\n\n# Parameters\n- `value`: Returned value.\"\"\"
+        documented_parameters(value) = value
+        """
+    template_diagnostics = OdinJuliaAnalysis.JuliaEngine.check(
+        "template.jl", template_source, template_configuration)
+    template_findings = filter(
+        item -> item.rule_id == "JULIA-DOC-MISSING", template_diagnostics)
+    @test [item.subject for item in template_findings] == ["missing_parameters"]
+    @test only(template_findings).response == Warn
+
+    empty_source = "\"\"\"\"\"\"\nempty_documentation() = nothing\n"
+    empty_diagnostics = OdinJuliaAnalysis.JuliaEngine.check(
+        "empty.jl", empty_source, OdinJuliaAnalysis.load_settings())
+    @test only(filter(
+        item -> item.rule_id == "JULIA-DOC-MISSING", empty_diagnostics)).subject ==
+        "empty_documentation"
+
     documentation_source = join([
         "\"\"\"Single-line documentation.\"\"\"",
         "documented_one() = 1",

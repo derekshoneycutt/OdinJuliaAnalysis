@@ -26,7 +26,7 @@ export analyze
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.9.0"
+const SCHEMA_VERSION = "3.10.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -49,6 +49,7 @@ const OdinProcedureMetric = @NamedTuple begin
     return_count::Int
     cyclomatic_complexity::Int
     documented::Bool
+    documentation::String
     start_offset::Int
     end_offset::Int
 end
@@ -327,7 +328,46 @@ function append_summary_analysis!(
     append!(diagnostics, return_tuple_diagnostics(root, summary, configuration))
     append!(diagnostics, parameter_count_diagnostics(root, summary, configuration))
     append!(diagnostics, declaration_order_diagnostics(root, summary, configuration))
+    append!(diagnostics, documentation_diagnostics(root, summary, configuration))
     append!(functions, backend_functions(root, summary))
+end
+
+"""Report attached Odin doc comments that do not match the configured template."""
+function documentation_diagnostics(root, summary, configuration)
+    diagnostics = Diagnostic[]
+    template = configuration.documentation.odin_template
+    for metric in summary.procedures
+        Bool(metric.documented) || continue
+        text = normalized_odin_documentation(String(metric.documentation))
+        occursin(template, text) && continue
+        name = String(metric.name)
+        diagnostic = Diagnostic(
+            "ODIN-DOC-MISSING",
+            Ignore,
+            relpath(String(summary.path), root),
+            Int(metric.start_line),
+            1,
+            "Odin procedure `$(name)` requires a doc comment matching " *
+                "the configured template.",
+            nothing,
+            nothing,
+            "odin-ast",
+            name,
+            "documentation",
+            nothing,
+            "stable")
+        configured = configured_diagnostic(configuration, diagnostic)
+        configured === nothing || push!(diagnostics, configured)
+    end
+    return diagnostics
+end
+
+"""Strip Odin line and block comment delimiters from documentation text."""
+function normalized_odin_documentation(documentation)
+    text = replace(documentation, r"(?m)^\s*//+\s?" => "")
+    text = replace(text, r"(?s)^\s*/\*+\s?" => "")
+    text = replace(text, r"(?s)\s*\*/\s*$" => "")
+    return strip(replace(text, r"(?m)^\s*\*\s?" => ""))
 end
 
 """Report package constants and structs declared after a procedure."""

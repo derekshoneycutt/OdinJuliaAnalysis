@@ -192,4 +192,5 @@ AnalysisSettings(
         SecurityCallContract[],
         SecurityCallContract[],
         SecurityCallContract[]),
-    CoverageSettings(false, String[], 20))
+    CoverageSettings(false, String[], 20),
+    DocumentationSettings(r"\S", r"\S"))

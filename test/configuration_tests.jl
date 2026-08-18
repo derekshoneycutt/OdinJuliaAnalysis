@@ -90,6 +90,12 @@ end
     @test configuration.rules["ODIN-PARAMETERS-WARN"].response == Warn
     @test configuration.rules["ODIN-PARAMETERS-FAIL"].response == Fail
     @test configuration.parameter_counts == ParameterCountSettings(8, 5, 8)
+    @test configuration.documentation.julia_template.pattern == raw"\S"
+    @test configuration.documentation.odin_template.pattern == raw"\S"
+    @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(
+        DocumentationSettings(r"", r"\S"))
+    @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(
+        DocumentationSettings(r"\S", r"(?:)"))
     @test configuration.function_metrics.julia_lines ==
         ResponseThresholds(20, 45, 65)
     @test configuration.function_metrics.odin_lines ==

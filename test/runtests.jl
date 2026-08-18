@@ -114,8 +114,44 @@ function with_rules(
         configuration.return_tuples,
         configuration.parameter_counts,
         configuration.function_metrics,
+        configuration.architecture,
         configuration.allocations,
-        configuration.report)
+        configuration.report,
+        configuration.extensions,
+        configuration.rule_registry,
+        configuration.extension_rule_owners,
+        configuration.duplicate_code,
+        configuration.resource_lifetime,
+        configuration.security,
+        configuration.coverage,
+        configuration.documentation)
+end
+
+"""Return effective settings with replacement documentation templates."""
+function with_documentation(configuration, documentation)
+    return OdinJuliaAnalysis.EffectiveSettings(
+    configuration.profile,
+    configuration.failure_threshold,
+    configuration.thresholds,
+    configuration.enforcement_excludes,
+    configuration.rules,
+    configuration.naming,
+    configuration.jet,
+    configuration.odin_build,
+    configuration.return_tuples,
+    configuration.parameter_counts,
+    configuration.function_metrics,
+    configuration.architecture,
+    configuration.allocations,
+    configuration.report,
+    configuration.extensions,
+    configuration.rule_registry,
+    configuration.extension_rule_owners,
+    configuration.duplicate_code,
+    configuration.resource_lifetime,
+    configuration.security,
+    configuration.coverage,
+    documentation)
 end
 
 """Return effective settings with replacement architecture policy."""
@@ -216,41 +252,41 @@ function with_return_tuples(configuration, return_tuples)
         configuration.report)
 end
 
-    """Return effective settings with replacement parameter count thresholds."""
-    function with_parameter_counts(configuration, parameter_counts)
-        return OdinJuliaAnalysis.EffectiveSettings(
-        configuration.profile,
-        configuration.failure_threshold,
-        configuration.thresholds,
-        configuration.enforcement_excludes,
-        configuration.rules,
-        configuration.naming,
-        configuration.jet,
-        configuration.odin_build,
-        configuration.return_tuples,
-        parameter_counts,
-        configuration.function_metrics,
-        configuration.allocations,
-        configuration.report)
-    end
+"""Return effective settings with replacement parameter count thresholds."""
+function with_parameter_counts(configuration, parameter_counts)
+    return OdinJuliaAnalysis.EffectiveSettings(
+    configuration.profile,
+    configuration.failure_threshold,
+    configuration.thresholds,
+    configuration.enforcement_excludes,
+    configuration.rules,
+    configuration.naming,
+    configuration.jet,
+    configuration.odin_build,
+    configuration.return_tuples,
+    parameter_counts,
+    configuration.function_metrics,
+    configuration.allocations,
+    configuration.report)
+end
 
-    """Return effective settings with replacement function metric thresholds."""
-    function with_function_metrics(configuration, function_metrics)
-        return OdinJuliaAnalysis.EffectiveSettings(
-        configuration.profile,
-        configuration.failure_threshold,
-        configuration.thresholds,
-        configuration.enforcement_excludes,
-        configuration.rules,
-        configuration.naming,
-        configuration.jet,
-        configuration.odin_build,
-        configuration.return_tuples,
-        configuration.parameter_counts,
-        function_metrics,
-        configuration.allocations,
-        configuration.report)
-    end
+"""Return effective settings with replacement function metric thresholds."""
+function with_function_metrics(configuration, function_metrics)
+    return OdinJuliaAnalysis.EffectiveSettings(
+    configuration.profile,
+    configuration.failure_threshold,
+    configuration.thresholds,
+    configuration.enforcement_excludes,
+    configuration.rules,
+    configuration.naming,
+    configuration.jet,
+    configuration.odin_build,
+    configuration.return_tuples,
+    configuration.parameter_counts,
+    function_metrics,
+    configuration.allocations,
+    configuration.report)
+end
 
 """Write package settings with replacement JET entry points for CLI fixtures."""
 function write_jet_settings(path, entry_points_expression)
