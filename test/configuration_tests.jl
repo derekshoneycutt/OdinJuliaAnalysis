@@ -36,7 +36,7 @@
         markdown_diagnostics = OdinJuliaAnalysis.check_common_rules(
             "fixture.md",
             markdown_source)
-        @test [item.line for item in markdown_diagnostics] == [6, 8]
+        @test [item.line for item in markdown_diagnostics] == [8]
     end
 end
 

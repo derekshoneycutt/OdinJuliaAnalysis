@@ -130,6 +130,7 @@ function markdown_fence_and_link_exemptions!(exemptions, lines)
     for (line_number, line) in enumerate(lines)
         fence = match(r"^\s*(`{3,}|~{3,})", line)
         if fence !== nothing
+            push!(exemptions, line_number)
             marker = something(fence.captures[1])
             if fence_character === nothing
                 fence_character = first(marker)
@@ -142,6 +143,7 @@ function markdown_fence_and_link_exemptions!(exemptions, lines)
             continue
         end
         outside_fence[line_number] = fence_character === nothing
+        !outside_fence[line_number] && push!(exemptions, line_number)
         if outside_fence[line_number] && is_markdown_link_line(line)
             push!(exemptions, line_number)
         end
