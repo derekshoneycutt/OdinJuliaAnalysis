@@ -274,6 +274,22 @@ function analyze_calls(path::String, source::String)
     return calls
 end
 
+"""Return the callee node of a call expression, or `nothing` when it has none.
+
+Infix and postfix operator calls place the operand first, so the callee is the
+operator child rather than the first child. Parametric constructor calls name the
+type through a `curly` wrapper, so the underlying type name is the callee."""
+function call_callee_node(node, children)
+    isempty(children) && return nothing
+    callee = JuliaSyntax.is_infix_op_call(node) || JuliaSyntax.is_postfix_op_call(node) ?
+        (length(children) >= 2 ? children[2] : nothing) : first(children)
+    while callee !== nothing && Symbol(JuliaSyntax.kind(callee)) == :curly
+        parameters = something(JuliaSyntax.children(callee), ())
+        callee = isempty(parameters) ? nothing : first(parameters)
+    end
+    return callee
+end
+
 """Visit call expressions while retaining lexical module and function scope."""
 function collect_calls!(calls, node, path, offsets, scope, declaration_header)
     kind = Symbol(JuliaSyntax.kind(node))
@@ -282,8 +298,9 @@ function collect_calls!(calls, node, path, offsets, scope, declaration_header)
     nested_scope = declaration === nothing ? scope :
         [scope; strip(String(JuliaSyntax.sourcetext(declaration)))]
     children = something(JuliaSyntax.children(node), ())
-    if kind == :call && !declaration_header && !isempty(children)
-        callee_node = first(children)
+    callee_node = kind in (:call, :dotcall) && !declaration_header ?
+        call_callee_node(node, children) : nothing
+    if callee_node !== nothing
         callee_kind = Symbol(JuliaSyntax.kind(callee_node))
         byte_offset = JuliaSyntax.first_byte(callee_node)
         line = metric_line_for_offset(offsets, byte_offset)
