@@ -239,7 +239,7 @@ end
 """Visit identifier nodes while retaining lexical module and function scope."""
 function collect_references!(references, node, path, offsets, scope, excluded)
     kind = Symbol(JuliaSyntax.kind(node))
-    kind in (:using, :import, :export) && return
+    kind in (:using, :import) && return
     declaration = kind in (:module, :function, :struct, :const) ?
         declaration_identifier_node(node) : nothing
     nested_scope = scope

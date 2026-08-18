@@ -25,6 +25,7 @@ export EXTENSION_API_VERSION
 export NamingConvention, NamingSettings
 export ReviewedNamingPolicy
 export JetEntryPoint, JetSettings
+export CallRootEntryPoint, CallRootSettings, default_call_root_settings
 export default_jet_settings, default_naming_settings
 export default_odin_build_settings
 export default_return_tuple_settings

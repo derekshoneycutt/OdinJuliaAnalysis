@@ -1,3 +1,15 @@
+"""Return effective default settings carrying the given call root entry points."""
+function settings_with_call_roots(entry_points)
+    base = Base.include(
+        Module(gensym(:CallRootFixtureSettings)),
+        OdinJuliaAnalysis.DEFAULT_SETTINGS_PATH)
+    names = fieldnames(AnalysisSettings)
+    replaced = AnalysisSettings(
+        (getfield(base, name) for name in names[1:(end - 1)])...,
+        CallRootSettings(entry_points))
+    return OdinJuliaAnalysis.validate_settings(replaced)
+end
+
 @testset "dependency graph inventory" begin
     mktempdir() do root
         julia_path = joinpath(root, "app.jl")
@@ -316,6 +328,30 @@ end
     @test only(filter(
         item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION",
         diagnostics)).subject == "App.unused"
+
+    bridged = settings_with_call_roots([
+        CallRootEntryPoint("bridge:unused", :julia, "unused", "called from Odin"),
+    ])
+    bridged_roots = OdinJuliaAnalysis.collect_call_roots(
+        declarations, InteropSignature[], bridged)
+    @test any(root -> root.declaration == "unused" && root.category == "bridge",
+        bridged_roots)
+    bridged_diagnostics = OdinJuliaAnalysis.analyze_reachability(
+        declarations, edges, ReferenceRecord[], bridged_roots, bridged)
+    @test !any(item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION",
+        bridged_diagnostics)
+
+    stale = settings_with_call_roots([
+        CallRootEntryPoint("bridge:removed", :julia, "removed", "called from Odin"),
+    ])
+    drift = filter(
+        item -> item.rule_id == "CALL-ROOT-POLICY-DRIFT",
+        OdinJuliaAnalysis.analyze_reachability(
+            declarations, edges, ReferenceRecord[],
+            OdinJuliaAnalysis.collect_call_roots(
+                declarations, InteropSignature[], stale),
+            stale))
+    @test only(drift).subject == "removed"
 
     source = """
         function mutate(value::Vector{Int})

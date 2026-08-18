@@ -28,6 +28,13 @@ function collect_call_roots(declarations, signatures, configuration)
             "$category:$(signature.symbol):$(signature.path)", signature.path,
             signature.language, signature.symbol, category))
     end
+    for entry in configuration.call_roots.entry_points
+        for declaration in matching_call_root_declarations(declarations, entry)
+            push!(roots, CallRoot(
+                "$(entry.id):$(declaration.path)", declaration.path,
+                declaration.language, declaration.name, "bridge"))
+        end
+    end
     unique!(root -> join(
         (root.path, root.language, root.declaration, root.category), '\0'), roots)
     sort!(roots; by=root -> join(
@@ -35,10 +42,23 @@ function collect_call_roots(declarations, signatures, configuration)
     return roots
 end
 
+"""Return the callable declarations named by one configured call root."""
+function matching_call_root_declarations(declarations, entry)
+    language = string(entry.language)
+    callable_kind = language == "julia" ? "function" : "procedure"
+    return filter(declarations) do declaration
+        declaration.language == language &&
+            declaration.kind == callable_kind &&
+            (declaration.name == entry.name ||
+                declaration.qualified_name == entry.name)
+    end
+end
+
 """Analyze explicit call reachability and unresolved dynamic calls."""
 function analyze_reachability(declarations, call_edges, references, roots, configuration)
     diagnostics = unresolved_call_diagnostics(call_edges)
-    edges = vcat(call_edges, procedure_value_edges(declarations, references))
+    append!(diagnostics, call_root_drift_diagnostics(declarations, configuration))
+    edges = vcat(call_edges, callable_value_edges(declarations, references))
     for language in ("julia", "odin")
         append!(diagnostics, language_reachability_diagnostics(
             language, declarations, edges, roots))
@@ -51,6 +71,18 @@ function analyze_reachability(declarations, call_edges, references, roots, confi
     return configured
 end
 
+"""Report configured call roots that no longer name a declared callable."""
+function call_root_drift_diagnostics(declarations, configuration)
+    return [Diagnostic(
+        "CALL-ROOT-POLICY-DRIFT", Fail, ".", 1, 1,
+        "Call root entry point `$(entry.id)` matches no declared " *
+            "$(entry.language) callable named `$(entry.name)`.",
+        nothing, nothing, "call-root-policy", entry.name, "call-root", nothing,
+        "definite")
+        for entry in configuration.call_roots.entry_points
+        if isempty(matching_call_root_declarations(declarations, entry))]
+end
+
 """Report explicit call expressions whose target syntax is dynamic."""
 function unresolved_call_diagnostics(call_edges)
     return [Diagnostic(
@@ -60,28 +92,39 @@ function unresolved_call_diagnostics(call_edges)
         "potential") for edge in call_edges if edge.kind == "dynamic"]
 end
 
-"""Return reachability edges for Odin procedures named as values, not called.
+"""Return reachability edges for callables named as values, not called.
 
-Task submission, callback registration, and dispatch tables hand a procedure to
-another procedure instead of calling it, so the call graph alone reports the
-whole downstream tree as unreachable."""
-function procedure_value_edges(declarations, references)
-    procedures = Set(declaration.name for declaration in declarations
-        if declaration.language == "odin" && declaration.kind == "procedure")
+Task submission, callback registration, dispatch tables, and `export` statements
+hand a callable to another site instead of calling it, so the call graph alone
+reports the whole downstream tree as unreachable."""
+function callable_value_edges(declarations, references)
+    callables = Set((declaration.language, declaration.name)
+        for declaration in declarations
+        if declaration.kind in ("procedure", "function"))
     declaration_sites = Set(
         (declaration.path, declaration.name, declaration.line)
-        for declaration in declarations if declaration.language == "odin")
+        for declaration in declarations)
     edges = CallEdge[]
     for reference in references
-        reference.language == "odin" || continue
-        reference.name in procedures || continue
+        (reference.language, reference.name) in callables || continue
         site = (reference.path, reference.name, reference.line)
         site in declaration_sites && continue
         push!(edges, CallEdge(
-            reference.path, "odin", reference.scope, reference.name,
+            reference.path, reference.language,
+            enclosing_callable_scope(reference, callables), reference.name,
             "value", reference.line, reference.column))
     end
     return edges
+end
+
+"""Return the callable owning a reference, or `nothing` at declaration-body scope.
+
+Julia scopes nest through modules, so a reference directly inside a module runs
+whenever the module loads and is not gated by any caller's reachability."""
+function enclosing_callable_scope(reference, callables)
+    terminal = terminal_call_name(reference.scope)
+    isempty(terminal) && return nothing
+    return (reference.language, terminal) in callables ? reference.scope : nothing
 end
 
 """Report callable declarations outside one language's root closure."""

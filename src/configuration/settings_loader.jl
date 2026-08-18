@@ -85,6 +85,7 @@ function validate_settings(
     validate_security_settings(settings.security)
     validate_coverage_settings(settings.coverage)
     validate_documentation_settings(settings.documentation)
+    validate_call_root_settings(settings.call_roots)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -94,7 +95,26 @@ function validate_settings(
         settings.parameter_counts, settings.function_metrics, settings.architecture,
         settings.allocations, settings.report, extensions, rule_registry, rule_owners,
         settings.duplicate_code, settings.resource_lifetime, settings.security,
-        settings.coverage, settings.documentation)
+        settings.coverage, settings.documentation, settings.call_roots)
+end
+
+"""Reject unusable or duplicated cross-language call root entry points."""
+function validate_call_root_settings(settings::CallRootSettings)
+    seen = Set{String}()
+    for entry in settings.entry_points
+        isempty(strip(entry.id)) && throw(ArgumentError(
+            "call root entry point requires an id"))
+        entry.id in seen && throw(ArgumentError(
+            "duplicate call root entry point: $(entry.id)"))
+        push!(seen, entry.id)
+        entry.language in (:julia, :odin) || throw(ArgumentError(
+            "call root entry point $(entry.id) has unknown language: " *
+                "$(entry.language)"))
+        isempty(strip(entry.name)) && throw(ArgumentError(
+            "call root entry point $(entry.id) requires a callable name"))
+        isempty(strip(entry.reason)) && throw(ArgumentError(
+            "call root entry point $(entry.id) requires a reason"))
+    end
 end
 
 """Reject documentation templates that can match an empty comment."""

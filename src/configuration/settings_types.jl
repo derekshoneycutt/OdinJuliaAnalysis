@@ -135,6 +135,25 @@ struct JetSettings
     entry_points::Vector{JetEntryPoint}
 end
 
+"""One callable entered from outside its own language's call graph.
+
+Cross-language bridges call by symbol name at runtime, so no parser-visible edge
+reaches the callable and the call graph alone reports its whole subtree as
+unreachable."""
+struct CallRootEntryPoint
+    id::String
+    language::Symbol
+    name::String
+    reason::String
+end
+
+struct CallRootSettings
+    entry_points::Vector{CallRootEntryPoint}
+end
+
+"""Return no configured cross-language call roots."""
+default_call_root_settings() = CallRootSettings(CallRootEntryPoint[])
+
 struct OdinBuildTarget
     id::String
     input::String
@@ -508,6 +527,7 @@ struct AnalysisSettings
     security::SecuritySettings
     coverage::CoverageSettings
     documentation::DocumentationSettings
+    call_roots::CallRootSettings
 end
 
 struct EffectiveSettings
@@ -533,6 +553,7 @@ struct EffectiveSettings
     security::SecuritySettings
     coverage::CoverageSettings
     documentation::DocumentationSettings
+    call_roots::CallRootSettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -564,7 +585,8 @@ function AnalysisSettings(
         default_resource_lifetime_settings(),
         default_security_settings(),
         default_coverage_settings(),
-        default_documentation_settings())
+        default_documentation_settings(),
+        default_call_root_settings())
 end
 
 """Construct settings from the pre-entry-point API using default JET settings."""
@@ -597,7 +619,8 @@ function AnalysisSettings(
     default_resource_lifetime_settings(),
     default_security_settings(),
     default_coverage_settings(),
-    default_documentation_settings())
+    default_documentation_settings(),
+    default_call_root_settings())
 end
 
 struct CompatibilitySettingsTail
@@ -707,7 +730,8 @@ function AnalysisSettings(
     tail.resource_lifetime,
     tail.security,
     tail.coverage,
-    tail.documentation)
+    tail.documentation,
+    default_call_root_settings())
 end
 
 """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -720,7 +744,7 @@ function EffectiveSettings(
     naming,
     jet,
     trailing...)
-    length(trailing) in 3:6 || length(trailing) in (10, 15) || throw(MethodError(
+    length(trailing) in 3:6 || length(trailing) in (10, 14, 15) || throw(MethodError(
         EffectiveSettings,
         (profile, failure_threshold, thresholds, enforcement_excludes, rules,
             naming, jet, trailing...)))
@@ -731,11 +755,17 @@ function EffectiveSettings(
             default_resource_lifetime_settings(),
             default_security_settings(),
             default_coverage_settings(),
-            default_documentation_settings())
+            default_documentation_settings(),
+            default_call_root_settings())
+    elseif length(trailing) == 14
+        return EffectiveSettings(profile, failure_threshold, thresholds,
+            enforcement_excludes, rules, naming, jet, trailing...,
+            default_documentation_settings(),
+            default_call_root_settings())
     elseif length(trailing) == 15
         return EffectiveSettings(profile, failure_threshold, thresholds,
             enforcement_excludes, rules, naming, jet, trailing...,
-            default_documentation_settings())
+            default_call_root_settings())
     end
     odin_build = trailing[1]
     return_tuples = length(trailing) in (4, 6) ? trailing[2] :
@@ -755,5 +785,6 @@ function EffectiveSettings(
         default_resource_lifetime_settings(),
         default_security_settings(),
         default_coverage_settings(),
-        default_documentation_settings())
+        default_documentation_settings(),
+        default_call_root_settings())
 end

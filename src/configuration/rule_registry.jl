@@ -11,6 +11,10 @@ const RULE_REGISTRY = Dict(
         "CALL-GRAPH-UNRESOLVED-EDGE", "common",
         "Call-Graph Reachability > Unresolved Edges",
         "experimental", "potential", "report", false),
+    "CALL-ROOT-POLICY-DRIFT" => RuleDefinition(
+        "CALL-ROOT-POLICY-DRIFT", "common",
+        "Call-Graph Reachability > Configured Roots",
+        "experimental", "stable", "error", true),
     "ARCHITECTURE-FORBIDDEN-DEPENDENCY" => RuleDefinition(
         "ARCHITECTURE-FORBIDDEN-DEPENDENCY", "common",
         "Dependency Architecture > Allowed Directions",

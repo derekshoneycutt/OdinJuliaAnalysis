@@ -237,7 +237,7 @@ one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 | Julia core and metrics | 16 | Syntax, closing delimiters, declaration order, naming, globals, tuples, parameters, documentation, unused imports, function lines, cyclomatic complexity, and JET |
 | Odin core, metrics, builds, and allocations | 27 | Syntax, declaration order, naming, globals, tuples, parameters, documentation, unused imports, metrics, compiler builds, allocator source, growth, and hidden allocation |
 | Dependency architecture | 3 | Forbidden layer directions, layer cycles, and unresolved internal imports |
-| Generic policy drift | 2 | Reviewed function-metric and naming policies remain exact and active |
+| Generic policy drift | 3 | Reviewed function-metric, naming, and call root policies remain exact and active |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
@@ -252,6 +252,7 @@ Representative rule IDs:
 | Tuple returns | `JULIA-RETURN-TUPLE` | `ODIN-RETURN-TUPLE` | - |
 | Documentation | `JULIA-DOC-MISSING` | `ODIN-DOC-MISSING` | `MARKDOWN-*` |
 | Static inference | `JULIA-JET-POSSIBLE-ERROR` | - | - |
+| Reachability | `JULIA-UNREACHABLE-FUNCTION` | `ODIN-UNREACHABLE-PROCEDURE` | `CALL-GRAPH-UNRESOLVED-EDGE`, `CALL-ROOT-POLICY-DRIFT` |
 | Allocation | - | `ODIN-ALLOCATION-*` | `ODIN-ALLOCATION-POLICY-DRIFT` |
 | Build health | - | `ODIN-BUILD-FAILED` | - |
 
@@ -421,6 +422,33 @@ Choose application, service, callback, and CLI boundaries whose transitive call 
 represent real execution. Dependency-internal findings are not promoted as repository
 findings.
 
+### Cross-Language Call Roots
+
+Bridges call across languages by symbol name at runtime, so no parser-visible edge
+reaches the callable and reachability reports its whole subtree as unreachable. Declare
+those boundaries instead of suppressing the rule:
+
+```julia
+CallRootSettings([
+    CallRootEntryPoint(
+        "odin-bridge:init_scripts",
+        :julia,
+        "init_scripts",
+        "src/bridge/bootstrap.odin resolves this symbol through jl_get_function"),
+])
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable entry-point identity |
+| `language` | Language of the entered callable, `:julia` or `:odin` |
+| `name` | Callable name, either unqualified or fully qualified |
+| `reason` | Why the callable is entered from outside its call graph |
+
+Every declared callable matching `name` becomes a `bridge` call root, so one entry covers
+a convention implemented by many modules. Entries matching no declaration become blocking
+`CALL-ROOT-POLICY-DRIFT` findings rather than silently suppressing reachability.
+
 ### Reviewed Policies
 
 Reviewed policies make deliberate exceptions visible and drift checked.
@@ -430,6 +458,7 @@ Reviewed policies make deliberate exceptions visible and drift checked.
 | `ReviewedNamingPolicy` | Path, language, declaration kind, and name | `NAMING-POLICY-DRIFT` |
 | `ReviewedComplexity` | Path, language, function, and metric | `FUNCTION-METRIC-POLICY-DRIFT` |
 | `ReviewedAllocationPolicy` | Path, procedure, category, operation, target, source, and certainty | `ODIN-ALLOCATION-POLICY-DRIFT` |
+| `CallRootEntryPoint` | Language and callable name | `CALL-ROOT-POLICY-DRIFT` |
 
 Every policy records a stable ID, reason, response, and minimum/maximum match count.
 Missing, excessive, or ambiguous matches become blocking drift findings instead of
