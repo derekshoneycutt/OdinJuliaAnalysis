@@ -194,7 +194,7 @@ append_value_declaration_symbols :: proc(
             append_symbol(data, name, kind)
             continue
         }
-        value := ast.unparen_expr(declaration.values[index])
+        value := unwrap_helper_type(ast.unparen_expr(declaration.values[index]))
         #partial switch typed_value in value.derived {
         case ^ast.Proc_Lit:
             append_symbol(data, name, "procedure")
@@ -222,6 +222,18 @@ append_value_declaration_symbols :: proc(
     }
 }
 
+// Unwrap `#type T` annotations down to the type expression they mark.
+unwrap_helper_type :: proc(expression: ^ast.Expr) -> ^ast.Expr {
+    current := expression
+    for {
+        helper, ok := current.derived.(^ast.Helper_Type)
+        if !ok || helper.type == nil {
+            return current
+        }
+        current = ast.unparen_expr(helper.type)
+    }
+}
+
 // Classify a value declaration after structural type forms have been handled.
 value_declaration_kind :: proc(
     declaration: ^ast.Value_Decl,
@@ -229,7 +241,22 @@ value_declaration_kind :: proc(
     if declaration.is_mutable {
         return "variable"
     }
-    return "type" if is_clear_type_forward(value) else "constant"
+    if is_type_expression(value) || is_clear_type_forward(value) {
+        return "type"
+    }
+    return "constant"
+}
+
+// Return whether an expression is a syntactic Odin type form rather than a value.
+is_type_expression :: proc(expression: ^ast.Expr) -> bool {
+    #partial switch _ in expression.derived {
+    case ^ast.Proc_Type, ^ast.Pointer_Type, ^ast.Multi_Pointer_Type,
+        ^ast.Array_Type, ^ast.Dynamic_Array_Type, ^ast.Map_Type,
+        ^ast.Matrix_Type, ^ast.Bit_Field_Type, ^ast.Typeid_Type,
+        ^ast.Poly_Type:
+        return true
+    }
+    return false
 }
 
 // Return whether an immutable identifier or selector clearly names an Odin type.
