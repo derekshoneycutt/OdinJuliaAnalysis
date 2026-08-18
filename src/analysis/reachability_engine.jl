@@ -36,11 +36,12 @@ function collect_call_roots(declarations, signatures, configuration)
 end
 
 """Analyze explicit call reachability and unresolved dynamic calls."""
-function analyze_reachability(declarations, call_edges, roots, configuration)
+function analyze_reachability(declarations, call_edges, references, roots, configuration)
     diagnostics = unresolved_call_diagnostics(call_edges)
+    edges = vcat(call_edges, procedure_value_edges(declarations, references))
     for language in ("julia", "odin")
         append!(diagnostics, language_reachability_diagnostics(
-            language, declarations, call_edges, roots))
+            language, declarations, edges, roots))
     end
     configured = Diagnostic[]
     for diagnostic in diagnostics
@@ -57,6 +58,30 @@ function unresolved_call_diagnostics(call_edges)
         edge.column, "Dynamic call `$(edge.callee)` could not be resolved.",
         nothing, nothing, "call-graph", edge.callee, "dynamic-call", nothing,
         "potential") for edge in call_edges if edge.kind == "dynamic"]
+end
+
+"""Return reachability edges for Odin procedures named as values, not called.
+
+Task submission, callback registration, and dispatch tables hand a procedure to
+another procedure instead of calling it, so the call graph alone reports the
+whole downstream tree as unreachable."""
+function procedure_value_edges(declarations, references)
+    procedures = Set(declaration.name for declaration in declarations
+        if declaration.language == "odin" && declaration.kind == "procedure")
+    declaration_sites = Set(
+        (declaration.path, declaration.name, declaration.line)
+        for declaration in declarations if declaration.language == "odin")
+    edges = CallEdge[]
+    for reference in references
+        reference.language == "odin" || continue
+        reference.name in procedures || continue
+        site = (reference.path, reference.name, reference.line)
+        site in declaration_sites && continue
+        push!(edges, CallEdge(
+            reference.path, "odin", reference.scope, reference.name,
+            "value", reference.line, reference.column))
+    end
+    return edges
 end
 
 """Report callable declarations outside one language's root closure."""
@@ -90,7 +115,8 @@ function reachable_call_names(language, declarations, call_edges, roots)
         changed = false
         for edge in call_edges
             edge.language == language || continue
-            terminal_call_name(edge.caller) in reachable || continue
+            caller = terminal_call_name(edge.caller)
+            isempty(caller) || caller in reachable || continue
             callee = terminal_call_name(edge.callee)
             callee in names || continue
             callee in reachable && continue

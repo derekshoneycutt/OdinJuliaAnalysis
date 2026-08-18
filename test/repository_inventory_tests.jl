@@ -308,7 +308,7 @@ end
         CallRoot("app", "app.jl", "julia", "main", "production"),
     ]
     diagnostics = OdinJuliaAnalysis.analyze_reachability(
-        declarations, edges, roots, configuration)
+        declarations, edges, ReferenceRecord[], roots, configuration)
     @test sort([item.rule_id for item in diagnostics]) == [
         "CALL-GRAPH-UNRESOLVED-EDGE",
         "JULIA-UNREACHABLE-FUNCTION",

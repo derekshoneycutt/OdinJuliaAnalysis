@@ -578,7 +578,8 @@ function run_call_graph_analysis!(state, configuration)
     append!(state.call_roots, collect_call_roots(
         state.declarations, state.interop_signatures, configuration))
     append!(state.diagnostics, analyze_reachability(
-        state.declarations, state.call_edges, state.call_roots, configuration))
+        state.declarations, state.call_edges, state.references,
+        state.call_roots, configuration))
     push!(state.engines, EngineStatus(
         "call-graph", isempty(state.call_roots) ? "not-applicable" : "complete", nothing))
 end
