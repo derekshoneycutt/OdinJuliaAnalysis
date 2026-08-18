@@ -215,11 +215,19 @@ function call_edge_records(source_path, edges)
         for item in edges]
 end
 
+"""Derive the implicit package binding introduced by an Odin import target."""
+function implicit_odin_binding(target)
+    separator = findlast(':', target)
+    package_path = separator === nothing ? target : target[nextind(target, separator):end]
+    return splitpath(package_path)[end]
+end
+
 """Append canonical dependency and binding records from native imports."""
 function append_import_records!(analysis, root, source_path, imports)
     for item in imports
         target = String(item.target)
-        binding = isempty(item.binding) ? splitpath(target)[end] : String(item.binding)
+        binding = isempty(item.binding) ?
+            implicit_odin_binding(target) : String(item.binding)
         Bool(item.is_using) || push!(analysis.import_bindings, ImportBinding(
             source_path, "odin", target, binding, "import",
             Int(item.line), Int(item.column)))
