@@ -1,10 +1,27 @@
 """Collect deterministic production, test, callback, and bridge call roots."""
 function collect_call_roots(declarations, signatures, configuration)
+    roots = vcat(
+        jet_call_roots(configuration),
+        declaration_call_roots(declarations),
+        signature_call_roots(signatures),
+        configured_call_roots(declarations, configuration))
+    unique!(root -> join(
+        (root.path, root.language, root.declaration, root.category), '\0'), roots)
+    sort!(roots; by=root -> join(
+        (root.language, root.path, root.declaration, root.category), '\0'))
+    return roots
+end
+
+"""Collect production roots declared for JET analysis."""
+function jet_call_roots(configuration)
+    return [CallRoot(
+        entry.id, entry.path, "julia", string(nameof(entry.callable)), "production")
+        for entry in configuration.jet.entry_points]
+end
+
+"""Collect test and conventional production roots from callable declarations."""
+function declaration_call_roots(declarations)
     roots = CallRoot[]
-    for entry in configuration.jet.entry_points
-        push!(roots, CallRoot(
-            entry.id, entry.path, "julia", string(nameof(entry.callable)), "production"))
-    end
     for declaration in declarations
         declaration.kind in ("function", "procedure") || continue
         normalized = replace(declaration.path, '\\' => '/')
@@ -20,6 +37,12 @@ function collect_call_roots(declarations, signatures, configuration)
                 declaration.language, declaration.name, "production"))
         end
     end
+    return roots
+end
+
+"""Collect callback and exported bridge roots from interop signatures."""
+function signature_call_roots(signatures)
+    roots = CallRoot[]
     for signature in signatures
         category = signature.direction == "callback" ? "callback" :
             signature.direction == "export" ? "bridge" : nothing
@@ -28,6 +51,12 @@ function collect_call_roots(declarations, signatures, configuration)
             "$category:$(signature.symbol):$(signature.path)", signature.path,
             signature.language, signature.symbol, category))
     end
+    return roots
+end
+
+"""Collect bridge roots selected by configured callable entry points."""
+function configured_call_roots(declarations, configuration)
+    roots = CallRoot[]
     for entry in configuration.call_roots.entry_points
         for declaration in matching_call_root_declarations(declarations, entry)
             push!(roots, CallRoot(
@@ -35,10 +64,6 @@ function collect_call_roots(declarations, signatures, configuration)
                 declaration.language, declaration.name, "bridge"))
         end
     end
-    unique!(root -> join(
-        (root.path, root.language, root.declaration, root.category), '\0'), roots)
-    sort!(roots; by=root -> join(
-        (root.language, root.path, root.declaration, root.category), '\0'))
     return roots
 end
 
