@@ -293,6 +293,9 @@ end
 """Visit call expressions while retaining lexical module and function scope."""
 function collect_calls!(calls, node, path, offsets, scope, declaration_header)
     kind = Symbol(JuliaSyntax.kind(node))
+    # Quoted expressions are macro templates; their $-interpolation placeholders are
+    # not concrete call sites, so they produce no call-graph edges.
+    kind == :quote && return
     declaration = kind in (:module, :function, :struct) ?
         declaration_identifier_node(node) : nothing
     nested_scope = declaration === nothing ? scope :
@@ -1240,8 +1243,11 @@ function check_documentation(path, source, configuration)
             texts))
     reported_names = Set{String}()
     for item in functions
-        (item.name == "<anonymous>" || item.name in documented_names ||
-            item.name in reported_names) && continue
+        # Docstrings attach to the bare macro name; normalize the `@`-prefixed
+        # family name CodeComplexity reports for macro definitions before matching.
+        family = startswith(item.name, "@") ? item.name[2:end] : item.name
+        (item.name == "<anonymous>" || family in documented_names ||
+            item.name in documented_names || item.name in reported_names) && continue
         push!(reported_names, item.name)
         diagnostic = Diagnostic(
             "JULIA-DOC-MISSING",
@@ -1278,8 +1284,7 @@ function collect_function_documentation!(documentation, node)
     if Symbol(JuliaSyntax.kind(node)) == :doc && length(children) >= 2
         declaration = unwrap_documented_function(last(children))
         if declaration !== nothing
-            name = first_measure(
-                CYCLOMATIC, String(JuliaSyntax.sourcetext(declaration))).name
+            name = function_family_name(declaration)
             text = documentation_text(first(children))
             push!(get!(documentation, name, String[]), text)
         end
@@ -1291,11 +1296,11 @@ function collect_function_documentation!(documentation, node)
     end
 end
 
-"""Unwrap attribute macros and where clauses to reach a function node."""
+"""Unwrap attribute macros and where clauses to reach a function-like node."""
 function unwrap_documented_function(node)
     kind = Symbol(JuliaSyntax.kind(node))
     children = something(JuliaSyntax.children(node), ())
-    kind == :function && return node
+    kind in (:function, :macro) && return node
     if kind in (:macrocall, :where) && !isempty(children)
         for child in children
             unwrapped = unwrap_documented_function(child)
@@ -1487,6 +1492,15 @@ function first_measure(metric, source)
     isempty(measurements) && error(
         "CodeComplexity did not recognize a Julia function-like definition")
     return first(measurements)
+end
+
+"""Return the normalized family name for one function-like definition span.
+
+CodeComplexity reports macro definitions with a leading `@`, but docstrings attach to
+the bare identifier, so the `@` is stripped to align the family name with its docs."""
+function function_family_name(node)
+    raw = first_measure(CYCLOMATIC, String(JuliaSyntax.sourcetext(node))).name
+    return startswith(raw, "@") ? raw[2:end] : raw
 end
 
 """Count nonblank, non-comment-only lines covered by a function body."""

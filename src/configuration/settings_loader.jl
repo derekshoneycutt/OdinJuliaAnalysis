@@ -394,9 +394,7 @@ function validate_reviewed_complexity_policy(policy)
         throw(ArgumentError(
             "reviewed complexity metric must be :executable_lines or " *
                 ":cyclomatic_complexity"))
-    policy.response == Ignore && throw(ArgumentError(
-        "reviewed complexity response cannot be Ignore"))
-    policy.minimum_matches >= 1 || throw(ArgumentError(
+    policy.minimum_matches >= 0 || throw(ArgumentError(
         "reviewed complexity minimum matches must be positive"))
     policy.maximum_matches >= policy.minimum_matches || throw(ArgumentError(
         "reviewed complexity maximum matches must not be below minimum"))
@@ -521,7 +519,7 @@ function validate_reviewed_naming_policy(policy)
         "reviewed naming reason cannot be empty"))
     policy.response == Ignore && throw(ArgumentError(
         "reviewed naming response cannot be Ignore"))
-    policy.minimum_matches >= 1 || throw(ArgumentError(
+    policy.minimum_matches >= 0 || throw(ArgumentError(
         "reviewed naming minimum matches must be positive"))
     policy.maximum_matches >= policy.minimum_matches || throw(ArgumentError(
         "reviewed naming maximum matches must not be below minimum"))
@@ -610,7 +608,7 @@ function validate_reviewed_allocation_policy(policy)
         "reviewed allocation response cannot be Ignore"))
     policy.certainty === nothing || policy.certainty in (:definite, :potential) ||
         throw(ArgumentError("reviewed allocation certainty is invalid"))
-    policy.minimum_matches >= 1 || throw(ArgumentError(
+    policy.minimum_matches >= 0 || throw(ArgumentError(
         "reviewed allocation minimum matches must be positive"))
     policy.maximum_matches >= policy.minimum_matches || throw(ArgumentError(
         "reviewed allocation maximum matches must not be below minimum"))
