@@ -1276,19 +1276,33 @@ end
 function collect_function_documentation!(documentation, node)
     children = something(JuliaSyntax.children(node), ())
     if Symbol(JuliaSyntax.kind(node)) == :doc && length(children) >= 2
-        declaration = last(children)
-        if Symbol(JuliaSyntax.kind(declaration)) == :function
+        declaration = unwrap_documented_function(last(children))
+        if declaration !== nothing
             name = first_measure(
                 CYCLOMATIC, String(JuliaSyntax.sourcetext(declaration))).name
             text = documentation_text(first(children))
             push!(get!(documentation, name, String[]), text)
         end
-        collect_function_documentation!(documentation, declaration)
+        collect_function_documentation!(documentation, last(children))
         return
     end
     for child in children
         collect_function_documentation!(documentation, child)
     end
+end
+
+"""Unwrap attribute macros and where clauses to reach a function node."""
+function unwrap_documented_function(node)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    kind == :function && return node
+    if kind in (:macrocall, :where) && !isempty(children)
+        for child in children
+            unwrapped = unwrap_documented_function(child)
+            unwrapped !== nothing && return unwrapped
+        end
+    end
+    return nothing
 end
 
 """Return content text from a JuliaSyntax string node."""
