@@ -207,7 +207,7 @@ end
     markdown_output = IOBuffer()
     OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
     markdown = String(take!(markdown_output))
-    @test !occursin("## Resource Lifetime Summaries", markdown)
+    @test occursin("## Resource Lifetime Summaries", markdown)
     @test occursin("ODIN-ALLOCATION-TEMPORARY", markdown)
 
     event = Diagnostic(
@@ -355,7 +355,7 @@ end
     markdown_output = IOBuffer()
     OdinJuliaAnalysis.write_markdown_report(markdown_output, report)
     markdown = String(take!(markdown_output))
-    @test !occursin("## Security Boundary Paths", markdown)
+    @test occursin("## Security Boundary Paths", markdown)
     @test occursin("SECURITY-UNSAFE-BOUNDARY", markdown)
 
     reversed = [

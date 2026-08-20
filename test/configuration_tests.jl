@@ -177,13 +177,19 @@ end
         "analysis-test-syntax-arena",
         "analysis-arena-backing",
     ]
-    invalid_response = ReviewedAllocationPolicy(
-        "invalid-response",
+    ignored_response = ReviewedAllocationPolicy(
+        "ignored-response",
         "src/example.odin",
         "example",
         :implicit,
-        "Ignore is not a reviewed decision.";
+        "The reviewed allocation findings are intentionally ignored.";
         response=Ignore)
+    ignored_allocations = AllocationSettings(
+        KnownAllocatingProcedure[],
+        AllocatorSourcePattern[],
+        [ignored_response])
+    @test OdinJuliaAnalysis.validate_allocation_settings(
+        ignored_allocations) === nothing
     invalid_range = ReviewedAllocationPolicy(
         "invalid-range",
         "src/example.odin",
@@ -192,14 +198,12 @@ end
         "The range is invalid.";
         minimum_matches=2,
         maximum_matches=1)
-    for policy in (invalid_response, invalid_range)
-        allocations = AllocationSettings(
-            KnownAllocatingProcedure[],
-            AllocatorSourcePattern[],
-            [policy])
-        @test_throws ArgumentError OdinJuliaAnalysis.validate_allocation_settings(
-            allocations)
-    end
+    allocations = AllocationSettings(
+        KnownAllocatingProcedure[],
+        AllocatorSourcePattern[],
+        [invalid_range])
+    @test_throws ArgumentError OdinJuliaAnalysis.validate_allocation_settings(
+        allocations)
 
     invalid_thresholds = AnalysisThresholds(
         120, 100, 90, 20, 30, 5, 10, 15, 15)
@@ -219,16 +223,16 @@ end
             ResponseThresholds(20, 30, 40),
             ResponseThresholds(10, 15, 20),
             ResponseThresholds(10, 15, 20)))
-    invalid_complexity = ReviewedComplexity(
-        "invalid-response",
+    ignored_complexity = ReviewedComplexity(
+        "ignored-response",
         "src/example.jl",
         :julia,
         "example",
         :cyclomatic_complexity,
-        "Ignore would hide the reviewed decision.";
+        "The reviewed complexity findings are intentionally ignored.";
         response=Ignore)
-    @test_throws ArgumentError OdinJuliaAnalysis.validate_reviewed_complexity(
-        [invalid_complexity])
+    @test OdinJuliaAnalysis.validate_reviewed_complexity(
+        [ignored_complexity]) === nothing
 
     function_convention = NamingConvention(
         :julia,
@@ -268,18 +272,18 @@ end
                 :snake_case;
                 allow_constructor_names=true),
         ]))
-    invalid_naming_policy = ReviewedNamingPolicy(
-        "invalid-response",
+    ignored_naming_policy = ReviewedNamingPolicy(
+        "ignored-response",
         "src/example.jl",
         :julia,
         :function,
         "Example",
-        "Ignore would hide the reviewed decision.";
+        "The reviewed naming findings are intentionally ignored.";
         response=Ignore)
-    @test_throws ArgumentError OdinJuliaAnalysis.validate_naming_settings(
+    @test OdinJuliaAnalysis.validate_naming_settings(
         NamingSettings(
             configuration.naming.conventions,
-            [invalid_naming_policy]))
+            [ignored_naming_policy])) === nothing
     @test_throws ArgumentError OdinJuliaAnalysis.validate_jet_settings(
         JetSettings([
             JetEntryPoint("invalid-path", "../main.jl", identity, (Int,)),
@@ -383,7 +387,7 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_markdown_report(output, report)
         report_text = String(take!(output))
-        @test !occursin("## Extension Results", report_text)
+        @test occursin("## Extension Results", report_text)
         @test occursin("extension:project", report_text)
 
         failing = FixtureExtension(
