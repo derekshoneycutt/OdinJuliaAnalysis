@@ -8,8 +8,12 @@ function write_markdown_report(io::IO, report::AnalysisReport)
         io, report.thresholds, report.parameter_counts, report.function_metrics)
     write_markdown_test_coverage(io, report)
     write_markdown_odin_builds(io, report)
-    write_markdown_findings(io, report)
+    write_markdown_allocations(io, report)
+    write_markdown_resource_lifetimes(io, report)
     write_markdown_rules(io, report)
+    write_markdown_findings(io, report)
+    write_markdown_extensions(io, report)
+    write_markdown_security_paths(io, report)
     write_markdown_engines(io, report)
 
     #= TODO: Consider the following when necessary; these are excluded due to the size
@@ -25,11 +29,7 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_clone_groups(io, report)
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
-    write_markdown_allocations(io, report)
-    write_markdown_resource_lifetimes(io, report)
-    write_markdown_security_paths(io, report)
     write_markdown_ignored(io, report)
-    write_markdown_extensions(io, report)
     =#
 end
 
