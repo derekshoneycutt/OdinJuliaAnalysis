@@ -44,6 +44,9 @@ function run_build_target(root, target)
     arguments = vcat(
         ["odin", "build", target.input, "-out:$relative_output"],
         target.flags)
+    if target.include_julia_linker_flags
+        push!(arguments, "-extra-linker-flags:$(resolve_julia_linker_flags())")
+    end
     output = IOBuffer()
     errors = IOBuffer()
     process = run(pipeline(
@@ -61,6 +64,23 @@ function run_build_target(root, target)
         exit_code,
         String(take!(output)),
         String(take!(errors)))
+end
+
+"""Resolve Julia linker flags via julia-config.jl, matching the tools/make.jl build."""
+function resolve_julia_linker_flags()
+    Sys.iswindows() && error(
+        "Julia linker flags for analytical Odin builds are not supported on Windows.")
+    julia_config_path = joinpath(
+        Sys.BINDIR, Base.DATAROOTDIR, "julia", "julia-config.jl")
+    isfile(julia_config_path) || error("Could not resolve julia-config.jl path.")
+    output = IOBuffer()
+    process = run(pipeline(
+        ignorestatus(Cmd([
+            Base.julia_cmd().exec[1], julia_config_path, "--ldflags", "--ldlibs"])),
+        stdout=output,
+        stderr=devnull))
+    process.exitcode == 0 || error("Failed to query Julia linker flags.")
+    return join(split(String(take!(output))), " ")
 end
 
 end

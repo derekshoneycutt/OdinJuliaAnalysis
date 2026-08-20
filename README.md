@@ -296,6 +296,7 @@ OdinBuildSettings([
 | `input` | Target-root-relative Odin package or source file |
 | `output_name` | Artifact filename beneath `.build/analysis/odin/` |
 | `flags` | Compiler policy applied to the analytical build |
+| `include_julia_linker_flags` | Append Julia linker flags resolved via `julia-config.jl` as `-extra-linker-flags` (keyword, default `false`; POSIX only) |
 
 The report retains the complete command, exit code, stdout, stderr, and artifact path.
 A failed build emits `ODIN-BUILD-FAILED` using its configured response.

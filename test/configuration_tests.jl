@@ -300,6 +300,11 @@ end
         OdinBuildSettings([
             OdinBuildTarget("invalid", "src", "fixture", ["vet"]),
         ]))
+    default_target = OdinBuildTarget("defaulted", "src", "fixture", ["-vet"])
+    @test default_target.include_julia_linker_flags === false
+    linked_target = OdinBuildTarget(
+        "linked", "src", "fixture", ["-vet"]; include_julia_linker_flags=true)
+    @test linked_target.include_julia_linker_flags === true
     @test_throws ArgumentError OdinJuliaAnalysis.validate_jet_settings(
         JetSettings([
             JetEntryPoint("invalid-types", "main.jl", identity, (1,)),

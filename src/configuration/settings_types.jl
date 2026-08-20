@@ -159,6 +159,17 @@ struct OdinBuildTarget
     input::String
     output_name::String
     flags::Vector{String}
+    include_julia_linker_flags::Bool
+end
+
+"""Construct an analytical Odin build target that omits Julia linker flags by default."""
+function OdinBuildTarget(
+    id::String,
+    input::String,
+    output_name::String,
+    flags::Vector{String};
+    include_julia_linker_flags::Bool=false)
+    return OdinBuildTarget(id, input, output_name, flags, include_julia_linker_flags)
 end
 
 struct OdinBuildSettings
