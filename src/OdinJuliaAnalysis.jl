@@ -79,6 +79,7 @@ mutable struct CheckOptionState
     progress::Symbol
     settings_path::String
     report_path::Union{Nothing, String}
+    full_report_path::Union{Nothing, String}
 end
 
 struct SourceLineCounts
@@ -100,6 +101,7 @@ function usage(io::IO)
     println(io, "                                Control progress written to stderr")
     println(io, "    --settings=PATH            Load settings from PATH")
     println(io, "    --report=PATH              Write a compact Markdown report")
+    println(io, "    --full-report=PATH         Write a comprehensive Markdown report")
     println(io, "    -h, --help                 Show this help")
     println(io)
     println(io, "Examples:")
@@ -149,19 +151,25 @@ function write_analysis_outputs(report, options, configuration)
         color=options.color,
         warning_limit=configuration.report.warning_limit,
         report_limit=configuration.report.report_limit)
-    if options.report_path !== nothing
-        report_path = abspath(options.report_path)
-        mkpath(dirname(report_path))
-        open(report_path, "w") do io
-            write_markdown_report(io, report)
-        end
+    options.report_path === nothing ||
+        write_markdown_file(options.report_path, report; comprehensive=false)
+    options.full_report_path === nothing ||
+        write_markdown_file(options.full_report_path, report; comprehensive=true)
+end
+
+"""Write one Markdown report artifact at the requested path."""
+function write_markdown_file(path, report; comprehensive::Bool)
+    report_path = abspath(path)
+    mkpath(dirname(report_path))
+    open(report_path, "w") do io
+        write_markdown_report(io, report; comprehensive=comprehensive)
     end
 end
 
 """Parse check-command options into repository and output settings."""
 function parse_check_options(arguments::Vector{String})
     options = CheckOptionState(
-        ".", "text", :auto, :auto, DEFAULT_SETTINGS_PATH, nothing)
+        ".", "text", :auto, :auto, DEFAULT_SETTINGS_PATH, nothing, nothing)
     for argument in arguments
         if argument in ("-h", "--help")
             usage(stdout)
@@ -179,7 +187,8 @@ function parse_check_options(arguments::Vector{String})
         options.color,
         options.progress,
         options.settings_path,
-        options.report_path)
+        options.report_path,
+        options.full_report_path)
 end
 
 """Apply one check-command option to mutable parser state."""
@@ -202,6 +211,10 @@ function parse_check_option!(options, argument)
         value = split(argument, "="; limit=2)[2]
         isempty(value) && return empty_path_option("report")
         options.report_path = value
+    elseif startswith(argument, "--full-report=")
+        value = split(argument, "="; limit=2)[2]
+        isempty(value) && return empty_path_option("full-report")
+        options.full_report_path = value
     elseif startswith(argument, "-")
         println(stderr, "OdinJuliaAnalysis: unknown option: ", argument)
         return false

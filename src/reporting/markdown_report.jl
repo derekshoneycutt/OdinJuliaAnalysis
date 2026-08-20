@@ -1,6 +1,8 @@
-"""Write a compact human-readable Markdown analysis report."""
-function write_markdown_report(io::IO, report::AnalysisReport)
+"""Write the compact human-readable Markdown analysis report."""
+function write_markdown_report(io::IO, report::AnalysisReport; comprehensive::Bool=false)
     println(io, "# Odin-Julia Analysis Report")
+    comprehensive && println(io, "\n_This is the comprehensive report; it includes every " *
+        "recorded evidence inventory in addition to the compact summary._")
     write_markdown_metadata(io, report)
     write_markdown_summary(io, report)
     write_markdown_statistics(io, report.statistics)
@@ -16,9 +18,9 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_security_paths(io, report)
     write_markdown_engines(io, report)
 
-    #= TODO: Consider the following when necessary; these are excluded due to the size
-             of the report, but they are candidates for the future still.
-
+    # The remaining sections are the complete evidence inventories. They are large,
+    # so the compact report excludes them and the comprehensive report includes them.
+    comprehensive || return
     write_markdown_files(io, report)
     write_markdown_dependencies(io, report)
     write_markdown_declarations(io, report)
@@ -30,7 +32,6 @@ function write_markdown_report(io::IO, report::AnalysisReport)
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
     write_markdown_ignored(io, report)
-    =#
 end
 
 """Write static/runtime test evidence and risk-ranked declaration gaps."""
