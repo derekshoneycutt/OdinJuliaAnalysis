@@ -11,7 +11,7 @@ export FunctionMetricSettings, ResponseThresholds, ReviewedComplexity
 export AnalysisExtension, AnalysisPhase
 export AfterDiscovery, AfterLanguageAnalysis, AfterRepositoryAnalysis
 export AnalysisContext, ExtensionResult, RuleDefinition
-export CallEdge, CallRoot, CloneGroup, CloneOccurrence, DeclarationRecord
+export CallEdge, CallRoot, CloneCandidate, CloneGroup, CloneOccurrence, DeclarationRecord
 export ResourceLifetimeSummary
 export SecurityBoundaryPath
 export TestCoverageEvidence, TestCoverageCounts, TestCoverageStatistics
@@ -45,6 +45,7 @@ using StructTypes
 
 include("configuration/settings_types.jl")
 include("core/model.jl")
+include("core/analysis_hierarchy.jl")
 include("core/statistics.jl")
 include("configuration/rule_registry.jl")
 include("core/extension_api.jl")
@@ -195,31 +196,40 @@ end
 function parse_check_option!(options, argument)
     if startswith(argument, "--format=")
         options.format = split(argument, "="; limit=2)[2]
-    elseif startswith(argument, "--color=")
-        value = parse_display_mode(argument, "color")
-        value === nothing && return false
-        options.color = value
-    elseif startswith(argument, "--progress=")
-        value = parse_display_mode(argument, "progress")
-        value === nothing && return false
-        options.progress = value
-    elseif startswith(argument, "--settings=")
-        value = split(argument, "="; limit=2)[2]
-        isempty(value) && return empty_path_option("settings")
-        options.settings_path = value
-    elseif startswith(argument, "--report=")
-        value = split(argument, "="; limit=2)[2]
-        isempty(value) && return empty_path_option("report")
-        options.report_path = value
-    elseif startswith(argument, "--full-report=")
-        value = split(argument, "="; limit=2)[2]
-        isempty(value) && return empty_path_option("full-report")
-        options.full_report_path = value
+    elseif startswith(argument, "--color=") || startswith(argument, "--progress=")
+        return parse_check_display_option!(options, argument)
+    elseif startswith(argument, "--settings=") ||
+        startswith(argument, "--report=") ||
+        startswith(argument, "--full-report=")
+        return parse_check_path_option!(options, argument)
     elseif startswith(argument, "-")
         println(stderr, "OdinJuliaAnalysis: unknown option: ", argument)
         return false
     else
         options.root = argument
+    end
+    return true
+end
+
+"""Apply one color or progress display-mode option."""
+function parse_check_display_option!(options, argument)
+    label = startswith(argument, "--color=") ? "color" : "progress"
+    value = parse_display_mode(argument, label)
+    value === nothing && return false
+    label == "color" ? (options.color = value) : (options.progress = value)
+    return true
+end
+
+"""Apply one settings or Markdown report path option."""
+function parse_check_path_option!(options, argument)
+    name, value = split(argument[3:end], "="; limit=2)
+    isempty(value) && return empty_path_option(name)
+    if name == "settings"
+        options.settings_path = value
+    elseif name == "report"
+        options.report_path = value
+    else
+        options.full_report_path = value
     end
     return true
 end
@@ -407,6 +417,7 @@ function assemble_analysis_report(
     references=ReferenceRecord[],
     call_edges=CallEdge[],
     call_roots=CallRoot[],
+    clone_candidates=CloneCandidate[],
     clone_groups=CloneGroup[],
     resource_lifetimes=ResourceLifetimeSummary[],
     security_paths=SecurityBoundaryPath[],
@@ -419,7 +430,7 @@ function assemble_analysis_report(
     apply_reviewed_complexity!(diagnostics, root, files, configuration)
     apply_constructor_naming_convention!(diagnostics, declarations, configuration)
     apply_reviewed_naming_policies!(diagnostics, root, files, configuration)
-    files_analysis = analyze_files(root, files, functions, struct_counts, diagnostics)
+    files_analysis = analyze_files(root, files, struct_counts, diagnostics)
     statistics = calculate_repository_statistics(files_analysis, functions)
     run_extension_phase!(extension_results, diagnostics, configuration, root, files,
         AfterRepositoryAnalysis;
@@ -431,6 +442,7 @@ function assemble_analysis_report(
         references,
         call_edges,
         call_roots,
+        clone_candidates,
         clone_groups,
         resource_lifetimes,
         security_paths,
@@ -448,8 +460,8 @@ function assemble_analysis_report(
         ignored.counts, engines, call_roots)
     return canonical_analysis_report((;
         root, files, files_by_language, files_analysis, functions, dependencies,
-        declarations, import_bindings, references, call_edges, call_roots, clone_groups,
-        resource_lifetimes,
+        declarations, import_bindings, references, call_edges, call_roots,
+        clone_candidates, clone_groups, resource_lifetimes,
         security_paths,
         test_coverage,
         test_coverage_statistics,
@@ -460,8 +472,22 @@ end
 
 """Construct the canonical report from fully analyzed repository state."""
 function canonical_analysis_report(state)
+    nested_files = nest_analysis_files(
+        state.files_analysis,
+        state.functions;
+        declarations=state.declarations,
+        import_bindings=state.import_bindings,
+        references=state.references,
+        call_edges=state.call_edges,
+        clone_candidates=state.clone_candidates,
+        clone_groups=state.clone_groups,
+        resource_lifetimes=state.resource_lifetimes,
+        security_paths=state.security_paths,
+        test_coverage=state.test_coverage,
+        interop_signatures=state.interop_signatures,
+        interop_pairs=state.interop_pairs)
     return AnalysisReport(
-        "3.19.0",
+        "4.0.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -470,21 +496,10 @@ function canonical_analysis_report(state)
         state.configuration.function_metrics,
         length(state.files),
         state.files_by_language,
-        state.files_analysis,
-        state.functions,
+        nested_files,
         state.dependencies,
-        state.declarations,
-        state.import_bindings,
-        state.references,
-        state.call_edges,
         state.call_roots,
-        state.clone_groups,
-        state.resource_lifetimes,
-        state.security_paths,
-        state.test_coverage,
         state.test_coverage_statistics,
-        state.interop_signatures,
-        state.interop_pairs,
         state.statistics,
         state.diagnostics,
         state.ignored.diagnostics,
@@ -564,7 +579,7 @@ function run_language_analysis!(state, root, files, configuration, progress)
     run_security_analysis!(state, configuration)
     run_test_coverage_analysis!(state, root, configuration)
     language_files = analyze_files(
-        root, files, state.functions, state.struct_counts, state.diagnostics)
+        root, files, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
         language_files, state.functions)
     run_extension_phase!(state.extension_results, state.diagnostics,
@@ -577,6 +592,7 @@ function run_language_analysis!(state, root, files, configuration, progress)
         references=state.references,
         call_edges=state.call_edges,
         call_roots=state.call_roots,
+        clone_candidates=state.clone_candidates,
         clone_groups=state.clone_groups,
         resource_lifetimes=state.resource_lifetimes,
         security_paths=state.security_paths,
@@ -689,6 +705,7 @@ function check_repository(
         references=state.references,
         call_edges=state.call_edges,
         call_roots=state.call_roots,
+        clone_candidates=state.clone_candidates,
         clone_groups=state.clone_groups,
         resource_lifetimes=state.resource_lifetimes,
         security_paths=state.security_paths,
@@ -700,7 +717,7 @@ function check_repository(
 end
 
 """Return line, function, and struct totals for every discovered source file."""
-function analyze_files(root, files, functions, struct_counts, diagnostics)
+function analyze_files(root, files, struct_counts, diagnostics)
     return map(files) do path
         source = read(path, String)
         lines = split(source, '\n'; keepempty=true)
@@ -708,29 +725,38 @@ function analyze_files(root, files, functions, struct_counts, diagnostics)
             length(lines) - (isempty(last(lines)) ? 1 : 0)
         content_lines = @view lines[1:physical_lines]
         relative_path = relpath(path, root)
-        language = endswith(path, ".jl") ? "julia" :
-            endswith(path, ".odin") ? "odin" : "markdown"
-        syntax_rule = language == "julia" ? "JULIA-SYNTAX" :
-            language == "odin" ? "ODIN-SYNTAX" : nothing
-        parsed = syntax_rule === nothing || !any(
-            item -> item.path == relative_path && item.rule_id == syntax_rule,
-            diagnostics)
+        language = source_language(path)
+        parsed = source_parsed(relative_path, language, diagnostics)
         line_counts = file_line_counts(
             path, source, lines, content_lines, physical_lines, language, parsed)
-        function_count = count(item -> item.path == relative_path, functions)
         struct_count = language == "julia" && parsed ?
             JuliaEngine.struct_count(source) : get(struct_counts, relative_path, 0)
         FileAnalysis(
             relative_path,
-            language,
+            language;
             physical_lines,
-            physical_lines - line_counts.blank,
-            line_counts.code,
-            line_counts.comment,
-            line_counts.blank,
-            function_count, struct_count,
+            source_lines=physical_lines - line_counts.blank,
+            code_lines=line_counts.code,
+            comment_lines=line_counts.comment,
+            blank_lines=line_counts.blank,
+            struct_count,
             parsed)
     end
+end
+
+"""Return the analyzer language name for one supported source path."""
+function source_language(path)
+    endswith(path, ".jl") && return "julia"
+    endswith(path, ".odin") && return "odin"
+    return "markdown"
+end
+
+"""Return whether one source file has no syntax diagnostic."""
+function source_parsed(path, language, diagnostics)
+    syntax_rule = language == "julia" ? "JULIA-SYNTAX" :
+        language == "odin" ? "ODIN-SYNTAX" : nothing
+    syntax_rule === nothing && return true
+    return !any(item -> item.path == path && item.rule_id == syntax_rule, diagnostics)
 end
 
 """Classify physical source lines as blank, comment, or code."""
@@ -808,18 +834,24 @@ end
 """Return the number of files or configured targets applicable to one rule."""
 function rule_files_checked(
     rule_id, definition, configuration, files_by_language, call_roots)
-    startswith(rule_id, "ARCHITECTURE-") &&
-        isempty(configuration.architecture.layers) && return 0
-    rule_id in ("DUPLICATE-CODE-POLICY-DRIFT", "JULIA-DUPLICATE-CODE",
-        "ODIN-DUPLICATE-CODE") && !configuration.duplicate_code.enabled && return 0
-    rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
-        !any(root -> root.language == "julia", call_roots) && return 0
-    rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
-        !any(root -> root.language == "odin", call_roots) && return 0
+    rule_is_not_applicable(rule_id, configuration, call_roots) && return 0
     rule_id == "ODIN-BUILD-FAILED" && return length(configuration.odin_build.targets)
     startswith(rule_id, "JULIA-JET-") && return length(configuration.jet.entry_points)
     return definition.language == "common" ?
         sum(values(files_by_language)) : files_by_language[definition.language]
+end
+
+"""Return whether configuration disables the analysis required by one rule."""
+function rule_is_not_applicable(rule_id, configuration, call_roots)
+    startswith(rule_id, "ARCHITECTURE-") &&
+        return isempty(configuration.architecture.layers)
+    rule_id in ("DUPLICATE-CODE-POLICY-DRIFT", "JULIA-DUPLICATE-CODE",
+        "ODIN-DUPLICATE-CODE") && return !configuration.duplicate_code.enabled
+    rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
+        return !any(root -> root.language == "julia", call_roots)
+    rule_id == "ODIN-UNREACHABLE-PROCEDURE" &&
+        return !any(root -> root.language == "odin", call_roots)
+    return false
 end
 
 """Return the execution status for one configured analysis rule."""
@@ -831,19 +863,25 @@ function rule_run_status(
     extension_owner=nothing)
     setting.enabled || return "disabled"
     files_checked == 0 && return "not-applicable"
-    engine_name = extension_owner !== nothing ? "extension:$extension_owner" :
-        startswith(setting.rule_id, "ARCHITECTURE-") ? "architecture" :
-        setting.rule_id in ("CALL-GRAPH-UNRESOLVED-EDGE",
-            "JULIA-UNREACHABLE-FUNCTION", "ODIN-UNREACHABLE-PROCEDURE") ? "call-graph" :
-        setting.rule_id in ("DUPLICATE-CODE-POLICY-DRIFT",
-            "JULIA-DUPLICATE-CODE", "ODIN-DUPLICATE-CODE") ? "duplicate-code" :
-        setting.rule_id == "ODIN-BUILD-FAILED" ? "odin-build" :
-        startswith(setting.rule_id, "JULIA-JET-") ? "jet" :
-        definition.language == "common" ? "common" : definition.language
+    engine_name = rule_engine_name(setting.rule_id, definition, extension_owner)
     engine_status = get(engine_statuses, engine_name, "failed")
     engine_status in ("failed", "incomplete") && return "failed"
     engine_status == "not-applicable" && return "not-applicable"
     return "evaluated"
+end
+
+"""Return the engine responsible for evaluating one rule."""
+function rule_engine_name(rule_id, definition, extension_owner)
+    extension_owner !== nothing && return "extension:$extension_owner"
+    startswith(rule_id, "ARCHITECTURE-") && return "architecture"
+    rule_id in ("CALL-GRAPH-UNRESOLVED-EDGE",
+        "JULIA-UNREACHABLE-FUNCTION", "ODIN-UNREACHABLE-PROCEDURE") &&
+        return "call-graph"
+    rule_id in ("DUPLICATE-CODE-POLICY-DRIFT",
+        "JULIA-DUPLICATE-CODE", "ODIN-DUPLICATE-CODE") && return "duplicate-code"
+    rule_id == "ODIN-BUILD-FAILED" && return "odin-build"
+    startswith(rule_id, "JULIA-JET-") && return "jet"
+    return definition.language == "common" ? "common" : definition.language
 end
 
 end

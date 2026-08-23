@@ -162,7 +162,7 @@ function check_links_and_images!(
                 element.destination,
                 search_offsets)
         elseif element isa MarkdownAST.Image && isempty(strip(node_text(node)))
-            line, column = source_location(
+            line, column = source_location!(
                 source,
                 isempty(element.destination) ? "![" : element.destination,
                 search_offsets)
@@ -192,7 +192,7 @@ function check_relative_link!(
     isempty(target) && return
     resolved = normpath(joinpath(dirname(filesystem_path), target))
     ispath(resolved) && return
-    line, column = source_location(source, destination, search_offsets)
+    line, column = source_location!(source, destination, search_offsets)
     add_diagnostic!(
         diagnostics,
         configuration,
@@ -229,8 +229,8 @@ function visit_nodes(visitor, node)
     end
 end
 
-"""Find the next source occurrence of a node value and return its location."""
-function source_location(source, needle, search_offsets)
+"""Find the next source occurrence of a node value and advance its search offset."""
+function source_location!(source, needle, search_offsets)
     start = get(search_offsets, needle, firstindex(source))
     location = findnext(needle, source, start)
     location === nothing && return (1, 1)

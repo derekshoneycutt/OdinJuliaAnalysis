@@ -52,6 +52,50 @@
     end
 end
 
+@testset "Odin init procedures are implicit call roots" begin
+    mktempdir() do root
+        path = joinpath(root, "fixture.odin")
+        write(path, """
+            package fixture
+
+            // Initialize package state before main.
+            @(init)
+            initialize :: proc() {}
+
+            // Remain unreachable from package entry points.
+            unused :: proc() {}
+            """)
+        configuration = OdinJuliaAnalysis.load_settings()
+        analysis = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], configuration)
+        initialize = only(filter(
+            item -> item.name == "initialize",
+            analysis.declarations))
+        unused = only(filter(
+            item -> item.name == "unused",
+            analysis.declarations))
+
+        @test initialize.is_init
+        @test !unused.is_init
+        roots = OdinJuliaAnalysis.collect_call_roots(
+            analysis.declarations,
+            analysis.interop_signatures,
+            configuration)
+        @test any(root -> root.declaration == "initialize" && root.category == "init",
+            roots)
+        diagnostics = OdinJuliaAnalysis.analyze_reachability(
+            analysis.declarations,
+            analysis.call_edges,
+            analysis.references,
+            roots,
+            configuration)
+        unreachable = filter(
+            item -> item.rule_id == "ODIN-UNREACHABLE-PROCEDURE",
+            diagnostics)
+        @test [item.subject for item in unreachable] == ["unused"]
+    end
+end
+
 @testset "Odin non-const globals" begin
     mktempdir() do root
         path = joinpath(root, "fixture.odin")

@@ -77,6 +77,10 @@ const RULE_REGISTRY = Dict(
     "JULIA-NONCONST-GLOBAL" => RuleDefinition(
         "JULIA-NONCONST-GLOBAL", "julia", "Global Rules > Mutable Globals",
         "mature", "stable", "warning", false),
+    "JULIA-CONST-MUTABLE-REF" => RuleDefinition(
+        "JULIA-CONST-MUTABLE-REF", "julia",
+        "Global Rules > Mutable Globals",
+        "experimental", "probable", "warning", false),
     "JULIA-UNUSED-IMPORT" => RuleDefinition(
         "JULIA-UNUSED-IMPORT", "julia", "Julia Rules > Unused Imports",
         "experimental", "definite", "report", false),

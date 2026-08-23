@@ -87,7 +87,6 @@ end
         analysis = only(OdinJuliaAnalysis.analyze_files(
             root,
             [path],
-            OdinJuliaAnalysis.FunctionAnalysis[],
             Dict{String, Int}(),
             OdinJuliaAnalysis.Diagnostic[]))
         @test analysis.physical_lines == 10
@@ -102,7 +101,6 @@ end
         invalid_analysis = only(OdinJuliaAnalysis.analyze_files(
             root,
             [path],
-            OdinJuliaAnalysis.FunctionAnalysis[],
             Dict{String, Int}(),
             invalid_diagnostics))
         @test !invalid_analysis.parsed
@@ -309,6 +307,62 @@ end
             "fixture.jl", source, disabled)))
 end
 
+@testset "Julia const mutable references" begin
+    configuration = OdinJuliaAnalysis.load_settings()
+    source = """
+        const PLAIN_REF = Ref(1)
+        const TYPED_REF::Ref{Int} = Ref{Int}(2)
+        const BASE_REF = Base.RefValue(3)
+        const CORE_REF = Core.Ref(4)
+        const ORDINARY_CONSTANT = 5
+        NONCONST_REF = Ref(6)
+
+        module Nested
+        const NESTED_REF = Ref(7)
+        end
+
+        \"\"\"Return local mutable state.\"\"\"
+        function local_reference()
+            local_ref = Ref(8)
+            return local_ref[]
+        end
+        """
+    diagnostics = filter(
+        item -> item.rule_id == "JULIA-CONST-MUTABLE-REF",
+        OdinJuliaAnalysis.JuliaEngine.check(
+            "fixture.jl", source, configuration))
+
+    @test [item.subject for item in diagnostics] == [
+        "PLAIN_REF",
+        "TYPED_REF",
+        "BASE_REF",
+        "CORE_REF",
+        "NESTED_REF",
+    ]
+    @test all(item -> item.response == Warn, diagnostics)
+    @test all(item -> item.operation == "const-ref-global", diagnostics)
+    @test all(item -> item.certainty == "probable", diagnostics)
+
+    for response in (Ignore, Report, Warn, Fail)
+        configured = with_rules(configuration, Dict(
+            "JULIA-CONST-MUTABLE-REF" => RuleSetting(
+                "JULIA-CONST-MUTABLE-REF", true, response)))
+        response_diagnostics = filter(
+            item -> item.rule_id == "JULIA-CONST-MUTABLE-REF",
+            OdinJuliaAnalysis.JuliaEngine.check(
+                "fixture.jl", source, configured))
+        @test all(item -> item.response == response, response_diagnostics)
+    end
+
+    disabled = with_rules(configuration, Dict(
+        "JULIA-CONST-MUTABLE-REF" => RuleSetting(
+            "JULIA-CONST-MUTABLE-REF", false, Fail)))
+    @test isempty(filter(
+        item -> item.rule_id == "JULIA-CONST-MUTABLE-REF",
+        OdinJuliaAnalysis.JuliaEngine.check(
+            "fixture.jl", source, disabled)))
+end
+
 @testset "Julia declaration order" begin
     configuration = OdinJuliaAnalysis.load_settings()
     valid_source = """
@@ -499,16 +553,25 @@ end
     configured = with_function_metrics(configuration, metrics)
     functions = [
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.jl", "julia", "report", 1, 3, 3, 0, 2, 0, true),
+            "fixture.jl", "julia", "report"; start_line=1, end_line=3,
+            executable_lines=3, parameter_count=0, cyclomatic_complexity=2,
+            cognitive_complexity=0, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.jl", "julia", "warn", 4, 8, 5, 0, 4, 0, true),
+            "fixture.jl", "julia", "warn"; start_line=4, end_line=8,
+            executable_lines=5, parameter_count=0, cyclomatic_complexity=4,
+            cognitive_complexity=0, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.jl", "julia", "fail", 9, 15, 7, 0, 6, 0, true),
+            "fixture.jl", "julia", "fail"; start_line=9, end_line=15,
+            executable_lines=7, parameter_count=0, cyclomatic_complexity=6,
+            cognitive_complexity=0, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.odin", "odin", "warn", 1, 6, 6, 0, 5, nothing, true),
+            "fixture.odin", "odin", "warn"; start_line=1, end_line=6,
+            executable_lines=6, parameter_count=0, cyclomatic_complexity=5,
+            cognitive_complexity=nothing, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "boundary.odin", "odin", "boundary", 1, 3, 3, 0, 2,
-            nothing, true),
+            "boundary.odin", "odin", "boundary"; start_line=1, end_line=3,
+            executable_lines=3, parameter_count=0, cyclomatic_complexity=2,
+            cognitive_complexity=nothing, documented=true),
     ]
     diagnostics = OdinJuliaAnalysis.function_metric_diagnostics(
         functions, configured)
@@ -591,10 +654,13 @@ end
     configured = with_function_metrics(configuration, metrics)
     functions = [
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.jl", "julia", "reviewed", 1, 8, 5, 0, 4, 0, true),
+            "fixture.jl", "julia", "reviewed"; start_line=1, end_line=8,
+            executable_lines=5, parameter_count=0, cyclomatic_complexity=4,
+            cognitive_complexity=0, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "fixture.odin", "odin", "reviewed", 1, 8, 5, 0, 1,
-            nothing, true),
+            "fixture.odin", "odin", "reviewed"; start_line=1, end_line=8,
+            executable_lines=5, parameter_count=0, cyclomatic_complexity=1,
+            cognitive_complexity=nothing, documented=true),
     ]
     diagnostics = OdinJuliaAnalysis.function_metric_diagnostics(
         functions, configured)
@@ -641,17 +707,27 @@ end
 @testset "repository statistics" begin
     files = [
         OdinJuliaAnalysis.FileAnalysis(
-            "one.jl", "julia", 10, 8, 6, 2, 2, 1, 2, true),
+            "one.jl", "julia"; physical_lines=10, source_lines=8,
+            code_lines=6, comment_lines=2, blank_lines=2,
+            struct_count=2, parsed=true),
         OdinJuliaAnalysis.FileAnalysis(
-            "two.odin", "odin", 20, 17, 15, 2, 3, 1, 3, true),
+            "two.odin", "odin"; physical_lines=20, source_lines=17,
+            code_lines=15, comment_lines=2, blank_lines=3,
+            struct_count=3, parsed=true),
         OdinJuliaAnalysis.FileAnalysis(
-            "notes.md", "markdown", 100, 90, 90, 0, 10, 0, 0, true),
+            "notes.md", "markdown"; physical_lines=100, source_lines=90,
+            code_lines=90, comment_lines=0, blank_lines=10,
+            struct_count=0, parsed=true),
     ]
     functions = [
         OdinJuliaAnalysis.FunctionAnalysis(
-            "one.jl", "julia", "one", 1, 4, 3, 1, 4, 2, true),
+            "one.jl", "julia", "one"; start_line=1, end_line=4,
+            executable_lines=3, parameter_count=1, cyclomatic_complexity=4,
+            cognitive_complexity=2, documented=true),
         OdinJuliaAnalysis.FunctionAnalysis(
-            "two.odin", "odin", "two", 1, 8, 6, 1, 3, nothing, true),
+            "two.odin", "odin", "two"; start_line=1, end_line=8,
+            executable_lines=6, parameter_count=1, cyclomatic_complexity=3,
+            cognitive_complexity=nothing, documented=true),
     ]
     statistics = OdinJuliaAnalysis.calculate_repository_statistics(
         files, functions)

@@ -34,6 +34,7 @@ AnalysisSettings(
         RuleSetting("JULIA-UNREACHABLE-FUNCTION", true, Report),
         RuleSetting("JULIA-NAMING", true, Warn),
         RuleSetting("JULIA-NONCONST-GLOBAL", true, Warn),
+        RuleSetting("JULIA-CONST-MUTABLE-REF", true, Warn),
         RuleSetting("JULIA-UNUSED-IMPORT", true, Report),
         RuleSetting("JULIA-DECLARATION-ORDER", true, Warn),
         RuleSetting("JULIA-RETURN-TUPLE", true, Fail),
@@ -116,15 +117,6 @@ AnalysisSettings(
         default_function_metric_settings().odin_cyclomatic,
         ReviewedComplexity[
             ReviewedComplexity(
-                "odin-closing-parenthesis-scanner",
-                "odin_engine/main.odin",
-                :odin,
-                "check_closing_parentheses",
-                :executable_lines,
-                "The cohesive stack-based tokenizer pass is clearer " *
-                    "as one state machine.";
-                response=Report),
-            ReviewedComplexity(
                 "julia-declaration-naming-visitor",
                 "src/julia_engine/JuliaEngine.jl",
                 :julia,
@@ -134,6 +126,7 @@ AnalysisSettings(
                     "transitions together.";
                 response=Report),
         ]),
+    default_architecture_settings(),
     AllocationSettings(
         KnownAllocatingProcedure[],
         [
@@ -152,7 +145,7 @@ AnalysisSettings(
                 operation="arena_init_static",
                 target="arena",
                 certainty=:definite,
-                response=Report),
+                response=Ignore),
             ReviewedAllocationPolicy(
                 "analysis-test-allocation-arena",
                 "odin_engine/main_tests.odin",
@@ -162,7 +155,7 @@ AnalysisSettings(
                 operation="arena_init_static",
                 target="arena",
                 certainty=:definite,
-                response=Report),
+                response=Ignore),
             ReviewedAllocationPolicy(
                 "analysis-test-syntax-arena",
                 "odin_engine/main_tests.odin",
@@ -172,7 +165,7 @@ AnalysisSettings(
                 operation="arena_init_static",
                 target="arena",
                 certainty=:definite,
-                response=Report),
+                response=Ignore),
             ReviewedAllocationPolicy(
                 "analysis-arena-backing",
                 "odin_engine/main.odin",
@@ -182,7 +175,216 @@ AnalysisSettings(
                 operation="arena_init_static",
                 target="analysis_arena",
                 certainty=:definite,
-                response=Report),
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-symbol-inventory-growth",
+                "odin_engine/main.odin",
+                "append_symbol",
+                :dynamic_growth,
+                "The analysis arena owns the declaration inventory.";
+                operation="append",
+                target="data.symbols",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-abi-type-growth",
+                "odin_engine/main.odin",
+                "append_abi_types",
+                :dynamic_growth,
+                "The analysis arena owns normalized ABI type inventories.";
+                operation="append",
+                target="result",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-interop-type-storage",
+                "odin_engine/main.odin",
+                "append_interop_signature",
+                :custom,
+                "Interop parameter and result types use the analysis allocator.";
+                operation="make",
+                allocator_source="data.allocator",
+                certainty=:definite,
+                response=Ignore,
+                minimum_matches=2,
+                maximum_matches=2),
+            ReviewedAllocationPolicy(
+                "analysis-interop-inventory-growth",
+                "odin_engine/main.odin",
+                "append_interop_signature",
+                :dynamic_growth,
+                "The analysis arena owns normalized interop signatures.";
+                operation="append",
+                target="data.interop_signatures",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-global-finding-growth",
+                "odin_engine/main.odin",
+                "check_nonconst_global",
+                :dynamic_growth,
+                "The analysis arena owns global-policy findings.";
+                operation="append",
+                target="data.findings",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-allocation-finding-growth",
+                "odin_engine/main.odin",
+                "append_allocation_finding",
+                :dynamic_growth,
+                "The analysis arena owns allocation findings.";
+                operation="append",
+                target="data.findings",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-procedure-inventory-growth",
+                "odin_engine/main.odin",
+                "register_procedure_scopes",
+                :dynamic_growth,
+                "The analysis arena owns procedure scopes, metrics, and bodies.";
+                operation="append",
+                certainty=:potential,
+                response=Ignore,
+                minimum_matches=3,
+                maximum_matches=3),
+            ReviewedAllocationPolicy(
+                "analysis-body-token-storage",
+                "odin_engine/main.odin",
+                "canonical_body_tokens",
+                :custom,
+                "Canonical body tokens use the caller-provided analysis allocator.";
+                operation="make",
+                target="[dynamic]string",
+                allocator_source="allocator",
+                certainty=:definite,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-body-token-growth",
+                "odin_engine/main.odin",
+                "canonical_body_tokens",
+                :dynamic_growth,
+                "The analysis arena owns canonical body tokens.";
+                operation="append",
+                target="tokens",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-documentation-finding-growth",
+                "odin_engine/main.odin",
+                "check_procedure_documentation",
+                :dynamic_growth,
+                "The analysis arena owns documentation findings.";
+                operation="append",
+                target="data.findings",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-import-symbol-growth",
+                "odin_engine/main.odin",
+                "append_import_symbol",
+                :dynamic_growth,
+                "The analysis arena owns imported declaration symbols.";
+                operation="append",
+                target="data.symbols",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-import-edge-growth",
+                "odin_engine/main.odin",
+                "append_import_edge",
+                :dynamic_growth,
+                "The analysis arena owns import edges.";
+                operation="append",
+                target="data.imports",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-reference-growth",
+                "odin_engine/main.odin",
+                "append_reference",
+                :dynamic_growth,
+                "The analysis arena owns identifier references.";
+                operation="append",
+                target="data.references",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-call-edge-growth",
+                "odin_engine/main.odin",
+                "append_call_edge",
+                :dynamic_growth,
+                "The analysis arena owns call graph edges.";
+                operation="append",
+                target="data.call_edges",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-procedure-scope-storage",
+                "odin_engine/main.odin",
+                "check_allocations",
+                :custom,
+                "Procedure scopes use the caller-provided analysis allocator.";
+                operation="make",
+                target="[dynamic]Procedure_Scope",
+                allocator_source="allocator",
+                certainty=:definite,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-parenthesis-finding-growth",
+                "odin_engine/main.odin",
+                "close_parenthesis_frame",
+                :dynamic_growth,
+                "The analysis arena owns closing-parenthesis findings.";
+                operation="append",
+                target="findings",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-parenthesis-frame-storage",
+                "odin_engine/main.odin",
+                "check_closing_parentheses",
+                :custom,
+                "The parenthesis stack uses the caller-provided analysis allocator.";
+                operation="make",
+                target="[dynamic]Parenthesis_Frame",
+                allocator_source="allocator",
+                certainty=:definite,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-parenthesis-frame-growth",
+                "odin_engine/main.odin",
+                "check_closing_parentheses",
+                :dynamic_growth,
+                "The analysis arena owns the transient parenthesis stack.";
+                operation="append",
+                target="frames",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-file-inventory-storage",
+                "odin_engine/main.odin",
+                "analyze_file",
+                :custom,
+                "File analysis inventories use the caller-provided allocator.";
+                operation="make",
+                allocator_source="allocator",
+                certainty=:definite,
+                response=Ignore,
+                minimum_matches=6,
+                maximum_matches=6),
+            ReviewedAllocationPolicy(
+                "analysis-summary-storage",
+                "odin_engine/main.odin",
+                "main",
+                :custom,
+                "File summaries are allocated from the process analysis arena.";
+                operation="make",
+                target="[]File_Summary",
+                allocator_source="analysis_allocator",
+                certainty=:definite,
+                response=Ignore),
         ]),
     ReportSettings(:auto, 50, 50),
     AnalysisExtension[],
@@ -194,4 +396,11 @@ AnalysisSettings(
         SecurityCallContract[],
         SecurityCallContract[]),
     CoverageSettings(false, String[], 20),
-    DocumentationSettings(r"\S", r"\S"))
+    DocumentationSettings(r"\S", r"\S"),
+    CallRootSettings([
+        CallRootEntryPoint(
+            "odin-test:greeting_test",
+            :odin,
+            "greeting_test",
+            "The Odin test runner invokes this procedure through @(test)."),
+    ]))

@@ -58,10 +58,12 @@ static test reachability without making the analyzer responsible for running tes
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `3.19.0` |
-| Extension API | `1.8.0` |
+| Analysis schema | `4.0.0` |
+| Extension API | `2.0.0` |
+| Native Odin schema | `3.11.0` |
+| Native Odin engine | `0.13.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 57 |
+| Built-in rules | 70 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -132,6 +134,7 @@ implemented.
 | `--progress` | `auto`, `always`, `never` | `auto` | Control milestones written to stderr |
 | `--settings` | File path | Packaged `settings.jl` | Load an `AnalysisSettings` value |
 | `--report` | File path | None | Write the compact Markdown review artifact |
+| `--full-report` | File path | None | Write the comprehensive Markdown audit artifact |
 | `-h`, `--help` | - | - | Show command help |
 
 Progress always uses stderr. Text or JSON report data always uses stdout, so machine
@@ -173,7 +176,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 3.19.0]
+    Statistics --> Report[AnalysisReport schema 4.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
@@ -210,7 +213,9 @@ flowchart TD
 | Path | Responsibility |
 | --- | --- |
 | [`analyze.jl`](analyze.jl) | Activates the package and invokes the CLI |
+| [`self-test.jl`](self-test.jl) | Runs analyzer tests and analyzer self-analysis with text or JSON output |
 | [`settings.jl`](settings.jl) | Self-analysis policy and complete configuration example |
+| [`tools/Verification.jl`](tools/Verification.jl) | Include-based, caller-driven verification progress and report formatting |
 | [`src/OdinJuliaAnalysis.jl`](src/OdinJuliaAnalysis.jl) | Public module, CLI parsing, and canonical pipeline |
 | [`src/configuration/`](src/configuration/) | Settings types/loading and the built-in rule registry |
 | [`src/core/`](src/core/) | Canonical model, discovery, statistics, and extension lifecycle |
@@ -228,16 +233,15 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 57 built-in rules. Every configured rule has an enablement flag and
+The registry contains 70 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
 | --- | ---: | --- |
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
-| Julia core and metrics | 16 | Syntax, closing delimiters, declaration order, naming, globals, tuples, parameters, documentation, unused imports, function lines, cyclomatic complexity, and JET |
-| Odin core, metrics, builds, and allocations | 27 | Syntax, declaration order, naming, globals, tuples, parameters, documentation, unused imports, metrics, compiler builds, allocator source, growth, and hidden allocation |
-| Dependency architecture | 3 | Forbidden layer directions, layer cycles, and unresolved internal imports |
-| Generic policy drift | 3 | Reviewed function-metric, naming, and call root policies remain exact and active |
+| Cross-language analysis and policy | 9 | Architecture, call-graph uncertainty, security boundaries, and reviewed-policy drift |
+| Julia core and metrics | 23 | Syntax, behavior, duplicate code, reachability, naming, mutable globals, documentation, metrics, unused imports, and JET |
+| Odin core, metrics, builds, and allocations | 29 | Syntax, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
@@ -246,6 +250,9 @@ Representative rule IDs:
 | --- | --- | --- | --- |
 | Syntax | `JULIA-SYNTAX` | `ODIN-SYNTAX` | - |
 | Naming | `JULIA-NAMING` | `ODIN-NAMING` | `NAMING-POLICY-DRIFT` |
+| Mutable globals | `JULIA-NONCONST-GLOBAL`, `JULIA-CONST-MUTABLE-REF` | `ODIN-NONCONST-GLOBAL` | - |
+| Behavior | `JULIA-EMPTY-CATCH`, `JULIA-BROAD-CATCH`, `JULIA-UNSIGNALED-ARGUMENT-MUTATION`, `JULIA-GLOBAL-WRITE` | - | `SECURITY-UNSAFE-BOUNDARY` |
+| Duplicate code | `JULIA-DUPLICATE-CODE` | `ODIN-DUPLICATE-CODE` | `DUPLICATE-CODE-POLICY-DRIFT` |
 | Function size | `JULIA-FUNCTION-LINES-*` | `ODIN-FUNCTION-LINES-*` | `FUNCTION-METRIC-POLICY-DRIFT` |
 | Complexity | `JULIA-CYCLOMATIC-*` | `ODIN-CYCLOMATIC-*` | - |
 | Parameters | `JULIA-PARAMETERS-FAIL` | `ODIN-PARAMETERS-WARN`, `ODIN-PARAMETERS-FAIL` | - |
@@ -258,6 +265,10 @@ Representative rule IDs:
 
 The `*-REPORT`, `*-WARN`, and `*-FAIL` metric rules use exact, increasing thresholds.
 This preserves low-severity visibility without making every review signal block a build.
+`JULIA-CONST-MUTABLE-REF` warns when a module-scope `const` binding constructs `Ref`,
+`Ref{T}`, or a standard qualified `Ref`/`RefValue`. The binding is constant, but its
+referenced storage remains mutable; the rule is `probable` because syntax alone cannot
+prove that an unqualified `Ref` name has not been shadowed.
 
 ### Repository Statistics
 
@@ -331,6 +342,7 @@ before source discovery begins.
 | `security` | Configured trust-boundary source, sink, and sanitizer calls |
 | `coverage` | LCOV tracefiles and Markdown high-risk presentation limit |
 | `documentation` | Required Julia docstring and Odin doc-comment regex templates |
+| `call_roots` | Cross-language callable entry points outside parser-visible call edges |
 
 Settings validation rejects malformed thresholds, duplicate profile names, unknown rules,
 duplicate rule IDs, invalid reviewed policies, invalid build targets, malformed or
@@ -449,6 +461,9 @@ CallRootSettings([
 Every declared callable matching `name` becomes a `bridge` call root, so one entry covers
 a convention implemented by many modules. Entries matching no declaration become blocking
 `CALL-ROOT-POLICY-DRIFT` findings rather than silently suppressing reachability.
+The analyzer also infers conventional `main` roots, test roots, exported bridge/callback
+roots, JET roots, and Odin procedures marked `@(init)`. Odin initialization procedures
+run before `main`, so they participate in reachability without manual configuration.
 
 ### Reviewed Policies
 
@@ -508,7 +523,7 @@ end
 | `extension_dependencies` | Name extensions whose results may be consumed |
 | `analyze_extension` | Return one valid `ExtensionResult` for the current phase |
 
-Default methods provide API version `1.8.0`, repository phase, no rules, and no
+Default methods provide API version `2.0.0`, repository phase, no rules, and no
 dependencies. `extension_id` and `analyze_extension` must be implemented.
 
 ### Lifecycle and Dependencies
@@ -516,8 +531,8 @@ dependencies. `extension_id` and `analyze_extension` must be implemented.
 | Phase | Available context | Typical use |
 | --- | --- | --- |
 | `AfterDiscovery` | Root, profile, phase, and normalized source paths | Layout and path policy |
-| `AfterLanguageAnalysis` | Paths, file, function, dependency, and declaration inventories, plus interim statistics | Declaration, dependency, and metric policy |
-| `AfterRepositoryAnalysis` | Final core inventories and repository statistics | Cross-file and cross-language policy |
+| `AfterLanguageAnalysis` | Parser-backed files with nested functions and evidence, plus repository dependencies and call roots | Declaration, dependency, bridge, and metric policy |
+| `AfterRepositoryAnalysis` | Final nested file/function evidence and repository statistics | Cross-file and cross-language policy |
 
 ```mermaid
 flowchart LR
@@ -684,8 +699,9 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 3.19.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.0.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
+| Full Markdown | `--full-report=PATH` | Deep review and inventory audit | Comprehensive inventories and findings |
 
 The canonical report includes:
 
@@ -699,12 +715,23 @@ The canonical report includes:
 | Engines | Completion status and failure messages |
 | Rules | Response, evaluation status, files checked, and finding count |
 | Odin builds | Commands, flags, streams, artifacts, status, and exit codes |
+| Repository evidence | Dependencies, call roots, diagnostics, engines, builds, and extension results |
+| Files | File metrics, nested functions, and evidence not owned by a function |
+| Functions | Metrics, declarations, bindings, references, calls, and clone evidence |
+| Function analysis | Resource lifetimes, security paths, coverage, and interop evidence |
+
+Schema `4.0.0` removes the former top-level function and evidence arrays. Consumers
+traverse `files`, then each file's `functions`; source-located evidence is assigned to
+the innermost containing function, while file-scope evidence remains on its file.
+Cross-function clone groups and interop pairs are stored once under a deterministic
+primary owner.
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |
 | `.build/odin-engine` | Analyzer package | Cached native Odin analysis executable |
 | `<target>/.build/analysis/odin/` | Analyzed repository | Configured analytical Odin build artifacts |
 | User-selected `--report` path | Caller | Compact Markdown review report |
+| User-selected `--full-report` path | Caller | Comprehensive Markdown audit report |
 
 Generated `.build` directories are excluded from source discovery.
 
@@ -720,7 +747,9 @@ cd sample
 ./make.jl run
 ./make.jl unit
 ./make.jl check
-./make.jl test --report=.build/reports/analysis.md
+./make.jl test \
+  --report=.build/reports/analysis.md \
+  --full-report=.build/reports/analysis-full.md
 ```
 
 The sample verification gate mirrors a production repository driver:
@@ -735,7 +764,7 @@ VERIFICATION PROGRESS
 | Sample file | Demonstrates |
 | --- | --- |
 | [`sample/make.jl`](sample/make.jl) | Repository command dispatch |
-| [`sample/tools/verify.jl`](sample/tools/verify.jl) | Structured build, test, and analysis gate |
+| [`sample/tools/verify.jl`](sample/tools/verify.jl) | Caller-owned phases using the shared verification module |
 | [`sample/analysis_settings.jl`](sample/analysis_settings.jl) | Consumer-owned settings composition |
 | [`sample/analysis_extension.jl`](sample/analysis_extension.jl) | Trusted extension rule and artifact |
 | [`sample/src/main.odin`](sample/src/main.odin) | Odin source and native entry point |
@@ -749,6 +778,20 @@ ODIN_JULIA_ANALYSIS_PROJECT=/path/to/OdinJuliaAnalysis ./make.jl test
 ```
 
 ## Testing the Analyzer
+
+Run the complete analyzer self-verification workflow. It executes the Julia regression
+suite, analyzes this repository with [`settings.jl`](settings.jl), prints standardized
+progress and summary tables, and optionally writes the canonical Markdown report:
+
+```sh
+./self-test.jl --report=.build/report.md
+./self-test.jl --format=json > .build/self-test.json
+```
+
+The include-based [`tools/Verification.jl`](tools/Verification.jl) module owns the common
+phase result, progress, color, table, JSON-envelope, and analyzer-statistics formatting.
+Repository drivers remain responsible for defining commands, phases, CLI policy, and
+optional report-section callbacks.
 
 Run the package regression suite:
 

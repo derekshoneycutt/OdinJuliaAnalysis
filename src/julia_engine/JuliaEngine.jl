@@ -14,7 +14,6 @@ using ..OdinJuliaAnalysis: FunctionAnalysis
 using ..OdinJuliaAnalysis: ImportBinding
 using ..OdinJuliaAnalysis: InteropSignature
 using ..OdinJuliaAnalysis: Ignore
-using ..OdinJuliaAnalysis: NamingConvention
 using ..OdinJuliaAnalysis: ReferenceRecord
 using ..OdinJuliaAnalysis: configured_diagnostic
 using ..OdinJuliaAnalysis: executable_source_lines
@@ -77,17 +76,16 @@ function collect_clone_candidates!(candidates, node, path, lines, offsets)
             start_line = metric_line_for_offset(offsets, JuliaSyntax.first_byte(body))
             end_line = metric_line_for_offset(offsets, JuliaSyntax.last_byte(body))
             canonical, token_count = canonical_syntax(body)
-            push!(candidates, CloneCandidate((
-                occurrence=CloneOccurrence(
+            push!(candidates, CloneCandidate(
+                CloneOccurrence(
                     path,
                     "julia",
                     strip(String(JuliaSyntax.sourcetext(name_node))),
                     start_line,
                     end_line),
-                canonical_body=canonical,
+                canonical,
                 token_count,
-                executable_lines=body_executable_lines(
-                    body, path, lines, offsets))))
+                body_executable_lines(body, path, lines, offsets)))
         end
     end
     for child in children
@@ -609,6 +607,7 @@ function check(
     append!(diagnostics, check_documentation(path, source, configuration))
     append!(diagnostics, check_naming(path, source, configuration))
     append!(diagnostics, check_nonconst_globals(path, source, configuration))
+    append!(diagnostics, check_const_mutable_refs(path, source, configuration))
     append!(diagnostics, check_return_tuples(path, source, configuration))
     append!(diagnostics, check_parameter_counts(path, source, configuration))
     append!(diagnostics, check_declaration_order(path, source, configuration))
@@ -1064,6 +1063,100 @@ function collect_global_bindings!(diagnostics, node, path, offsets)
     end
 end
 
+"""Report module-scope constants backed by mutable reference storage."""
+function check_const_mutable_refs(path, source, configuration)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    offsets = line_start_offsets(split(source, '\n'; keepempty=true))
+    diagnostics = Diagnostic[]
+    collect_const_mutable_refs!(diagnostics, tree, path, offsets, :module)
+    configured = Diagnostic[]
+    for diagnostic in diagnostics
+        item = configured_diagnostic(configuration, diagnostic)
+        item === nothing || push!(configured, item)
+    end
+    return configured
+end
+
+"""Collect const reference bindings while respecting Julia lexical scopes."""
+function collect_const_mutable_refs!(diagnostics, node, path, offsets, scope)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :module && length(children) >= 2
+        collect_const_mutable_refs!(diagnostics, children[end], path, offsets, :module)
+        return
+    elseif kind == :const && scope == :module
+        isempty(children) || collect_const_ref_assignment!(
+            diagnostics, first(children), path, offsets)
+        return
+    elseif kind in (:local, :struct, :quote, :call, :macrocall)
+        return
+    elseif kind in (
+        :function, :macro, :(->), :let, :for, :while, :generator,
+        :comprehension, :do)
+        for child in children
+            collect_const_mutable_refs!(diagnostics, child, path, offsets, :local)
+        end
+        return
+    end
+    for child in children
+        collect_const_mutable_refs!(diagnostics, child, path, offsets, scope)
+    end
+end
+
+"""Report one const assignment when its value constructs mutable Ref storage."""
+function collect_const_ref_assignment!(diagnostics, node, path, offsets)
+    Symbol(JuliaSyntax.kind(node)) == :(=) || return
+    children = something(JuliaSyntax.children(node), ())
+    length(children) >= 2 || return
+    is_mutable_ref_constructor(children[2]) || return
+    append_const_ref_binding!(diagnostics, children[1], path, offsets)
+end
+
+"""Return whether an expression constructs a standard Julia reference cell."""
+function is_mutable_ref_constructor(node)
+    Symbol(JuliaSyntax.kind(node)) == :call || return false
+    children = something(JuliaSyntax.children(node), ())
+    isempty(children) && return false
+    callee = first(children)
+    if Symbol(JuliaSyntax.kind(callee)) == :curly
+        parameters = something(JuliaSyntax.children(callee), ())
+        isempty(parameters) && return false
+        callee = first(parameters)
+    end
+    name = replace(strip(String(JuliaSyntax.sourcetext(callee))), " " => "")
+    return name in ("Ref", "Core.Ref", "Base.Ref", "Base.RefValue")
+end
+
+"""Append one mutable-reference diagnostic for a const binding pattern."""
+function append_const_ref_binding!(diagnostics, node, path, offsets)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :Identifier
+        name = String(JuliaSyntax.sourcetext(node))
+        name == "_" && return
+        byte_offset = JuliaSyntax.first_byte(node)
+        line = metric_line_for_offset(offsets, byte_offset)
+        column = byte_offset - offsets[line] + 1
+        push!(diagnostics, Diagnostic(
+            "JULIA-CONST-MUTABLE-REF",
+            Ignore,
+            path,
+            line,
+            column,
+            "Julia global `$(name)` is a const binding to mutable Ref storage; " *
+                "keep mutable state local or pass it explicitly.",
+            nothing,
+            nothing,
+            "julia-syntax",
+            name,
+            "const-ref-global",
+            nothing,
+            "probable"))
+    elseif kind in (:(::), :kw) && !isempty(children)
+        append_const_ref_binding!(diagnostics, first(children), path, offsets)
+    end
+end
+
 """Report Julia declarations that violate configured naming conventions."""
 function check_naming(path, source, configuration)
     tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
@@ -1453,8 +1546,16 @@ function function_analysis(node, path, source, lines, offsets, documented)
     parameter_count = positional_parameter_count(node)
     executable = body_executable_lines(body, path, lines, offsets)
     return FunctionAnalysis(
-        path, "julia", cyclomatic.name, start_line, end_line, executable,
-        parameter_count, cyclomatic.value, cognitive.value, documented)
+        path,
+        "julia",
+        cyclomatic.name;
+        start_line,
+        end_line,
+        executable_lines=executable,
+        parameter_count,
+        cyclomatic_complexity=cyclomatic.value,
+        cognitive_complexity=cognitive.value,
+        documented)
 end
 
 """Count a Julia function's positional parameters, excluding all keywords."""

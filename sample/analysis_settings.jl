@@ -32,6 +32,7 @@ AnalysisSettings(
     default_return_tuple_settings(),
     default_parameter_count_settings(),
     default_function_metric_settings(),
+    default_architecture_settings(),
     AllocationSettings(
         KnownAllocatingProcedure[],
         [
@@ -46,4 +47,31 @@ AnalysisSettings(
     default_resource_lifetime_settings(),
     default_security_settings(),
     default_coverage_settings(),
-    default_documentation_settings())
+    default_documentation_settings(),
+    CallRootSettings([
+        CallRootEntryPoint(
+            "extension-api:extension_id",
+            :julia,
+            "extension_id",
+            "The analyzer invokes this method through the extension API."),
+        CallRootEntryPoint(
+            "extension-api:extension_rules",
+            :julia,
+            "extension_rules",
+            "The analyzer invokes this method through the extension API."),
+        CallRootEntryPoint(
+            "extension-api:extension_phases",
+            :julia,
+            "extension_phases",
+            "The analyzer invokes this method through the extension API."),
+        CallRootEntryPoint(
+            "extension-api:analyze_extension",
+            :julia,
+            "analyze_extension",
+            "The analyzer invokes this method through the extension API."),
+        CallRootEntryPoint(
+            "odin-test:greeting_test",
+            :odin,
+            "greeting_test",
+            "The Odin test runner invokes this procedure through @(test)."),
+    ]))

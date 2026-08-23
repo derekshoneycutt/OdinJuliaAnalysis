@@ -1,4 +1,4 @@
-const EXTENSION_API_VERSION = v"1.8.0"
+const EXTENSION_API_VERSION = v"2.0.0"
 const EXTENSION_RESULT_STATUSES = Set((
     "complete",
     "incomplete",
@@ -76,6 +76,7 @@ function run_extension_phase!(
     references=ReferenceRecord[],
     call_edges=CallEdge[],
     call_roots=CallRoot[],
+    clone_candidates=CloneCandidate[],
     clone_groups=CloneGroup[],
     resource_lifetimes=ResourceLifetimeSummary[],
     security_paths=SecurityBoundaryPath[],
@@ -84,26 +85,29 @@ function run_extension_phase!(
     interop_signatures=InteropSignature[],
     interop_pairs=InteropBridgePair[],
     statistics=nothing)
+    nested_files = nest_analysis_files(
+        files,
+        functions;
+        declarations,
+        import_bindings,
+        references,
+        call_edges,
+        clone_candidates,
+        clone_groups,
+        resource_lifetimes,
+        security_paths,
+        test_coverage,
+        interop_signatures,
+        interop_pairs)
     context = AnalysisContext(
         root,
         configuration.profile,
         phase,
         Tuple(relpath(path, root) for path in paths),
-        Tuple(files),
-        Tuple(functions),
+        Tuple(nested_files),
         Tuple(dependencies),
-        Tuple(declarations),
-        Tuple(import_bindings),
-        Tuple(references),
-        Tuple(call_edges),
         Tuple(call_roots),
-        Tuple(clone_groups),
-        Tuple(resource_lifetimes),
-        Tuple(security_paths),
-        Tuple(test_coverage),
         test_coverage_statistics,
-        Tuple(interop_signatures),
-        Tuple(interop_pairs),
         statistics)
     for extension in configuration.extensions
         phase in invoke_extension_phases(extension) || continue

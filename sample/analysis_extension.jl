@@ -1,12 +1,15 @@
 using OdinJuliaAnalysis
 
-import OdinJuliaAnalysis: analyze_extension, extension_id, extension_phases
-import OdinJuliaAnalysis: extension_rules
+import OdinJuliaAnalysis: analyze_extension, extension_api_version, extension_id
+import OdinJuliaAnalysis: extension_phases, extension_rules
 
 struct SampleExtension <: AnalysisExtension end
 
 """Return the stable sample extension identity."""
 extension_id(_extension::SampleExtension) = "hello-world-sample"
+
+"""Declare compatibility with the current nested analysis context."""
+extension_api_version(_extension::SampleExtension) = EXTENSION_API_VERSION
 
 """Register the sample's cross-language repository rule."""
 function extension_rules(_extension::SampleExtension)

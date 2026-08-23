@@ -106,7 +106,7 @@ end
         ]
         @test [
             (item.qualified_name, item.kind, item.scope)
-            for item in report.declarations
+            for item in OdinJuliaAnalysis.analysis_declarations(report.files)
         ] == [
             ("App", "module", nothing),
             ("App.Local", "module", "App"),
@@ -200,7 +200,7 @@ end
                 item.qualified_name,
                 item.kind,
                 item.scope)
-            for item in report.declarations
+            for item in OdinJuliaAnalysis.analysis_declarations(report.files)
         ] == [
             ("app.jl", "App", "module", nothing),
             ("app.jl", "App.LIMIT", "constant", "App"),
@@ -211,7 +211,7 @@ end
             ("main.odin", "run.item", "parameter", "run"),
             ("main.odin", "run.local", "variable", "run"),
         ]
-        @test report.schema_version == "3.19.0"
+        @test report.schema_version == "4.0.0"
     end
 end
 
@@ -251,19 +251,29 @@ end
             ("ODIN-UNUSED-IMPORT", "path"),
         ]
         @test all(item -> item.certainty == "definite", findings)
-        @test length(report.import_bindings) == 4
-        @test !isempty(report.references)
-        @test [(item.caller, item.callee, item.kind) for item in report.call_edges] == [
+        import_bindings = OdinJuliaAnalysis.analysis_import_bindings(report.files)
+        references = OdinJuliaAnalysis.analysis_references(report.files)
+        call_edges = OdinJuliaAnalysis.analysis_call_edges(report.files)
+        interop_pairs = OdinJuliaAnalysis.analysis_interop_pairs(report.files)
+        @test length(import_bindings) == 4
+        @test !isempty(references)
+        @test [(item.caller, item.callee, item.kind) for item in call_edges] == [
             (nothing, "Dates.now", "qualified"),
             ("bridge", "bridge_add", "direct"),
             ("invoke_bridge", "bridge", "direct"),
             ("add", "fmt.println", "qualified"),
         ]
-        @test [(item.symbol, item.status) for item in report.interop_pairs] ==
+        @test [(item.symbol, item.status) for item in interop_pairs] ==
             [("bridge_add", "matched")]
-        pair = only(report.interop_pairs)
+        pair = only(interop_pairs)
         @test pair.mismatch === nothing
-        @test report.schema_version == "3.19.0"
+        @test report.schema_version == "4.0.0"
+        bridge_function = only(filter(
+            item -> item.name == "bridge",
+            OdinJuliaAnalysis.analysis_functions(report.files)))
+        @test [edge.callee for edge in bridge_function.call_edges] == ["bridge_add"]
+        @test [signature.symbol for signature in bridge_function.interop_signatures] ==
+            ["bridge_add"]
 
         signatures = InteropSignature[
             InteropSignature(
@@ -303,7 +313,7 @@ end
 end
 
 @testset "call graph reachability and behavior" begin
-    configuration = OdinJuliaAnalysis.load_settings()
+    configuration = settings_with_call_roots(CallRootEntryPoint[])
     declarations = DeclarationRecord[
         DeclarationRecord("app.jl", "julia", "main", "App.main",
             "function", "App", 1, 1),

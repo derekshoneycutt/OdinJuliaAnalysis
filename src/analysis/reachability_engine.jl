@@ -1,4 +1,4 @@
-"""Collect deterministic production, test, callback, and bridge call roots."""
+"""Collect deterministic production, test, init, callback, and bridge call roots."""
 function collect_call_roots(declarations, signatures, configuration)
     roots = vcat(
         jet_call_roots(configuration),
@@ -24,6 +24,12 @@ function declaration_call_roots(declarations)
     roots = CallRoot[]
     for declaration in declarations
         declaration.kind in ("function", "procedure") || continue
+        if declaration.language == "odin" && declaration.is_init
+            push!(roots, CallRoot(
+                "init:$(declaration.qualified_name)", declaration.path,
+                declaration.language, declaration.name, "init"))
+            continue
+        end
         normalized = replace(declaration.path, '\\' => '/')
         test_path = startswith(normalized, "test/") || occursin("/test/", normalized) ||
             endswith(normalized, "_test.jl") || endswith(normalized, "_tests.odin")

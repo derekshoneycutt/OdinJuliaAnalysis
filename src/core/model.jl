@@ -65,32 +65,6 @@ struct RuleRunSummary
     findings::Int
 end
 
-struct FileAnalysis
-    path::String
-    language::String
-    physical_lines::Int
-    source_lines::Int
-    code_lines::Int
-    comment_lines::Int
-    blank_lines::Int
-    function_count::Int
-    struct_count::Int
-    parsed::Bool
-end
-
-struct FunctionAnalysis
-    path::String
-    language::String
-    name::String
-    start_line::Int
-    end_line::Int
-    executable_lines::Int
-    parameter_count::Int
-    cyclomatic_complexity::Int
-    cognitive_complexity::Union{Nothing, Int}
-    documented::Bool
-end
-
 struct DependencyEdge
     source_path::String
     target::String
@@ -111,7 +85,13 @@ struct DeclarationRecord
     scope::Union{Nothing, String}
     line::Int
     column::Int
+    is_init::Bool
 end
+
+"""Construct a declaration without an implicit initialization lifecycle."""
+DeclarationRecord(path, language, name, qualified_name, kind, scope, line, column) =
+    DeclarationRecord(
+        path, language, name, qualified_name, kind, scope, line, column, false)
 
 struct ImportBinding
     path::String
@@ -156,6 +136,13 @@ struct CloneOccurrence
     declaration::String
     start_line::Int
     end_line::Int
+end
+
+struct CloneCandidate
+    occurrence::CloneOccurrence
+    canonical_body::String
+    token_count::Int
+    executable_lines::Int
 end
 
 struct CloneGroup
@@ -262,6 +249,125 @@ struct InteropBridgePair
     mismatch::Union{Nothing, String}
 end
 
+struct FunctionAnalysis
+    path::String
+    language::String
+    name::String
+    start_line::Int
+    end_line::Int
+    executable_lines::Int
+    parameter_count::Int
+    cyclomatic_complexity::Int
+    cognitive_complexity::Union{Nothing, Int}
+    documented::Bool
+    declarations::Vector{DeclarationRecord}
+    import_bindings::Vector{ImportBinding}
+    references::Vector{ReferenceRecord}
+    call_edges::Vector{CallEdge}
+    clone_candidates::Vector{CloneCandidate}
+    clone_groups::Vector{CloneGroup}
+    resource_lifetimes::Vector{ResourceLifetimeSummary}
+    security_paths::Vector{SecurityBoundaryPath}
+    test_coverage::Vector{TestCoverageEvidence}
+    interop_signatures::Vector{InteropSignature}
+    interop_pairs::Vector{InteropBridgePair}
+end
+
+"""Construct function metrics before nested evidence has been assigned."""
+function FunctionAnalysis(
+    path,
+    language,
+    name;
+    start_line,
+    end_line,
+    executable_lines,
+    parameter_count,
+    cyclomatic_complexity,
+    cognitive_complexity,
+    documented)
+    return FunctionAnalysis(
+        path,
+        language,
+        name,
+        start_line,
+        end_line,
+        executable_lines,
+        parameter_count,
+        cyclomatic_complexity,
+        cognitive_complexity,
+        documented,
+        DeclarationRecord[],
+        ImportBinding[],
+        ReferenceRecord[],
+        CallEdge[],
+        CloneCandidate[],
+        CloneGroup[],
+        ResourceLifetimeSummary[],
+        SecurityBoundaryPath[],
+        TestCoverageEvidence[],
+        InteropSignature[],
+        InteropBridgePair[])
+end
+
+struct FileAnalysis
+    path::String
+    language::String
+    physical_lines::Int
+    source_lines::Int
+    code_lines::Int
+    comment_lines::Int
+    blank_lines::Int
+    struct_count::Int
+    parsed::Bool
+    functions::Vector{FunctionAnalysis}
+    declarations::Vector{DeclarationRecord}
+    import_bindings::Vector{ImportBinding}
+    references::Vector{ReferenceRecord}
+    call_edges::Vector{CallEdge}
+    clone_candidates::Vector{CloneCandidate}
+    clone_groups::Vector{CloneGroup}
+    resource_lifetimes::Vector{ResourceLifetimeSummary}
+    security_paths::Vector{SecurityBoundaryPath}
+    test_coverage::Vector{TestCoverageEvidence}
+    interop_signatures::Vector{InteropSignature}
+    interop_pairs::Vector{InteropBridgePair}
+end
+
+"""Construct file metrics before nested evidence has been assigned."""
+function FileAnalysis(
+    path,
+    language;
+    physical_lines,
+    source_lines,
+    code_lines,
+    comment_lines,
+    blank_lines,
+    struct_count,
+    parsed)
+    return FileAnalysis(
+        path,
+        language,
+        physical_lines,
+        source_lines,
+        code_lines,
+        comment_lines,
+        blank_lines,
+        struct_count,
+        parsed,
+        FunctionAnalysis[],
+        DeclarationRecord[],
+        ImportBinding[],
+        ReferenceRecord[],
+        CallEdge[],
+        CloneCandidate[],
+        CloneGroup[],
+        ResourceLifetimeSummary[],
+        SecurityBoundaryPath[],
+        TestCoverageEvidence[],
+        InteropSignature[],
+        InteropBridgePair[])
+end
+
 struct CodeStatistics
     files::Int
     functions::Int
@@ -307,20 +413,9 @@ struct AnalysisContext
     phase::AnalysisPhase
     paths::Tuple
     files::Tuple
-    functions::Tuple
     dependencies::Tuple
-    declarations::Tuple
-    import_bindings::Tuple
-    references::Tuple
-    call_edges::Tuple
     call_roots::Tuple
-    clone_groups::Tuple
-    resource_lifetimes::Tuple
-    security_paths::Tuple
-    test_coverage::Tuple
     test_coverage_statistics::Union{Nothing, TestCoverageStatistics}
-    interop_signatures::Tuple
-    interop_pairs::Tuple
     statistics::Union{Nothing, RepositoryStatistics}
 end
 
@@ -344,20 +439,9 @@ struct AnalysisReport
     files_analyzed::Int
     files_by_language::Dict{String, Int}
     files::Vector{FileAnalysis}
-    functions::Vector{FunctionAnalysis}
     dependencies::Vector{DependencyEdge}
-    declarations::Vector{DeclarationRecord}
-    import_bindings::Vector{ImportBinding}
-    references::Vector{ReferenceRecord}
-    call_edges::Vector{CallEdge}
     call_roots::Vector{CallRoot}
-    clone_groups::Vector{CloneGroup}
-    resource_lifetimes::Vector{ResourceLifetimeSummary}
-    security_paths::Vector{SecurityBoundaryPath}
-    test_coverage::Vector{TestCoverageEvidence}
     test_coverage_statistics::Union{Nothing, TestCoverageStatistics}
-    interop_signatures::Vector{InteropSignature}
-    interop_pairs::Vector{InteropBridgePair}
     statistics::RepositoryStatistics
     diagnostics::Vector{Diagnostic}
     ignored_diagnostics::Vector{Diagnostic}

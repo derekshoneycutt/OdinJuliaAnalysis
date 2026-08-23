@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.10.0"
-ENGINE_VERSION :: "0.12.0"
+SCHEMA_VERSION :: "3.11.0"
+ENGINE_VERSION :: "0.13.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -46,6 +46,7 @@ Declaration_Symbol :: struct {
     line: int,
     column: int,
     is_struct: bool,
+    is_init: bool,
 }
 
 Import_Edge :: struct {
@@ -155,7 +156,8 @@ append_symbol :: proc(
     data: ^Analysis_Visitor_Data,
     expression: ^ast.Expr,
     kind: string,
-    is_struct := false) {
+    is_struct := false,
+    is_init := false) {
     name, named := identifier_name(expression)
     if !named || name == "_" {
         return
@@ -166,6 +168,7 @@ append_symbol :: proc(
         line = expression.pos.line,
         column = expression.pos.column,
         is_struct = is_struct,
+        is_init = is_init,
     })
 }
 
@@ -184,6 +187,22 @@ append_field_symbols :: proc(
     }
 }
 
+// Record one enum type and all of its named values.
+append_enum_symbols :: proc(
+    data: ^Analysis_Visitor_Data,
+    name: ^ast.Expr,
+    enum_type: ^ast.Enum_Type) {
+    append_symbol(data, name, "type")
+    for enum_field in enum_type.fields {
+        normalized_field := ast.unparen_expr(enum_field)
+        if field_value, ok := normalized_field.derived.(^ast.Field_Value); ok {
+            append_symbol(data, field_value.field, "enum_value")
+        } else {
+            append_symbol(data, enum_field, "enum_value")
+        }
+    }
+}
+
 // Record symbols declared by one value declaration.
 append_value_declaration_symbols :: proc(
     data: ^Analysis_Visitor_Data,
@@ -197,7 +216,8 @@ append_value_declaration_symbols :: proc(
         value := unwrap_helper_type(ast.unparen_expr(declaration.values[index]))
         #partial switch typed_value in value.derived {
         case ^ast.Proc_Lit:
-            append_symbol(data, name, "procedure")
+            append_symbol(data, name, "procedure",
+                is_init = has_attribute(declaration, "init"))
             append_field_symbols(data, typed_value.type.params, "parameter")
         case ^ast.Proc_Group:
             append_symbol(data, name, "procedure")
@@ -205,15 +225,7 @@ append_value_declaration_symbols :: proc(
             append_symbol(data, name, "type", true)
             append_field_symbols(data, typed_value.fields, "field")
         case ^ast.Enum_Type:
-            append_symbol(data, name, "type")
-            for enum_field in typed_value.fields {
-                normalized_field := ast.unparen_expr(enum_field)
-                if field_value, ok := normalized_field.derived.(^ast.Field_Value); ok {
-                    append_symbol(data, field_value.field, "enum_value")
-                } else {
-                    append_symbol(data, enum_field, "enum_value")
-                }
-            }
+            append_enum_symbols(data, name, typed_value)
         case ^ast.Union_Type, ^ast.Distinct_Type, ^ast.Bit_Set_Type:
             append_symbol(data, name, "type")
         case:
@@ -630,6 +642,45 @@ check_allocator_initialization :: proc(
     return true
 }
 
+// Construct parser-backed metrics for one named procedure declaration.
+procedure_metric :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl,
+    value: ^ast.Expr,
+    procedure: ^ast.Proc_Lit,
+    name: string) -> Procedure_Metric {
+    return Procedure_Metric {
+        name = name,
+        start_line = value.pos.line,
+        end_line = value.end.line,
+        parameter_count = parameter_count(procedure.type.params),
+        return_count = return_count(procedure.type.results),
+        cyclomatic_complexity = 1,
+        documented = declaration.docs != nil,
+        documentation = comment_group_source(data.source, declaration.docs),
+        start_offset = value.pos.offset,
+        end_offset = value.end.offset,
+    }
+}
+
+// Construct a tokenized body record when a procedure has an implementation.
+procedure_body :: proc(
+    data: ^Analysis_Visitor_Data,
+    procedure: ^ast.Proc_Lit,
+    name: string) -> (Procedure_Body, bool) {
+    if procedure.body == nil {
+        return {}, false
+    }
+    return Procedure_Body {
+        name = name,
+        tokens = canonical_body_tokens(
+            statement_source(data.source, procedure.body),
+            data.allocator),
+        start_line = procedure.body.pos.line,
+        end_line = procedure.body.end.line,
+    }, true
+}
+
 // Register source ranges for named procedure declarations.
 register_procedure_scopes :: proc(
     data: ^Analysis_Visitor_Data,
@@ -649,27 +700,10 @@ register_procedure_scopes :: proc(
                 start_offset = value.pos.offset,
                 end_offset = value.end.offset,
             })
-            append(data.procedures, Procedure_Metric {
-                name = name,
-                start_line = value.pos.line,
-                end_line = value.end.line,
-                parameter_count = parameter_count(procedure.type.params),
-                return_count = return_count(procedure.type.results),
-                cyclomatic_complexity = 1,
-                documented = declaration.docs != nil,
-                documentation = comment_group_source(data.source, declaration.docs),
-                start_offset = value.pos.offset,
-                end_offset = value.end.offset,
-            })
-            if procedure.body != nil {
-                append(data.procedure_bodies, Procedure_Body {
-                    name = name,
-                    tokens = canonical_body_tokens(
-                        statement_source(data.source, procedure.body),
-                        data.allocator),
-                    start_line = procedure.body.pos.line,
-                    end_line = procedure.body.end.line,
-                })
+            append(data.procedures,
+                procedure_metric(data, declaration, value, procedure, name))
+            if body, has_body := procedure_body(data, procedure, name); has_body {
+                append(data.procedure_bodies, body)
             }
         }
     }
@@ -943,6 +977,36 @@ check_allocations :: proc(
     ast.walk(&visitor, file)
 }
 
+// Record the latest token line within the active parenthesis frame.
+update_parenthesis_frame :: proc(
+    frames: ^[dynamic]Parenthesis_Frame,
+    line: int) {
+    if len(frames) > 0 {
+        frames[len(frames) - 1].last_interior_line = line
+    }
+}
+
+// Validate and close the active parenthesis frame.
+close_parenthesis_frame :: proc(
+    frames: ^[dynamic]Parenthesis_Frame,
+    findings: ^[dynamic]Finding,
+    line: int,
+    column: int) {
+    if len(frames) == 0 {
+        return
+    }
+    frame := pop(frames)
+    if frame.last_interior_line > 0 && frame.last_interior_line != line {
+        append(findings, Finding {
+            rule_id = "ODIN-CLOSING-PAREN-PLACEMENT",
+            line = line,
+            column = column,
+            message = CLOSING_PAREN_MESSAGE,
+        })
+    }
+    update_parenthesis_frame(frames, line)
+}
+
 // Report closing parentheses placed apart from the final interior token.
 check_closing_parentheses :: proc(
     source: string,
@@ -957,34 +1021,16 @@ check_closing_parentheses :: proc(
         token := tokenizer.scan(&odin_tokenizer)
         #partial switch token.kind {
         case .Open_Paren:
-            if len(frames) > 0 {
-                frames[len(frames) - 1].last_interior_line = token.pos.line
-            }
+            update_parenthesis_frame(&frames, token.pos.line)
             append(&frames, Parenthesis_Frame{})
         case .Close_Paren:
-            if len(frames) == 0 {
-                continue
-            }
-            frame := pop(&frames)
-            if frame.last_interior_line > 0 &&
-                frame.last_interior_line != token.pos.line {
-                append(findings, Finding {
-                    rule_id = "ODIN-CLOSING-PAREN-PLACEMENT",
-                    line = token.pos.line,
-                    column = token.pos.column,
-                    message = CLOSING_PAREN_MESSAGE,
-                })
-            }
-            if len(frames) > 0 {
-                frames[len(frames) - 1].last_interior_line = token.pos.line
-            }
+            close_parenthesis_frame(
+                &frames, findings, token.pos.line, token.pos.column)
         case .Comment:
         case .EOF:
             return
         case:
-            if len(frames) > 0 {
-                frames[len(frames) - 1].last_interior_line = token.pos.line
-            }
+            update_parenthesis_frame(&frames, token.pos.line)
         }
     }
 }

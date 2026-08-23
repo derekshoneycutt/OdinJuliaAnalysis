@@ -190,9 +190,9 @@ version = "1.11.0"
 
 [[deps.Revise]]
 deps = ["CRC32c", "CodeTracking", "FileWatching", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "OrderedCollections", "Preferences", "REPL", "UUIDs"]
-git-tree-sha1 = "ec46aed6a3a8cc6b67839ca361e7b4aa32eaeee1"
+git-tree-sha1 = "77e31587a86bbec073c07ec49a5cb12dddc0fac6"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "3.16.3"
+version = "3.16.4"
 
     [deps.Revise.extensions]
     DistributedExt = "Distributed"

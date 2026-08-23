@@ -1,6 +1,7 @@
 using Test
 using OdinJuliaAnalysis
 using JET
+using JSON3
 
 const TEST_VERBOSE = get(ENV, "ODIN_JULIA_ANALYSIS_TEST_VERBOSE", "false") == "true"
 
@@ -58,7 +59,8 @@ function OdinJuliaAnalysis.analyze_extension(
     artifacts = Dict{String, Any}(
         "path_count" => length(context.paths),
         "dependency_count" => length(context.dependencies),
-        "declaration_count" => length(context.declarations),
+        "declaration_count" => length(
+            OdinJuliaAnalysis.analysis_declarations(context.files)),
         "prior_count" => length(prior_results))
     return ExtensionResult(
         extension.id,
@@ -320,4 +322,5 @@ end
     include("reporting_tests.jl")
     include("odin_engine_tests.jl")
     include("advanced_analysis_tests.jl")
+    include("verification_tool_tests.jl")
 end

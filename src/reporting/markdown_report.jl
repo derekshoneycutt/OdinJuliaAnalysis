@@ -50,7 +50,7 @@ function write_markdown_test_coverage(io, report)
         "$(counts.runtime_available) | $(counts.runtime_covered) | ",
         "$(counts.corroborated) | $(counts.gaps) | ",
         "$(statistics.unresolved_dynamic_edges) |")
-    gaps = filter(coverage_is_gap, report.test_coverage)
+    gaps = filter(coverage_is_gap, analysis_test_coverage(report.files))
     sort!(gaps; by=coverage_risk_key)
     shown = first(gaps, min(length(gaps), statistics.high_risk_limit))
     println(io, "\n### High-Risk Coverage Gaps")
@@ -76,10 +76,11 @@ function write_markdown_security_paths(io, report)
     println(io)
     println(io, "## Security Boundary Paths")
     println(io)
-    isempty(report.security_paths) && return println(io, "No security boundary paths.")
+    security_paths = analysis_security_paths(report.files)
+    isempty(security_paths) && return println(io, "No security boundary paths.")
     println(io, "| File | Declaration | Source | Sink | Sanitizers | Certainty |")
     println(io, "| --- | --- | --- | --- | --- | --- |")
-    for item in report.security_paths
+    for item in security_paths
         source = "$(item.source_contract_id):$(item.source_call):$(item.source_line)"
         sink = "$(item.sink_contract_id):$(item.sink_call):$(item.sink_line)"
         sanitizers = isempty(item.sanitizer_contract_ids) ? "-" : join(
@@ -95,12 +96,13 @@ function write_markdown_resource_lifetimes(io, report)
     println(io)
     println(io, "## Resource Lifetime Summaries")
     println(io)
-    isempty(report.resource_lifetimes) &&
+    resource_lifetimes = analysis_resource_lifetimes(report.files)
+    isempty(resource_lifetimes) &&
         return println(io, "No resource lifetime summaries.")
     println(io, "| Status | File:line | Procedure | Allocation | Contract | Ownership | ",
         "Lifetime | Release | Escape | Explanation |")
     println(io, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    for item in report.resource_lifetimes
+    for item in resource_lifetimes
         allocation = "$(item.category):$(something(item.operation, "-"))"
         escape = item.allows_escape === nothing ? "-" :
             item.allows_escape ? "allowed" : "prohibited"
@@ -116,10 +118,11 @@ end
 function write_markdown_clone_groups(io, report)
     println(io)
     println(io, "## Exact Clone Groups")
-    isempty(report.clone_groups) && return println(io, "\nNo exact clones found.")
+    clone_groups = analysis_clone_groups(report.files)
+    isempty(clone_groups) && return println(io, "\nNo exact clones found.")
     println(io, "\n| Fingerprint | Language | Tokens | Lines | Occurrences |")
     println(io, "| --- | --- | ---: | ---: | --- |")
-    for group in report.clone_groups
+    for group in clone_groups
         occurrences = join((
             "`$(markdown_cell(item.path)):$(item.start_line)` " *
             "($(markdown_cell(item.declaration)))"
@@ -147,10 +150,11 @@ end
 function write_markdown_import_bindings(io, report)
     println(io)
     println(io, "## Import Bindings")
-    isempty(report.import_bindings) && return println(io, "\nNo explicit bindings found.")
+    import_bindings = analysis_import_bindings(report.files)
+    isempty(import_bindings) && return println(io, "\nNo explicit bindings found.")
     println(io, "\n| Source | Language | Target | Binding | Kind | Location |")
     println(io, "| --- | --- | --- | --- | --- | ---: |")
-    for binding in report.import_bindings
+    for binding in import_bindings
         println(io, "| `$(markdown_cell(binding.path))` | $(binding.language) | ",
             "`$(markdown_cell(binding.target))` | `$(markdown_cell(binding.name))` | ",
             "$(binding.kind) | $(binding.line):$(binding.column) |")
@@ -161,10 +165,11 @@ end
 function write_markdown_references(io, report)
     println(io)
     println(io, "## Reference Inventory")
-    isempty(report.references) && return println(io, "\nNo identifier references found.")
+    references = analysis_references(report.files)
+    isempty(references) && return println(io, "\nNo identifier references found.")
     println(io, "\n| Source | Language | Name | Scope | Location |")
     println(io, "| --- | --- | --- | --- | ---: |")
-    for reference in report.references
+    for reference in references
         scope = something(reference.scope, "-")
         println(io, "| `$(markdown_cell(reference.path))` | $(reference.language) | ",
             "`$(markdown_cell(reference.name))` | `$(markdown_cell(scope))` | ",
@@ -176,10 +181,11 @@ end
 function write_markdown_call_graph(io, report)
     println(io)
     println(io, "## Call Graph")
-    isempty(report.call_edges) && return println(io, "\nNo explicit call edges found.")
+    call_edges = analysis_call_edges(report.files)
+    isempty(call_edges) && return println(io, "\nNo explicit call edges found.")
     println(io, "\n| Source | Language | Caller | Callee | Kind | Location |")
     println(io, "| --- | --- | --- | --- | --- | ---: |")
-    for edge in report.call_edges
+    for edge in call_edges
         caller = something(edge.caller, "-")
         println(io, "| `$(markdown_cell(edge.source_path))` | $(edge.language) | ",
             "`$(markdown_cell(caller))` | `$(markdown_cell(edge.callee))` | ",
@@ -191,13 +197,14 @@ end
 function write_markdown_interop(io, report)
     println(io)
     println(io, "## Interop Signatures")
-    if isempty(report.interop_signatures)
+    interop_signatures = analysis_interop_signatures(report.files)
+    if isempty(interop_signatures)
         println(io, "\nNo supported interop signatures found.")
     else
         println(io, "\n| Source | Language | Direction | Symbol | ABI | Parameters" *
             " | Returns |")
         println(io, "| --- | --- | --- | --- | --- | --- | --- |")
-        for signature in report.interop_signatures
+        for signature in interop_signatures
             parameters = join(signature.parameter_types, ", ")
             returns = isempty(signature.return_types) ? "void" :
                 join(signature.return_types, ", ")
@@ -210,10 +217,11 @@ function write_markdown_interop(io, report)
     end
     println(io)
     println(io, "## Interop Bridge Pairs")
-    isempty(report.interop_pairs) && return println(io, "\nNo bridge pairs found.")
+    interop_pairs = analysis_interop_pairs(report.files)
+    isempty(interop_pairs) && return println(io, "\nNo bridge pairs found.")
     println(io, "\n| Symbol | Status | Julia | Odin | Mismatch |")
     println(io, "| --- | --- | --- | --- | --- |")
-    for pair in report.interop_pairs
+    for pair in interop_pairs
         println(io, "| `$(markdown_cell(pair.symbol))` | $(pair.status) | ",
             "`$(markdown_cell(something(pair.julia_path, "-")))` | ",
             "`$(markdown_cell(something(pair.odin_path, "-")))` | ",
@@ -225,7 +233,8 @@ end
 function write_markdown_declarations(io, report)
     println(io)
     println(io, "## Declaration Inventory")
-    if isempty(report.declarations)
+    declarations = analysis_declarations(report.files)
+    if isempty(declarations)
         println(io)
         println(io, "No supported Julia or Odin declarations were found.")
         return
@@ -233,7 +242,7 @@ function write_markdown_declarations(io, report)
     println(io)
     println(io, "| Source | Language | Kind | Qualified name | Scope | Location |")
     println(io, "| --- | --- | --- | --- | --- | ---: |")
-    for declaration in report.declarations
+    for declaration in declarations
         scope = something(declaration.scope, "-")
         println(io,
             "| `$(markdown_cell(declaration.path))` | $(declaration.language) | ",
@@ -402,13 +411,14 @@ end
 """Write repository-wide totals and positive coverage evidence."""
 function write_markdown_summary(io, report)
     counts = severity_counts(report.diagnostics)
+    functions = analysis_functions(report.files)
     function_statuses = Dict(status => count(
         item -> function_status(
             item,
             report.thresholds,
             report.parameter_counts,
             report.function_metrics) == status,
-        report.functions) for status in (
+        functions) for status in (
             "within thresholds", "review", "exceeds maximum"))
     clean_files = count(file -> !any(
         item -> item.path == file.path && item.response in (Warn, Fail),
@@ -421,7 +431,7 @@ function write_markdown_summary(io, report)
     println(io, "| Files analyzed | $(report.files_analyzed) |")
     source_lines = sum((file.source_lines for file in report.files); init=0)
     println(io, "| Source lines | $source_lines |")
-    println(io, "| Functions and procedures | $(length(report.functions)) |")
+    println(io, "| Functions and procedures | $(length(functions)) |")
     println(io, "| Functions within thresholds | ",
         "$(function_statuses["within thresholds"]) |")
     println(io, "| Functions requiring review | $(function_statuses["review"]) |")
@@ -491,7 +501,7 @@ function write_markdown_files(io, report)
         println(io, "| `$(markdown_cell(file.path))` | $(file.language) | ",
             "$parse_status | $(file.physical_lines) | $(file.code_lines) | ",
             "$(file.comment_lines) | $(file.blank_lines) | ",
-            "$(file.function_count) | $(counts[Report]) | $(counts[Warn]) | ",
+            "$(length(file.functions)) | $(counts[Report]) | $(counts[Warn]) | ",
             "$(counts[Fail]) |")
     end
 end
@@ -505,7 +515,7 @@ function write_markdown_functions(io, report)
         "| File | Function | Lines | NLOC | Params | Cyclomatic | Cognitive | ",
         "Docs | Status |")
     println(io, "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |")
-    for item in sort(report.functions; by=function_sort_key)
+    for item in sort(analysis_functions(report.files); by=function_sort_key)
         span = "$(item.start_line)-$(item.end_line)"
         documented = item.documented ? "yes" : "no"
         status = function_status(
@@ -536,18 +546,26 @@ function function_status(item, thresholds, parameter_counts, function_metrics)
         (
             lines=function_metrics.odin_lines,
             cyclomatic=function_metrics.odin_cyclomatic)
-    if item.executable_lines > metric_settings.lines.fail ||
-            item.parameter_count > parameter_maximum ||
-            item.cyclomatic_complexity > metric_settings.cyclomatic.fail ||
-            something(item.cognitive_complexity, 0) > thresholds.cognitive_maximum
+    exceeds_function_maximum(
+        item, thresholds, parameter_maximum, metric_settings) &&
         return "exceeds maximum"
-    elseif item.executable_lines > metric_settings.lines.report ||
-            item.language == "odin" &&
-                item.parameter_count > parameter_counts.odin_warning ||
-            item.cyclomatic_complexity > metric_settings.cyclomatic.report
-        return "review"
-    end
+    requires_function_review(item, parameter_counts, metric_settings) && return "review"
     return "within thresholds"
+end
+
+"""Return whether one function exceeds a configured maximum."""
+function exceeds_function_maximum(item, thresholds, parameter_maximum, metrics)
+    return item.executable_lines > metrics.lines.fail ||
+        item.parameter_count > parameter_maximum ||
+        item.cyclomatic_complexity > metrics.cyclomatic.fail ||
+        something(item.cognitive_complexity, 0) > thresholds.cognitive_maximum
+end
+
+"""Return whether one function exceeds a configured report threshold."""
+function requires_function_review(item, parameter_counts, metrics)
+    return item.executable_lines > metrics.lines.report ||
+        item.language == "odin" && item.parameter_count > parameter_counts.odin_warning ||
+        item.cyclomatic_complexity > metrics.cyclomatic.report
 end
 
 """Write every visible diagnostic grouped by source file."""

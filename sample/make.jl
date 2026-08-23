@@ -32,6 +32,7 @@ function print_help(io::IO=stdout)
     println(io, "  --format=FORMAT    text or complete JSON")
     println(io, "  --settings=PATH    Load alternate analyzer settings")
     println(io, "  --report=PATH      Write the compact Markdown report")
+    println(io, "  --full-report=PATH Write the comprehensive Markdown report")
 end
 
 """Run one command from the sample root and return its exit code."""
@@ -118,8 +119,6 @@ function run_full_gate(arguments::Vector{String}=String[])
             VerificationScript,
         ], arguments));
         dir=RepositoryRoot)
-    println(stderr, "\n==> Run complete verification")
-    flush(stderr)
     return run(ignorestatus(command)).exitcode
 end
 

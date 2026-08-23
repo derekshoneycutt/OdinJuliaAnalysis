@@ -1,1 +1,53 @@
-/.build/
+# Build outputs
+.build/
+build/
+dist/
+*.a
+*.dll
+*.dylib
+*.exe
+*.lib
+*.o
+*.obj
+*.out
+*.pdb
+*.so
+
+# Julia generated files
+*.cov
+*.ji
+*.mem
+LocalPreferences.toml
+
+# Coverage and profiling output
+coverage/
+lcov.info
+*.lcov
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and IDE state
+.fleet/
+.history/
+.idea/
+.vscode/
+*.swo
+*.swp
+*~
+
+# Operating system metadata
+.DS_Store
+Desktop.ini
+Thumbs.db
+
+# Logs, caches, and temporary files
+.cache/
+*.log
+*.temp
+*.tmp
+
+# Local planning documents
+staging_*

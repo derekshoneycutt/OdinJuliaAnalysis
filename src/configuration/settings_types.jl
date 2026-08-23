@@ -254,8 +254,8 @@ FunctionMetricSettings(julia_lines, odin_lines, julia_cyclomatic, odin_cyclomati
 """Return conservative function metric tiers with established review triggers."""
 function default_function_metric_settings()
     return FunctionMetricSettings(
-        ResponseThresholds(20, 45, 65),
-        ResponseThresholds(20, 45, 65),
+        ResponseThresholds(35, 45, 65),
+        ResponseThresholds(35, 45, 65),
         ResponseThresholds(10, 13, 16),
         ResponseThresholds(10, 15, 18))
 end

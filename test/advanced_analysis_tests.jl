@@ -60,13 +60,14 @@
         OdinJuliaAnalysis.check_repository(
             root; configuration=duplicate_code_configuration(enabled))
     end
-    @test report.schema_version == "3.19.0"
-    @test [group.language for group in report.clone_groups] == ["julia", "odin"]
-    @test all(group -> length(group.occurrences) == 2, report.clone_groups)
-    @test all(group -> group.token_count > 0, report.clone_groups)
-    @test all(group -> group.executable_lines > 0, report.clone_groups)
+    clone_groups = OdinJuliaAnalysis.analysis_clone_groups(report.files)
+    @test report.schema_version == "4.0.0"
+    @test [group.language for group in clone_groups] == ["julia", "odin"]
+    @test all(group -> length(group.occurrences) == 2, clone_groups)
+    @test all(group -> group.token_count > 0, clone_groups)
+    @test all(group -> group.executable_lines > 0, clone_groups)
     @test !any(occurrence -> occurrence.declaration == "different",
-        Iterators.flatten(group.occurrences for group in report.clone_groups))
+        Iterators.flatten(group.occurrences for group in clone_groups))
     @test count(diagnostic -> endswith(diagnostic.rule_id, "-DUPLICATE-CODE"),
         report.diagnostics) == 2
     @test any(engine -> engine.name == "duplicate-code" &&
@@ -81,18 +82,18 @@
     @test !occursin("## Exact Clone Groups", markdown)
     @test occursin("ODIN-DUPLICATE-CODE", markdown)
 
-    julia_group = only(filter(group -> group.language == "julia", report.clone_groups))
+    julia_group = only(filter(group -> group.language == "julia", clone_groups))
     candidates = [
-        (
-            occurrence=CloneOccurrence(
+        CloneCandidate(
+            CloneOccurrence(
                 occurrence.path,
                 occurrence.language,
                 occurrence.declaration,
                 occurrence.start_line,
                 occurrence.end_line),
-            canonical_body="shared-body",
-            token_count=10,
-            executable_lines=3)
+            "shared-body",
+            10,
+            3)
         for occurrence in julia_group.occurrences
     ]
     reviewed_fingerprint = OdinJuliaAnalysis.exact_clone_groups(candidates)[1].fingerprint
@@ -191,8 +192,9 @@ end
         OdinJuliaAnalysis.check_repository(
             root; configuration=lifetime_configuration(configured))
     end
-    @test length(report.resource_lifetimes) == 1
-    summary = only(report.resource_lifetimes)
+    resource_lifetimes = OdinJuliaAnalysis.analysis_resource_lifetimes(report.files)
+    @test length(resource_lifetimes) == 1
+    summary = only(resource_lifetimes)
     @test summary.status == "complete"
     @test summary.contract_id == "temporary-slice"
     @test summary.ownership == "borrowed"
@@ -337,10 +339,11 @@ end
         OdinJuliaAnalysis.check_repository(
             root; configuration=security_configuration(security))
     end
-    @test report.schema_version == "3.19.0"
-    @test length(report.security_paths) == 2
-    @test Set(path.language for path in report.security_paths) == Set(("julia", "odin"))
-    julia_path = only(filter(path -> path.language == "julia", report.security_paths))
+    security_paths = OdinJuliaAnalysis.analysis_security_paths(report.files)
+    @test report.schema_version == "4.0.0"
+    @test length(security_paths) == 2
+    @test Set(path.language for path in security_paths) == Set(("julia", "odin"))
+    julia_path = only(filter(path -> path.language == "julia", security_paths))
     @test julia_path.sanitizer_contract_ids == ["julia-allowlist"]
     @test julia_path.certainty == "potential"
     @test occursin("Argument flow is not yet proven", julia_path.explanation)
@@ -525,15 +528,16 @@ end
         OdinJuliaAnalysis.check_repository(
             root; configuration=coverage_configuration(coverage))
     end
-    @test report.schema_version == "3.19.0"
+    @test report.schema_version == "4.0.0"
     @test report.test_coverage_statistics !== nothing
     @test report.test_coverage_statistics.overall.declarations == 6
     @test report.test_coverage_statistics.overall.corroborated == 2
     @test report.test_coverage_statistics.overall.uncovered == 2
     @test report.test_coverage_statistics.overall.runtime_unavailable == 2
-    @test Set(item.evidence_class for item in report.test_coverage) ==
+    test_coverage = OdinJuliaAnalysis.analysis_test_coverage(report.files)
+    @test Set(item.evidence_class for item in test_coverage) ==
         Set(("corroborated", "uncovered", "runtime-unavailable"))
-    gaps = filter(OdinJuliaAnalysis.coverage_is_gap, report.test_coverage)
+    gaps = filter(OdinJuliaAnalysis.coverage_is_gap, test_coverage)
     @test Set(item.declaration for item in gaps) ==
         Set(("uncovered_julia", "uncovered_odin"))
     @test any(engine -> engine.name == "test-coverage" &&

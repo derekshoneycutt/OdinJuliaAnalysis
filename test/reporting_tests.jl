@@ -138,11 +138,12 @@ end
         @test report.files_analyzed == 2
         @test isempty(report.diagnostics)
         @test length(report.files) == 2
-        @test length(report.functions) == 2
+        functions = OdinJuliaAnalysis.analysis_functions(report.files)
+        @test length(functions) == 2
         julia_function = only(filter(
-            item -> item.language == "julia", report.functions))
+            item -> item.language == "julia", functions))
         odin_function = only(filter(
-            item -> item.language == "odin", report.functions))
+            item -> item.language == "odin", functions))
         @test julia_function.name == "choose"
         @test julia_function.parameter_count == 2
         @test julia_function.cyclomatic_complexity == 2
@@ -175,7 +176,7 @@ end
 
         output = IOBuffer()
         OdinJuliaAnalysis.write_report(output, report, "json")
-        @test occursin("\"schema_version\": \"3.19.0\"", String(take!(output)))
+        @test occursin("\"schema_version\": \"4.0.0\"", String(take!(output)))
 
         settings_path = write_jet_settings(
             tempname(),

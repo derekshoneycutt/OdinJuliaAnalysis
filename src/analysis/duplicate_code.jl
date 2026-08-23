@@ -1,12 +1,5 @@
 using SHA
 
-const CloneCandidate = @NamedTuple begin
-    occurrence::CloneOccurrence
-    canonical_body::String
-    token_count::Int
-    executable_lines::Int
-end
-
 """Group exact same-language canonical function bodies deterministically."""
 function exact_clone_groups(candidates; minimum_occurrences=2)
     buckets = Dict{Tuple{String, String}, Vector{CloneCandidate}}()

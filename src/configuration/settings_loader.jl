@@ -208,25 +208,10 @@ function validate_resource_lifetime_settings(settings::ResourceLifetimeSettings)
     ids = Set{String}()
     selectors = Set{NamedTuple}()
     for contract in settings.contracts
-        isempty(strip(contract.id)) && throw(ArgumentError(
-            "resource lifetime contract ID cannot be empty"))
+        validate_resource_lifetime_contract(contract)
         contract.id in ids && throw(ArgumentError(
             "duplicate resource lifetime contract ID: $(contract.id)"))
         push!(ids, contract.id)
-        contract.category in ALLOCATION_CATEGORIES || throw(ArgumentError(
-            "unknown resource lifetime category: $(contract.category)"))
-        contract.ownership in RESOURCE_OWNERSHIP_KINDS || throw(ArgumentError(
-            "unknown resource ownership: $(contract.ownership)"))
-        contract.lifetime in RESOURCE_LIFETIME_KINDS || throw(ArgumentError(
-            "unknown resource lifetime: $(contract.lifetime)"))
-        isempty(strip(contract.reason)) && throw(ArgumentError(
-            "resource lifetime contract reason cannot be empty: $(contract.id)"))
-        for (label, value) in (("operation", contract.operation),
-            ("allocator source", contract.allocator_source),
-            ("release operation", contract.release_operation))
-            value === nothing || !isempty(strip(value)) || throw(ArgumentError(
-                "resource lifetime $label cannot be empty: $(contract.id)"))
-        end
         selector = (
             category=contract.category,
             operation=contract.operation,
@@ -234,6 +219,26 @@ function validate_resource_lifetime_settings(settings::ResourceLifetimeSettings)
         selector in selectors && throw(ArgumentError(
             "duplicate resource lifetime selector: $(contract.id)"))
         push!(selectors, selector)
+    end
+end
+
+"""Validate one ownership and lifetime contract."""
+function validate_resource_lifetime_contract(contract)
+    isempty(strip(contract.id)) && throw(ArgumentError(
+        "resource lifetime contract ID cannot be empty"))
+    contract.category in ALLOCATION_CATEGORIES || throw(ArgumentError(
+        "unknown resource lifetime category: $(contract.category)"))
+    contract.ownership in RESOURCE_OWNERSHIP_KINDS || throw(ArgumentError(
+        "unknown resource ownership: $(contract.ownership)"))
+    contract.lifetime in RESOURCE_LIFETIME_KINDS || throw(ArgumentError(
+        "unknown resource lifetime: $(contract.lifetime)"))
+    isempty(strip(contract.reason)) && throw(ArgumentError(
+        "resource lifetime contract reason cannot be empty: $(contract.id)"))
+    for (label, value) in (("operation", contract.operation),
+        ("allocator source", contract.allocator_source),
+        ("release operation", contract.release_operation))
+        value === nothing || !isempty(strip(value)) || throw(ArgumentError(
+            "resource lifetime $label cannot be empty: $(contract.id)"))
     end
 end
 
@@ -274,19 +279,9 @@ function validate_extensions(extensions)
     configured_order = Dict{String, Int}()
     for (index, extension) in enumerate(extensions)
         id = invoke_extension_id(extension)
-        isempty(strip(id)) && throw(ArgumentError("extension ID cannot be empty"))
+        validate_extension_contract(extension, id)
         haskey(extension_by_id, id) && throw(ArgumentError(
             "duplicate extension ID: $id"))
-        version = invoke_extension_api_version(extension)
-        version == EXTENSION_API_VERSION ||
-            throw(ArgumentError(
-                "extension $id requires API $version; " *
-                    "analyzer provides $EXTENSION_API_VERSION"))
-        phases = invoke_extension_phases(extension)
-        isempty(phases) && throw(ArgumentError(
-            "extension $id must declare at least one phase"))
-        all(phase -> phase isa AnalysisPhase, phases) || throw(ArgumentError(
-            "extension $id declares an unsupported phase"))
         extension_by_id[id] = extension
         configured_order[id] = index
     end
@@ -300,6 +295,20 @@ function validate_extensions(extensions)
         end
     end
     return order_extensions(extension_by_id, configured_order)
+end
+
+"""Validate one extension's identity, API version, and lifecycle phases."""
+function validate_extension_contract(extension, id)
+    isempty(strip(id)) && throw(ArgumentError("extension ID cannot be empty"))
+    version = invoke_extension_api_version(extension)
+    version == EXTENSION_API_VERSION || throw(ArgumentError(
+        "extension $id requires API $version; " *
+            "analyzer provides $EXTENSION_API_VERSION"))
+    phases = invoke_extension_phases(extension)
+    isempty(phases) && throw(ArgumentError(
+        "extension $id must declare at least one phase"))
+    all(phase -> phase isa AnalysisPhase, phases) || throw(ArgumentError(
+        "extension $id declares an unsupported phase"))
 end
 
 """Topologically order extensions with configured order as the stable tie-breaker."""
@@ -423,28 +432,33 @@ function validate_odin_build_settings(settings::OdinBuildSettings)
     target_ids = Set{String}()
     output_names = Set{String}()
     for target in settings.targets
-        isempty(strip(target.id)) && throw(ArgumentError(
-            "Odin build target ID cannot be empty"))
+        validate_odin_build_target(target)
         target.id in target_ids && throw(ArgumentError(
             "duplicate Odin build target ID: $(target.id)"))
         push!(target_ids, target.id)
-        validate_repository_path(target.input, "Odin build input")
-        invalid_output = isempty(strip(target.output_name)) ||
-            basename(target.output_name) != target.output_name ||
-            target.output_name in (".", "..")
-        invalid_output && throw(ArgumentError(
-            "Odin build output name must be a filename"))
         target.output_name in output_names && throw(ArgumentError(
             "duplicate Odin build output name: $(target.output_name)"))
         push!(output_names, target.output_name)
-        isempty(target.flags) && throw(ArgumentError(
-            "Odin build target must configure at least one compiler flag: $(target.id)"))
-        for flag in target.flags
-            startswith(flag, "-") || throw(ArgumentError(
-                "Odin build flags must begin with '-': $flag"))
-            startswith(flag, "-out:") && throw(ArgumentError(
-                "Odin build output is controlled by output_name: $(target.id)"))
-        end
+    end
+end
+
+"""Validate one analytical Odin build target."""
+function validate_odin_build_target(target)
+    isempty(strip(target.id)) && throw(ArgumentError(
+        "Odin build target ID cannot be empty"))
+    validate_repository_path(target.input, "Odin build input")
+    invalid_output = isempty(strip(target.output_name)) ||
+        basename(target.output_name) != target.output_name ||
+        target.output_name in (".", "..")
+    invalid_output && throw(ArgumentError(
+        "Odin build output name must be a filename"))
+    isempty(target.flags) && throw(ArgumentError(
+        "Odin build target must configure at least one compiler flag: $(target.id)"))
+    for flag in target.flags
+        startswith(flag, "-") || throw(ArgumentError(
+            "Odin build flags must begin with '-': $flag"))
+        startswith(flag, "-out:") && throw(ArgumentError(
+            "Odin build output is controlled by output_name: $(target.id)"))
     end
 end
 

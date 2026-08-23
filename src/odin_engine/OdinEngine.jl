@@ -26,7 +26,7 @@ export analyze
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.10.0"
+const SCHEMA_VERSION = "3.11.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -60,6 +60,7 @@ const OdinDeclarationSymbol = @NamedTuple begin
     line::Int
     column::Int
     is_struct::Bool
+    is_init::Bool
 end
 
 const OdinImport = @NamedTuple begin
@@ -197,13 +198,13 @@ end
 
 """Convert native parser-tokenized procedure bodies into clone candidates."""
 function clone_candidate_records(source_path, bodies)
-    return [CloneCandidate((
-        occurrence=CloneOccurrence(
+    return [CloneCandidate(
+        CloneOccurrence(
             source_path, "odin", String(body.name),
             Int(body.start_line), Int(body.end_line)),
-        canonical_body=join(String.(body.tokens), '\x1f'),
-        token_count=length(body.tokens),
-        executable_lines=max(Int(body.end_line) - Int(body.start_line) - 1, 0)))
+        join(String.(body.tokens), '\x1f'),
+        length(body.tokens),
+        max(Int(body.end_line) - Int(body.start_line) - 1, 0))
         for body in bodies]
 end
 
@@ -282,7 +283,8 @@ function declaration_records(source_path, summary)
             String(symbol.kind),
             scope,
             Int(symbol.line),
-            Int(symbol.column)))
+            Int(symbol.column),
+            Bool(symbol.is_init)))
     end
     return declarations
 end
@@ -535,15 +537,15 @@ function backend_functions(root, summary)
     return [FunctionAnalysis(
         path,
         "odin",
-        String(metric.name),
-        Int(metric.start_line),
-        Int(metric.end_line),
-        procedure_executable_lines(
+        String(metric.name);
+        start_line=Int(metric.start_line),
+        end_line=Int(metric.end_line),
+        executable_lines=procedure_executable_lines(
             path, lines, Int(metric.start_line), Int(metric.end_line)),
-        Int(metric.parameter_count),
-        Int(metric.cyclomatic_complexity),
-        nothing,
-        Bool(metric.documented)) for metric in summary.procedures]
+        parameter_count=Int(metric.parameter_count),
+        cyclomatic_complexity=Int(metric.cyclomatic_complexity),
+        cognitive_complexity=nothing,
+        documented=Bool(metric.documented)) for metric in summary.procedures]
 end
 
 """Count executable lines inside an Odin procedure body."""

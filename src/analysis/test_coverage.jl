@@ -87,10 +87,11 @@ end
 
 """Classify agreement and disagreement between static and runtime evidence."""
 function coverage_evidence_class(static_reachable, runtime_covered)
-    static_reachable === true && runtime_covered === true && return "corroborated"
-    static_reachable === true && runtime_covered === false && return "static-only"
-    static_reachable === false && runtime_covered === true && return "runtime-only"
-    static_reachable === false && runtime_covered === false && return "uncovered"
+    state = (static_reachable, runtime_covered)
+    state == (true, true) && return "corroborated"
+    state == (true, false) && return "static-only"
+    state == (false, true) && return "runtime-only"
+    state == (false, false) && return "uncovered"
     static_reachable !== nothing && return "runtime-unavailable"
     runtime_covered !== nothing && return "static-unavailable"
     return "unavailable"

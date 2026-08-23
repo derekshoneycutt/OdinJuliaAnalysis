@@ -106,6 +106,7 @@ end
     @test configuration.rules["JULIA-NAMING"].response == Warn
     @test configuration.rules["ODIN-NAMING"].response == Warn
     @test configuration.rules["JULIA-NONCONST-GLOBAL"].response == Warn
+    @test configuration.rules["JULIA-CONST-MUTABLE-REF"].response == Warn
     @test configuration.rules["ODIN-NONCONST-GLOBAL"].response == Warn
     @test configuration.rules["JULIA-RETURN-TUPLE"].response == Fail
     @test configuration.rules["ODIN-RETURN-TUPLE"].response == Fail
@@ -121,15 +122,14 @@ end
     @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(
         DocumentationSettings(r"\S", r"(?:)"))
     @test configuration.function_metrics.julia_lines ==
-        ResponseThresholds(20, 45, 65)
+        ResponseThresholds(35, 45, 65)
     @test configuration.function_metrics.odin_lines ==
-        ResponseThresholds(20, 45, 65)
+        ResponseThresholds(35, 45, 65)
     @test configuration.function_metrics.julia_cyclomatic ==
         ResponseThresholds(10, 13, 16)
     @test configuration.function_metrics.odin_cyclomatic ==
         ResponseThresholds(10, 15, 18)
     @test [policy.id for policy in configuration.function_metrics.reviewed] == [
-        "odin-closing-parenthesis-scanner",
         "julia-declaration-naming-visitor",
     ]
     @test configuration.rules["FUNCTION-METRIC-POLICY-DRIFT"].response == Fail
@@ -176,6 +176,26 @@ end
         "analysis-test-allocation-arena",
         "analysis-test-syntax-arena",
         "analysis-arena-backing",
+        "analysis-symbol-inventory-growth",
+        "analysis-abi-type-growth",
+        "analysis-interop-type-storage",
+        "analysis-interop-inventory-growth",
+        "analysis-global-finding-growth",
+        "analysis-allocation-finding-growth",
+        "analysis-procedure-inventory-growth",
+        "analysis-body-token-storage",
+        "analysis-body-token-growth",
+        "analysis-documentation-finding-growth",
+        "analysis-import-symbol-growth",
+        "analysis-import-edge-growth",
+        "analysis-reference-growth",
+        "analysis-call-edge-growth",
+        "analysis-procedure-scope-storage",
+        "analysis-parenthesis-finding-growth",
+        "analysis-parenthesis-frame-storage",
+        "analysis-parenthesis-frame-growth",
+        "analysis-file-inventory-storage",
+        "analysis-summary-storage",
     ]
     ignored_response = ReviewedAllocationPolicy(
         "ignored-response",
