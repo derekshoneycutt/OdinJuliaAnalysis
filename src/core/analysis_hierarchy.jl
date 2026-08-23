@@ -46,28 +46,21 @@ function nest_analysis_files(
     function_evidence = [AnalysisEvidence() for _ in functions]
     file_evidence = [AnalysisEvidence() for _ in files]
     file_indices = Dict(file.path => index for (index, file) in enumerate(files))
-
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        declarations, :declarations, item -> (item.path, item.line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        import_bindings, :import_bindings, item -> (item.path, item.line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        references, :references, item -> (item.path, item.line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        call_edges, :call_edges, item -> (item.source_path, item.line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        clone_candidates, :clone_candidates,
-        item -> (item.occurrence.path, item.occurrence.start_line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        clone_groups, :clone_groups, clone_group_location)
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        resource_lifetimes, :resource_lifetimes, item -> (item.path, item.line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        security_paths, :security_paths, item -> (item.path, item.source_line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        test_coverage, :test_coverage, item -> (item.path, item.start_line))
-    assign_records!(function_evidence, file_evidence, file_indices, functions,
-        interop_signatures, :interop_signatures, item -> (item.path, item.line))
+    assign_analysis_records!(
+        function_evidence,
+        file_evidence,
+        file_indices,
+        functions;
+        declarations,
+        import_bindings,
+        references,
+        call_edges,
+        clone_candidates,
+        clone_groups,
+        resource_lifetimes,
+        security_paths,
+        test_coverage,
+        interop_signatures)
     assign_interop_pairs!(
         function_evidence,
         file_evidence,
@@ -83,6 +76,40 @@ function nest_analysis_files(
         file_evidence[index],
         filter(item -> item.path == file.path, nested_functions))
         for (index, file) in enumerate(files)]
+end
+
+"""Assign every source-located evidence inventory to its canonical owner."""
+function assign_analysis_records!(
+    function_evidence,
+    file_evidence,
+    file_indices,
+    functions;
+    declarations,
+    import_bindings,
+    references,
+    call_edges,
+    clone_candidates,
+    clone_groups,
+    resource_lifetimes,
+    security_paths,
+    test_coverage,
+    interop_signatures)
+    inventories = (
+        (declarations, :declarations, item -> (item.path, item.line)),
+        (import_bindings, :import_bindings, item -> (item.path, item.line)),
+        (references, :references, item -> (item.path, item.line)),
+        (call_edges, :call_edges, item -> (item.source_path, item.line)),
+        (clone_candidates, :clone_candidates,
+            item -> (item.occurrence.path, item.occurrence.start_line)),
+        (clone_groups, :clone_groups, clone_group_location),
+        (resource_lifetimes, :resource_lifetimes, item -> (item.path, item.line)),
+        (security_paths, :security_paths, item -> (item.path, item.source_line)),
+        (test_coverage, :test_coverage, item -> (item.path, item.start_line)),
+        (interop_signatures, :interop_signatures, item -> (item.path, item.line)))
+    for (records, field, location) in inventories
+        assign_records!(function_evidence, file_evidence, file_indices, functions,
+            records, field, location)
+    end
 end
 
 """Assign source-located records to their innermost function or containing file."""
@@ -228,10 +255,6 @@ analysis_references(files) = ReferenceRecord[analysis_evidence(files, :reference
 
 """Return every call edge nested under analyzed files and functions."""
 analysis_call_edges(files) = CallEdge[analysis_evidence(files, :call_edges)...]
-
-"""Return every clone candidate nested under analyzed files and functions."""
-analysis_clone_candidates(files) = CloneCandidate[
-    analysis_evidence(files, :clone_candidates)...]
 
 """Return every clone group nested under analyzed files and functions."""
 analysis_clone_groups(files) = CloneGroup[analysis_evidence(files, :clone_groups)...]

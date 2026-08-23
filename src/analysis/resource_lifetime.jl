@@ -36,29 +36,38 @@ end
 """Create a complete, unresolved, or ambiguous lifetime summary."""
 function resource_lifetime_summary(event, category, matches)
     if length(matches) == 1
-        contract = only(matches)
-        return ResourceLifetimeSummary(
-            event.path,
-            event.line,
-            event.procedure,
-            event.operation,
-            event.allocation_target,
-            event.allocator_source,
-            string(category),
-            contract.id,
-            string(contract.ownership),
-            string(contract.lifetime),
-            contract.release_operation,
-            contract.allows_escape,
-            event.certainty,
-            "complete",
-            contract.reason)
+        return matched_resource_lifetime_summary(event, category, only(matches))
     end
     status = isempty(matches) ? "unresolved" : "ambiguous"
     explanation = isempty(matches) ?
         "No configured resource lifetime contract matched this allocation." :
         "Multiple resource lifetime contracts matched: " *
             join((contract.id for contract in matches), ", ") * "."
+    return unmatched_resource_lifetime_summary(event, category, status, explanation)
+end
+
+"""Create a lifetime summary backed by one matching contract."""
+function matched_resource_lifetime_summary(event, category, contract)
+    return ResourceLifetimeSummary(
+        event.path,
+        event.line,
+        event.procedure,
+        event.operation,
+        event.allocation_target,
+        event.allocator_source,
+        string(category),
+        contract.id,
+        string(contract.ownership),
+        string(contract.lifetime),
+        contract.release_operation,
+        contract.allows_escape,
+        event.certainty,
+        "complete",
+        contract.reason)
+end
+
+"""Create an unresolved or ambiguous lifetime summary."""
+function unmatched_resource_lifetime_summary(event, category, status, explanation)
     return ResourceLifetimeSummary(
         event.path,
         event.line,

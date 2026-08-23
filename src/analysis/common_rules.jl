@@ -1,3 +1,10 @@
+
+mutable struct OdinLineWidthState
+    line_number::Int
+    string_delimiter::Union{Nothing, Char}
+    escaped::Bool
+end
+
 """Convert function measurements into highest-applicable response diagnostics."""
 function function_metric_diagnostics(functions, configuration)
     diagnostics = Diagnostic[]
@@ -166,39 +173,54 @@ function odin_line_length_widths(source, line_count)
     widths = zeros(Int, line_count)
     trailing_delimiter_widths = zeros(Int, line_count)
     string_suffixes = falses(line_count)
-    line_number = 1
-    string_delimiter = nothing
-    escaped = false
+    state = OdinLineWidthState(1, nothing, false)
 
     for character in source
-        if character == '\n'
-            line_number += 1
-        elseif string_delimiter !== nothing
-            string_suffixes[line_number] = true
-            trailing_delimiter_widths[line_number] = 0
-            if escaped
-                escaped = false
-            elseif string_delimiter == '"' && character == '\\'
-                escaped = true
-            elseif character == string_delimiter
-                string_delimiter = nothing
-            end
-        elseif character in ('"', '`')
-            string_delimiter = character
-            string_suffixes[line_number] = true
-            trailing_delimiter_widths[line_number] = 0
-        else
-            widths[line_number] += 1
-            if string_suffixes[line_number] &&
-                    (isspace(character) || character in (')', ']', '}'))
-                trailing_delimiter_widths[line_number] += 1
-            else
-                string_suffixes[line_number] = false
-                trailing_delimiter_widths[line_number] = 0
-            end
-        end
+        update_odin_line_width!(
+            state, widths, trailing_delimiter_widths, string_suffixes, character)
     end
     return widths .- trailing_delimiter_widths
+end
+
+"""Update Odin line-width state for one source character."""
+function update_odin_line_width!(state, widths, trailing_widths, suffixes, character)
+    if character == '\n'
+        state.line_number += 1
+    elseif state.string_delimiter !== nothing
+        update_odin_string_state!(state, trailing_widths, suffixes, character)
+    elseif character in ('"', '`')
+        state.string_delimiter = character
+        suffixes[state.line_number] = true
+        trailing_widths[state.line_number] = 0
+    else
+        update_odin_code_width!(widths, trailing_widths, suffixes, state, character)
+    end
+end
+
+"""Update quoted-string state for one Odin source character."""
+function update_odin_string_state!(state, trailing_widths, suffixes, character)
+    suffixes[state.line_number] = true
+    trailing_widths[state.line_number] = 0
+    if state.escaped
+        state.escaped = false
+    elseif state.string_delimiter == '"' && character == '\\'
+        state.escaped = true
+    elseif character == state.string_delimiter
+        state.string_delimiter = nothing
+    end
+end
+
+"""Count one Odin code character and any trailing delimiter width."""
+function update_odin_code_width!(widths, trailing_widths, suffixes, state, character)
+    line_number = state.line_number
+    widths[line_number] += 1
+    if suffixes[line_number] &&
+            (isspace(character) || character in (')', ']', '}'))
+        trailing_widths[line_number] += 1
+    else
+        suffixes[line_number] = false
+        trailing_widths[line_number] = 0
+    end
 end
 
 """Return Markdown lines exempt because of structural content."""

@@ -650,6 +650,21 @@ struct CompatibilitySettingsTail
     documentation
 end
 
+struct CompatibilityMetricTail
+    odin_build
+    return_tuples
+    parameter_counts
+    function_metrics
+end
+
+struct CompatibilityAnalysisTail
+    duplicate_code
+    resource_lifetime
+    security
+    coverage
+    documentation
+end
+
 """Decode the extension list from either compatible settings layout."""
 function compatibility_extensions(trailing, has_architecture)
     index = has_architecture ? 8 : 7
@@ -662,48 +677,61 @@ function compatibility_documentation(trailing, index)
         trailing[index] : default_documentation_settings()
 end
 
+"""Return one compatible positional field or its current default."""
+function compatibility_setting(trailing, minimum_length, index, default)
+    return length(trailing) >= minimum_length ? trailing[index] : default
+end
+
+"""Decode metric settings added across historical constructor layouts."""
+function compatibility_metric_tail(trailing)
+    return CompatibilityMetricTail(
+        compatibility_setting(trailing, 3, 1, default_odin_build_settings()),
+        compatibility_setting(trailing, 4, 2, default_return_tuple_settings()),
+        compatibility_setting(trailing, 5, 3, default_parameter_count_settings()),
+        compatibility_setting(trailing, 6, 4, default_function_metric_settings()))
+end
+
+"""Decode analysis settings appended after extensions."""
+function compatibility_analysis_tail(trailing, duplicate_code_index)
+    lifetime_index = duplicate_code_index + 1
+    security_index = lifetime_index + 1
+    coverage_index = security_index + 1
+    return CompatibilityAnalysisTail(
+        compatibility_setting(trailing, duplicate_code_index,
+            duplicate_code_index, default_duplicate_code_settings()),
+        compatibility_setting(trailing, lifetime_index,
+            lifetime_index, default_resource_lifetime_settings()),
+        compatibility_setting(trailing, security_index,
+            security_index, default_security_settings()),
+        compatibility_setting(trailing, coverage_index,
+            coverage_index, default_coverage_settings()),
+        compatibility_documentation(trailing, coverage_index + 1))
+end
+
 """Decode settings fields added across compatibility constructor versions."""
 function compatibility_settings_tail(trailing)
-    odin_build = length(trailing) >= 3 ? trailing[1] : default_odin_build_settings()
-    return_tuples = length(trailing) >= 4 ? trailing[2] :
-        default_return_tuple_settings()
-    parameter_counts = length(trailing) >= 5 ? trailing[3] :
-        default_parameter_count_settings()
-    function_metrics = length(trailing) >= 6 ? trailing[4] :
-        default_function_metric_settings()
+    metrics = compatibility_metric_tail(trailing)
     has_architecture = length(trailing) >= 7 && trailing[5] isa ArchitectureSettings
     architecture = has_architecture ? trailing[5] : default_architecture_settings()
     duplicate_code_index = has_architecture ? 9 : 8
-    duplicate_code = length(trailing) >= duplicate_code_index ?
-        trailing[duplicate_code_index] : default_duplicate_code_settings()
-    lifetime_index = duplicate_code_index + 1
-    resource_lifetime = length(trailing) >= lifetime_index ?
-        trailing[lifetime_index] : default_resource_lifetime_settings()
-    security_index = lifetime_index + 1
-    security = length(trailing) >= security_index ?
-        trailing[security_index] : default_security_settings()
-    coverage_index = security_index + 1
-    coverage = length(trailing) >= coverage_index ?
-        trailing[coverage_index] : default_coverage_settings()
-    documentation_index = coverage_index + 1
-    documentation = compatibility_documentation(trailing, documentation_index)
+    analysis = compatibility_analysis_tail(trailing, duplicate_code_index)
     extensions = compatibility_extensions(trailing, has_architecture)
     policy_end = has_architecture ? 7 : min(length(trailing), 6)
     allocations, report = trailing[(policy_end - 1):policy_end]
     return CompatibilitySettingsTail(
-        odin_build,
-        return_tuples,
-        parameter_counts,
-        function_metrics,
+        metrics.odin_build,
+        metrics.return_tuples,
+        metrics.parameter_counts,
+        metrics.function_metrics,
         architecture,
         allocations,
         report,
         extensions,
-        duplicate_code,
-        resource_lifetime,
-        security,
-        coverage,
-        documentation)
+        analysis.duplicate_code,
+        analysis.resource_lifetime,
+        analysis.security,
+        analysis.coverage,
+        analysis.documentation)
 end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
@@ -759,25 +787,15 @@ function EffectiveSettings(
         EffectiveSettings,
         (profile, failure_threshold, thresholds, enforcement_excludes, rules,
             naming, jet, trailing...)))
-    if length(trailing) == 10
-        return EffectiveSettings(profile, failure_threshold, thresholds,
-            enforcement_excludes, rules, naming, jet, trailing...,
-            default_duplicate_code_settings(),
-            default_resource_lifetime_settings(),
-            default_security_settings(),
-            default_coverage_settings(),
-            default_documentation_settings(),
-            default_call_root_settings())
-    elseif length(trailing) == 14
-        return EffectiveSettings(profile, failure_threshold, thresholds,
-            enforcement_excludes, rules, naming, jet, trailing...,
-            default_documentation_settings(),
-            default_call_root_settings())
-    elseif length(trailing) == 15
-        return EffectiveSettings(profile, failure_threshold, thresholds,
-            enforcement_excludes, rules, naming, jet, trailing...,
-            default_call_root_settings())
-    end
+    prefix = (profile, failure_threshold, thresholds, enforcement_excludes,
+        rules, naming, jet)
+    return length(trailing) <= 6 ?
+        legacy_effective_settings(prefix, trailing) :
+        extended_effective_settings(prefix, trailing)
+end
+
+"""Construct effective settings from the shortest historical layouts."""
+function legacy_effective_settings(prefix, trailing)
     odin_build = trailing[1]
     return_tuples = length(trailing) in (4, 6) ? trailing[2] :
         default_return_tuple_settings()
@@ -786,8 +804,7 @@ function EffectiveSettings(
     function_metrics = length(trailing) == 6 ? trailing[4] :
         default_function_metric_settings()
     allocations, report = trailing[end - 1:end]
-    return EffectiveSettings(profile, failure_threshold, thresholds,
-        enforcement_excludes, rules, naming, jet, odin_build, return_tuples,
+    return EffectiveSettings(prefix..., odin_build, return_tuples,
         parameter_counts, function_metrics,
         default_architecture_settings(),
         allocations, report, AnalysisExtension[], copy(RULE_REGISTRY),
@@ -798,4 +815,18 @@ function EffectiveSettings(
         default_coverage_settings(),
         default_documentation_settings(),
         default_call_root_settings())
+end
+
+"""Construct effective settings from later additive layouts."""
+function extended_effective_settings(prefix, trailing)
+    defaults = length(trailing) == 10 ? (
+        default_duplicate_code_settings(),
+        default_resource_lifetime_settings(),
+        default_security_settings(),
+        default_coverage_settings(),
+        default_documentation_settings(),
+        default_call_root_settings()) : length(trailing) == 14 ? (
+            default_documentation_settings(),
+            default_call_root_settings()) : (default_call_root_settings(),)
+    return EffectiveSettings(prefix..., trailing..., defaults...)
 end

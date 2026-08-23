@@ -200,21 +200,14 @@ function parse_lcov(source, root, tracefile="<memory>")
         line = strip(raw_line)
         isempty(line) && continue
         if startswith(line, "SF:")
-            !in_record || throw(ArgumentError(
-                "$tracefile:$line_number starts a source before end_of_record"))
-            current_path = lcov_repository_path(line[4:end], root)
+            current_path = start_lcov_record(
+                line[4:end], root, tracefile, line_number, in_record)
             in_record = true
         elseif startswith(line, "DA:")
-            !in_record && throw(ArgumentError(
-                "$tracefile:$line_number has DA before SF"))
-            parsed = parse_lcov_da(line[4:end], tracefile, line_number)
-            if current_path isa String
-                counts = get!(records, current_path, Dict{Int, Int}())
-                counts[parsed.line] = get(counts, parsed.line, 0) + parsed.count
-            end
+            add_lcov_line!(
+                records, current_path, line[4:end], tracefile, line_number, in_record)
         elseif line == "end_of_record"
-            !in_record && throw(ArgumentError(
-                "$tracefile:$line_number has end_of_record before SF"))
+            end_lcov_record(tracefile, line_number, in_record)
             current_path = nothing
             in_record = false
         end
@@ -222,6 +215,29 @@ function parse_lcov(source, root, tracefile="<memory>")
     !in_record || throw(ArgumentError(
         "$tracefile ends before end_of_record"))
     return records
+end
+
+"""Start one LCOV source record and return its repository-relative path."""
+function start_lcov_record(path, root, tracefile, line_number, in_record)
+    !in_record || throw(ArgumentError(
+        "$tracefile:$line_number starts a source before end_of_record"))
+    return lcov_repository_path(path, root)
+end
+
+"""Merge one LCOV line count into its current source record."""
+function add_lcov_line!(records, current_path, payload, tracefile, line_number, in_record)
+    in_record || throw(ArgumentError(
+        "$tracefile:$line_number has DA before SF"))
+    parsed = parse_lcov_da(payload, tracefile, line_number)
+    current_path isa String || return
+    counts = get!(records, current_path, Dict{Int, Int}())
+    counts[parsed.line] = get(counts, parsed.line, 0) + parsed.count
+end
+
+"""Validate the end marker for one LCOV source record."""
+function end_lcov_record(tracefile, line_number, in_record)
+    in_record || throw(ArgumentError(
+        "$tracefile:$line_number has end_of_record before SF"))
 end
 
 """Normalize one LCOV source path, excluding files outside the repository."""

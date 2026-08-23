@@ -294,27 +294,13 @@ function collect_calls!(calls, node, path, offsets, scope, declaration_header)
     # Quoted expressions are macro templates; their $-interpolation placeholders are
     # not concrete call sites, so they produce no call-graph edges.
     kind == :quote && return
-    declaration = kind in (:module, :function, :struct) ?
-        declaration_identifier_node(node) : nothing
+    declaration = call_scope_declaration(node, kind)
     nested_scope = declaration === nothing ? scope :
         [scope; strip(String(JuliaSyntax.sourcetext(declaration)))]
     children = something(JuliaSyntax.children(node), ())
-    callee_node = kind in (:call, :dotcall) && !declaration_header ?
-        call_callee_node(node, children) : nothing
+    callee_node = eligible_call_callee(node, kind, children, declaration_header)
     if callee_node !== nothing
-        callee_kind = Symbol(JuliaSyntax.kind(callee_node))
-        byte_offset = JuliaSyntax.first_byte(callee_node)
-        line = metric_line_for_offset(offsets, byte_offset)
-        call_kind = callee_kind == :Identifier ? "direct" :
-            callee_kind == :. ? "qualified" : "dynamic"
-        push!(calls, CallEdge(
-            path,
-            "julia",
-            isempty(scope) ? nothing : join(scope, "."),
-            strip(String(JuliaSyntax.sourcetext(callee_node))),
-            call_kind,
-            line,
-            byte_offset - offsets[line] + 1))
+        push!(calls, call_edge(callee_node, path, offsets, scope))
     end
     for child in children
         child_is_header = declaration !== nothing && child === first(children)
@@ -322,6 +308,35 @@ function collect_calls!(calls, node, path, offsets, scope, declaration_header)
             calls, child, path, offsets, nested_scope,
             declaration_header || child_is_header)
     end
+end
+
+"""Return a declaration that introduces lexical call scope."""
+function call_scope_declaration(node, kind)
+    return kind in (:module, :function, :struct) ?
+        declaration_identifier_node(node) : nothing
+end
+
+"""Return the callee for an eligible call expression."""
+function eligible_call_callee(node, kind, children, declaration_header)
+    return kind in (:call, :dotcall) && !declaration_header ?
+        call_callee_node(node, children) : nothing
+end
+
+"""Build one canonical Julia call edge from its callee syntax node."""
+function call_edge(callee_node, path, offsets, scope)
+    callee_kind = Symbol(JuliaSyntax.kind(callee_node))
+    byte_offset = JuliaSyntax.first_byte(callee_node)
+    line = metric_line_for_offset(offsets, byte_offset)
+    call_kind = callee_kind == :Identifier ? "direct" :
+        callee_kind == :. ? "qualified" : "dynamic"
+    return CallEdge(
+        path,
+        "julia",
+        isempty(scope) ? nothing : join(scope, "."),
+        strip(String(JuliaSyntax.sourcetext(callee_node))),
+        call_kind,
+        line,
+        byte_offset - offsets[line] + 1)
 end
 
 """Collect supported Julia C interop signatures from surface syntax."""
@@ -634,7 +649,22 @@ function collect_behavior!(
         collect_function_behavior!(
             diagnostics, node, children, path, offsets, configuration)
         return
-    elseif kind == :catch
+    end
+    append_behavior_node_diagnostics!(
+        diagnostics, node, path, offsets, configuration, function_name, parameters)
+    for child in children
+        collect_behavior!(
+            diagnostics, child, path, offsets, configuration,
+            function_name, parameters)
+    end
+end
+
+"""Append behavior diagnostics produced directly by one syntax node."""
+function append_behavior_node_diagnostics!(
+    diagnostics, node, path, offsets, configuration, function_name, parameters)
+    kind = Symbol(JuliaSyntax.kind(node))
+    children = something(JuliaSyntax.children(node), ())
+    if kind == :catch
         append_catch_diagnostics!(diagnostics, node, path, offsets, configuration)
     elseif kind == :global && function_name !== nothing
         append_behavior_diagnostic!(
@@ -652,11 +682,6 @@ function collect_behavior!(
             "Function `$function_name` mutates argument `$target` " *
             "without a trailing `!`.";
             subject=target, operation="argument-mutation", certainty="definite")
-    end
-    for child in children
-        collect_behavior!(
-            diagnostics, child, path, offsets, configuration,
-            function_name, parameters)
     end
 end
 
@@ -996,25 +1021,33 @@ function collect_nonconst_globals!(diagnostics, node, path, offsets, scope)
         collect_nonconst_globals!(diagnostics, children[end], path, offsets, :module)
         return
     elseif kind == :global
-        for child in children
-            collect_global_bindings!(diagnostics, child, path, offsets)
-        end
+        collect_explicit_global_bindings!(diagnostics, children, path, offsets)
         return
     elseif kind in (:const, :local, :struct, :quote, :call, :macrocall)
         return
     elseif kind in (
         :function, :macro, :(->), :let, :for, :while, :generator,
         :comprehension, :do)
-        for child in children
-            collect_nonconst_globals!(diagnostics, child, path, offsets, :local)
-        end
+        collect_nonconst_children!(diagnostics, children, path, offsets, :local)
         return
     elseif kind == :(=) && scope == :module && !isempty(children)
         collect_module_assignment!(diagnostics, children, path, offsets)
         return
     end
+    collect_nonconst_children!(diagnostics, children, path, offsets, scope)
+end
+
+"""Visit child nodes while retaining the selected binding scope."""
+function collect_nonconst_children!(diagnostics, children, path, offsets, scope)
     for child in children
         collect_nonconst_globals!(diagnostics, child, path, offsets, scope)
+    end
+end
+
+"""Collect every binding named by an explicit global statement."""
+function collect_explicit_global_bindings!(diagnostics, children, path, offsets)
+    for child in children
+        collect_global_bindings!(diagnostics, child, path, offsets)
     end
 end
 

@@ -109,6 +109,12 @@ function run_extension_phase!(
         Tuple(call_roots),
         test_coverage_statistics,
         statistics)
+    execute_extensions!(
+        results, diagnostics, configuration, phase, context)
+end
+
+"""Execute phase extensions and retain their validated results."""
+function execute_extensions!(results, diagnostics, configuration, phase, context)
     for extension in configuration.extensions
         phase in invoke_extension_phases(extension) || continue
         id = invoke_extension_id(extension)

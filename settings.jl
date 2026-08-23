@@ -124,7 +124,7 @@ AnalysisSettings(
                 :cyclomatic_complexity,
                 "The recursive syntax visitor keeps declaration scope " *
                     "transitions together.";
-                response=Report),
+                response=Ignore),
         ]),
     default_architecture_settings(),
     AllocationSettings(

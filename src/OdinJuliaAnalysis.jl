@@ -405,87 +405,71 @@ function assemble_analysis_report(
     root,
     files,
     files_by_language,
-    diagnostics,
-    functions,
-    engines,
-    odin_builds,
-    configuration;
-    struct_counts=Dict{String, Int}(),
-    dependencies=DependencyEdge[],
-    declarations=DeclarationRecord[],
-    import_bindings=ImportBinding[],
-    references=ReferenceRecord[],
-    call_edges=CallEdge[],
-    call_roots=CallRoot[],
-    clone_candidates=CloneCandidate[],
-    clone_groups=CloneGroup[],
-    resource_lifetimes=ResourceLifetimeSummary[],
-    security_paths=SecurityBoundaryPath[],
-    test_coverage=TestCoverageEvidence[],
-    test_coverage_statistics=nothing,
-    interop_signatures=InteropSignature[],
-    interop_pairs=InteropBridgePair[],
-    extension_results=ExtensionResult[])
-    append!(diagnostics, function_metric_diagnostics(functions, configuration))
-    apply_reviewed_complexity!(diagnostics, root, files, configuration)
-    apply_constructor_naming_convention!(diagnostics, declarations, configuration)
-    apply_reviewed_naming_policies!(diagnostics, root, files, configuration)
-    files_analysis = analyze_files(root, files, struct_counts, diagnostics)
-    statistics = calculate_repository_statistics(files_analysis, functions)
-    run_extension_phase!(extension_results, diagnostics, configuration, root, files,
-        AfterRepositoryAnalysis;
-        files=files_analysis,
-        functions,
-        dependencies,
-        declarations,
-        import_bindings,
-        references,
-        call_edges,
-        call_roots,
-        clone_candidates,
-        clone_groups,
-        resource_lifetimes,
-        security_paths,
-        test_coverage,
-        test_coverage_statistics,
-        interop_signatures,
-        interop_pairs,
-        statistics)
-    append!(engines, extension_engine_statuses(
-        configuration.extensions, extension_results))
-    sort!(diagnostics; by=diagnostic_sort_key)
-    ignored = remove_ignored_diagnostics!(diagnostics)
-    exit_code = analysis_exit_code(diagnostics, engines, configuration)
-    rule_summaries = summarize_rule_runs(configuration, files_by_language, diagnostics,
-        ignored.counts, engines, call_roots)
-    return canonical_analysis_report((;
-        root, files, files_by_language, files_analysis, functions, dependencies,
-        declarations, import_bindings, references, call_edges, call_roots,
-        clone_candidates, clone_groups, resource_lifetimes,
-        security_paths,
-        test_coverage,
-        test_coverage_statistics,
-        interop_signatures, interop_pairs, statistics,
-        diagnostics, ignored, engines, odin_builds, extension_results,
-        rule_summaries, exit_code, configuration))
+    state,
+    configuration)
+    append!(state.diagnostics,
+        function_metric_diagnostics(state.functions, configuration))
+    apply_reviewed_complexity!(state.diagnostics, root, files, configuration)
+    apply_constructor_naming_convention!(
+        state.diagnostics, state.declarations, configuration)
+    apply_reviewed_naming_policies!(state.diagnostics, root, files, configuration)
+    files_analysis = analyze_files(
+        root, files, state.struct_counts, state.diagnostics)
+    statistics = calculate_repository_statistics(files_analysis, state.functions)
+    run_repository_extension_phase!(
+        state, root, files, configuration, files_analysis, statistics)
+    append!(state.engines, extension_engine_statuses(
+        configuration.extensions, state.extension_results))
+    sort!(state.diagnostics; by=diagnostic_sort_key)
+    ignored = remove_ignored_diagnostics!(state.diagnostics)
+    exit_code = analysis_exit_code(state.diagnostics, state.engines, configuration)
+    rule_summaries = summarize_rule_runs(
+        configuration, files_by_language, state.diagnostics,
+        ignored.counts, state.engines, state.call_roots)
+    report_state = merge(state, (;
+        root, files, files_by_language, files_analysis, statistics,
+        test_coverage_statistics=state.test_coverage_statistics[],
+        ignored, rule_summaries, exit_code, configuration))
+    return canonical_analysis_report(report_state)
 end
 
-"""Construct the canonical report from fully analyzed repository state."""
-function canonical_analysis_report(state)
-    nested_files = nest_analysis_files(
-        state.files_analysis,
-        state.functions;
+"""Run extensions against completed repository-analysis inventories."""
+function run_repository_extension_phase!(
+    state,
+    root,
+    files,
+    configuration,
+    files_analysis,
+    statistics)
+    run_extension_phase!(
+        state.extension_results,
+        state.diagnostics,
+        configuration,
+        root,
+        files,
+        AfterRepositoryAnalysis;
+        files=files_analysis,
+        functions=state.functions,
+        dependencies=state.dependencies,
         declarations=state.declarations,
         import_bindings=state.import_bindings,
         references=state.references,
         call_edges=state.call_edges,
+        call_roots=state.call_roots,
         clone_candidates=state.clone_candidates,
         clone_groups=state.clone_groups,
         resource_lifetimes=state.resource_lifetimes,
         security_paths=state.security_paths,
         test_coverage=state.test_coverage,
+        test_coverage_statistics=state.test_coverage_statistics[],
         interop_signatures=state.interop_signatures,
-        interop_pairs=state.interop_pairs)
+        interop_pairs=state.interop_pairs,
+        statistics)
+end
+
+"""Construct the canonical report from fully analyzed repository state."""
+function canonical_analysis_report(state)
+    nested_files = canonical_analysis_files(state)
     return AnalysisReport(
         "4.0.0",
         string(VERSION),
@@ -509,6 +493,24 @@ function canonical_analysis_report(state)
         state.extension_results,
         state.rule_summaries,
         state.exit_code)
+end
+
+"""Nest all source-owned evidence for the canonical report."""
+function canonical_analysis_files(state)
+    return nest_analysis_files(
+        state.files_analysis,
+        state.functions;
+        declarations=state.declarations,
+        import_bindings=state.import_bindings,
+        references=state.references,
+        call_edges=state.call_edges,
+        clone_candidates=state.clone_candidates,
+        clone_groups=state.clone_groups,
+        resource_lifetimes=state.resource_lifetimes,
+        security_paths=state.security_paths,
+        test_coverage=state.test_coverage,
+        interop_signatures=state.interop_signatures,
+        interop_pairs=state.interop_pairs)
 end
 
 """Remove ignored diagnostics and return their records and rule counts."""
@@ -582,6 +584,18 @@ function run_language_analysis!(state, root, files, configuration, progress)
         root, files, state.struct_counts, state.diagnostics)
     language_statistics = calculate_repository_statistics(
         language_files, state.functions)
+    run_language_extension_phase!(
+        state, root, files, configuration, language_files, language_statistics)
+end
+
+"""Run extensions against completed language-analysis inventories."""
+function run_language_extension_phase!(
+    state,
+    root,
+    files,
+    configuration,
+    language_files,
+    language_statistics)
     run_extension_phase!(state.extension_results, state.diagnostics,
         configuration, root, files, AfterLanguageAnalysis;
         files=language_files,
@@ -690,30 +704,7 @@ function check_repository(
         progress)
     report_progress(progress, "Assembling the canonical report")
     return assemble_analysis_report(
-        root,
-        files,
-        files_by_language,
-        state.diagnostics,
-        state.functions,
-        state.engines,
-        state.odin_builds,
-        configuration;
-        struct_counts=state.struct_counts,
-        dependencies=state.dependencies,
-        declarations=state.declarations,
-        import_bindings=state.import_bindings,
-        references=state.references,
-        call_edges=state.call_edges,
-        call_roots=state.call_roots,
-        clone_candidates=state.clone_candidates,
-        clone_groups=state.clone_groups,
-        resource_lifetimes=state.resource_lifetimes,
-        security_paths=state.security_paths,
-        test_coverage=state.test_coverage,
-        test_coverage_statistics=state.test_coverage_statistics[],
-        interop_signatures=state.interop_signatures,
-        interop_pairs=state.interop_pairs,
-        extension_results=state.extension_results)
+        root, files, files_by_language, state, configuration)
 end
 
 """Return line, function, and struct totals for every discovered source file."""

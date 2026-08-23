@@ -10,6 +10,12 @@ using ..OdinJuliaAnalysis: configured_diagnostic
 
 export check
 
+mutable struct MarkdownFenceState
+    active::Bool
+    character::Union{Nothing, Char}
+    length::Int
+end
+
 """Check configured structural rules for one Markdown document."""
 function check(
     path::String,
@@ -45,32 +51,40 @@ end
 function collect_heading_lines(source)
     lines = split(source, '\n'; keepempty=true)
     locations = Int[]
-    in_fence = false
-    fence_character = nothing
-    fence_length = 0
+    fence_state = MarkdownFenceState(false, nothing, 0)
 
     for (line_number, line) in enumerate(lines)
-        fence = match(r"^\s*(`{3,}|~{3,})(.*)$", line)
-        if fence !== nothing
-            marker = something(fence.captures[1])
-            if !in_fence
-                in_fence = true
-                fence_character = first(marker)
-                fence_length = length(marker)
-            elseif first(marker) == fence_character && length(marker) >= fence_length
-                in_fence = false
-            end
-            continue
-        end
-        in_fence && continue
-
-        occursin(r"^\s*(?:>\s*)*#{1,6}(?:\s+|$)", line) &&
-            push!(locations, line_number)
-        line_number == 1 && continue
-        occursin(r"^\s*(?:>\s*)*(?:=+|-+)\s*$", line) &&
-            !isempty(strip(lines[line_number - 1])) && push!(locations, line_number - 1)
+        update_markdown_fence!(fence_state, line) && continue
+        fence_state.active && continue
+        location = markdown_heading_line(lines, line_number)
+        location === nothing || push!(locations, location)
     end
     return locations
+end
+
+"""Update Markdown fence state and report whether the line is a marker."""
+function update_markdown_fence!(state, line)
+    fence = match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+    fence === nothing && return false
+    marker = something(fence.captures[1])
+    if !state.active
+        state.active = true
+        state.character = first(marker)
+        state.length = length(marker)
+    elseif first(marker) == state.character && length(marker) >= state.length
+        state.active = false
+    end
+    return true
+end
+
+"""Return the source line represented by one Markdown heading line."""
+function markdown_heading_line(lines, line_number)
+    line = lines[line_number]
+    occursin(r"^\s*(?:>\s*)*#{1,6}(?:\s+|$)", line) && return line_number
+    line_number == 1 && return nothing
+    is_setext = occursin(r"^\s*(?:>\s*)*(?:=+|-+)\s*$", line)
+    return is_setext && !isempty(strip(lines[line_number - 1])) ?
+        line_number - 1 : nothing
 end
 
 """Report fenced code blocks without language tags."""
