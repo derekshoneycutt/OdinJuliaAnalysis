@@ -32,7 +32,8 @@ function declaration_call_roots(declarations)
         end
         normalized = replace(declaration.path, '\\' => '/')
         test_path = startswith(normalized, "test/") || occursin("/test/", normalized) ||
-            endswith(normalized, "_test.jl") || endswith(normalized, "_tests.odin")
+            endswith(normalized, "_test.jl") || endswith(normalized, "_test.odin") ||
+            endswith(normalized, "_tests.odin")
         if test_path
             push!(roots, CallRoot(
                 "test:$(declaration.qualified_name)", declaration.path,

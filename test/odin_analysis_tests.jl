@@ -96,6 +96,42 @@ end
     end
 end
 
+@testset "Odin test files are implicit call roots" begin
+    mktempdir() do root
+        path = joinpath(root, "fixture_test.odin")
+        write(path, """
+            package fixture
+            import "core:testing"
+
+            test_helper :: proc() {}
+
+            @(test)
+            fixture_test :: proc(t: ^testing.T) {
+                test_helper()
+            }
+            """)
+        configuration = OdinJuliaAnalysis.load_settings()
+        analysis = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], configuration)
+        roots = OdinJuliaAnalysis.collect_call_roots(
+            analysis.declarations,
+            analysis.interop_signatures,
+            configuration)
+
+        @test Set(root.declaration for root in roots if root.category == "test") ==
+            Set(["fixture_test", "test_helper"])
+        diagnostics = OdinJuliaAnalysis.analyze_reachability(
+            analysis.declarations,
+            analysis.call_edges,
+            analysis.references,
+            roots,
+            configuration)
+        @test !any(
+            item -> item.rule_id == "ODIN-UNREACHABLE-PROCEDURE",
+            diagnostics)
+    end
+end
+
 @testset "Odin non-const globals" begin
     mktempdir() do root
         path = joinpath(root, "fixture.odin")

@@ -681,11 +681,9 @@ separate fields because neither proves assertion quality.
 
 Risk ranking is a fixed integer calculation:
 
-$$
-\operatorname{risk} = \text{cyclomatic complexity}
+$\operatorname{risk} = \text{cyclomatic complexity}
   + \left\lceil\frac{\text{executable lines}}{10}\right\rceil
-  + \begin{cases}5 & \text{callback or bridge}\\0 & \text{otherwise.}\end{cases}
-$$
+  + \begin{cases}5 & \text{callback or bridge}\\0 & \text{otherwise.}\end{cases}$
 
 Coverage evidence is statistical only. It creates no untested-code policy finding,
 reviewed exception, public-API weighting, method-level Julia claim, or assertion-quality

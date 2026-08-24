@@ -138,7 +138,7 @@ AnalysisSettings(
         ReviewedAllocationPolicy[
             ReviewedAllocationPolicy(
                 "analysis-test-metrics-arena",
-                "odin_engine/main_tests.odin",
+                "odin_engine/main_test.odin",
                 "odin_engine_test_procedure_metrics",
                 :arena,
                 "A test-lifetime arena owns parser fixtures and analysis results.";
@@ -148,7 +148,7 @@ AnalysisSettings(
                 response=Ignore),
             ReviewedAllocationPolicy(
                 "analysis-test-allocation-arena",
-                "odin_engine/main_tests.odin",
+                "odin_engine/main_test.odin",
                 "odin_engine_test_allocation_classification",
                 :arena,
                 "A test-lifetime arena owns parser fixtures and analysis results.";
@@ -158,7 +158,7 @@ AnalysisSettings(
                 response=Ignore),
             ReviewedAllocationPolicy(
                 "analysis-test-syntax-arena",
-                "odin_engine/main_tests.odin",
+                "odin_engine/main_test.odin",
                 "odin_engine_test_syntax_failure",
                 :arena,
                 "A test-lifetime arena owns parser fixtures and analysis results.";
@@ -397,10 +397,4 @@ AnalysisSettings(
         SecurityCallContract[]),
     CoverageSettings(false, String[], 20),
     DocumentationSettings(r"\S", r"\S"),
-    CallRootSettings([
-        CallRootEntryPoint(
-            "odin-test:greeting_test",
-            :odin,
-            "greeting_test",
-            "The Odin test runner invokes this procedure through @(test)."),
-    ]))
+    default_call_root_settings())

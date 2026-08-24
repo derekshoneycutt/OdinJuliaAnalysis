@@ -79,8 +79,8 @@ and thresholds, then supplies project-owned configuration for every current
 - a concrete Julia JET callable and argument tuple;
 - a strict analytical Odin build target;
 - recognized Odin allocator-source patterns;
-- explicit call roots for extension methods and the Odin test procedure invoked by
-  framework dispatch rather than parser-visible call edges;
+- explicit call roots for extension methods invoked by framework dispatch rather than
+  parser-visible call edges;
 - architecture, resource lifetime, security, coverage, and documentation settings,
   using empty defaults where the hello-world repository has no honest policy to declare.
 

@@ -69,9 +69,4 @@ AnalysisSettings(
             :julia,
             "analyze_extension",
             "The analyzer invokes this method through the extension API."),
-        CallRootEntryPoint(
-            "odin-test:greeting_test",
-            :odin,
-            "greeting_test",
-            "The Odin test runner invokes this procedure through @(test)."),
     ]))

@@ -507,7 +507,7 @@ end
             return 0
         }
         """)
-        write(joinpath(root, "test", "main_tests.odin"), """
+        write(joinpath(root, "test", "main_test.odin"), """
         package fixture
 
         // Exercise the covered procedure.
