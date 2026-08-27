@@ -27,6 +27,14 @@ Forwarded_Type :: external.Forwarded_Type
 FORWARDED_CONSTANT :: external.FORWARDED_CONSTANT
 PACKAGE_GLOBAL := 2
 
+foreign import fixture_library "system:fixture.lib"
+
+foreign fixture_library {
+    Bad_Foreign :: proc(
+        Bad_A, Bad_B, Bad_C, Bad_D, Bad_E, Bad_F: int) ->
+        (first, second: int, flag: bool) ---
+}
+
 // Return the selected value.
 choose :: proc(a, b: int) -> int {
     local_value := a
@@ -175,6 +183,13 @@ verify_test_analysis_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
         testing.expect_value(t, missing_doc.subject, "undocumented")
         testing.expect_value(t, missing_doc.certainty, "definite")
     }
+    missing_doc_count := 0
+    for finding in summary.findings {
+        if finding.rule_id == "ODIN-DOC-MISSING" {
+            missing_doc_count += 1
+        }
+    }
+    testing.expect_value(t, missing_doc_count, 2)
     mutable_global, mutable_global_found := find_test_finding(
         summary, "ODIN-NONCONST-GLOBAL")
     testing.expect(t, mutable_global_found)
@@ -196,6 +211,10 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     _, forwarded_constant_found := find_test_symbol(
         summary, "FORWARDED_CONSTANT", "constant")
     _, procedure_found := find_test_symbol(summary, "choose", "procedure")
+    _, foreign_procedure_found := find_test_symbol(
+        summary, "Bad_Foreign", "procedure")
+    _, foreign_parameter_found := find_test_symbol(
+        summary, "Bad_A", "parameter")
     _, parameter_found := find_test_symbol(summary, "a", "parameter")
     _, variable_found := find_test_symbol(summary, "local_value", "variable")
     testing.expect(t, type_found)
@@ -206,6 +225,8 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     testing.expect(t, forwarded_type_found)
     testing.expect(t, forwarded_constant_found)
     testing.expect(t, procedure_found)
+    testing.expect(t, !foreign_procedure_found)
+    testing.expect(t, !foreign_parameter_found)
     testing.expect(t, parameter_found)
     testing.expect(t, variable_found)
     _, discard_found := find_test_symbol(summary, "_", "variable")
@@ -277,6 +298,9 @@ odin_engine_test_procedure_metrics :: proc(t: ^testing.T) {
     testing.expect(t, summary.parsed)
     testing.expect_value(t, summary.syntax_errors, 0)
     testing.expect_value(t, len(summary.procedures), 4)
+    testing.expect_value(t, len(summary.interop_signatures), 1)
+    testing.expect_value(t, summary.interop_signatures[0].symbol, "Bad_Foreign")
+    testing.expect_value(t, summary.interop_signatures[0].direction, "import")
     testing.expect_value(t, summary.struct_count, 1)
     verify_test_procedure_metrics(t, &summary)
     verify_test_analysis_findings(t, &summary)

@@ -52,6 +52,37 @@
     end
 end
 
+@testset "Odin foreign procedures are interop-only" begin
+    mktempdir() do root
+        path = joinpath(root, "fixture.odin")
+        write(path, """
+            package fixture
+
+            foreign import fixture_library "system:fixture.lib"
+
+            foreign fixture_library {
+                Bad_Foreign :: proc(
+                    Bad_A, Bad_B, Bad_C, Bad_D, Bad_E, Bad_F: int) ->
+                    (first, second: int, flag: bool) ---
+            }
+
+            AFTER_FOREIGN :: 1
+            """)
+        configuration = OdinJuliaAnalysis.load_settings()
+        analysis = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], configuration)
+
+        @test isempty(analysis.functions)
+        @test !any(item -> item.name == "Bad_Foreign", analysis.declarations)
+        @test isempty(analysis.diagnostics)
+        signature = only(analysis.interop_signatures)
+        @test signature.symbol == "Bad_Foreign"
+        @test signature.direction == "import"
+        @test length(signature.parameter_types) == 6
+        @test length(signature.return_types) == 3
+    end
+end
+
 @testset "Odin init procedures are implicit call roots" begin
     mktempdir() do root
         path = joinpath(root, "fixture.odin")

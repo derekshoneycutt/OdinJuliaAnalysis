@@ -285,6 +285,8 @@ The report includes parser-backed totals rather than filename-only estimates.
 | LOCOMO | Token, generation-cycle, generation-time, review-time, and cost estimate |
 
 Markdown files are analyzed for policy but excluded from programming-language code totals.
+Bodyless Odin foreign procedures declared with `---` remain in interop signature evidence
+but are excluded from function statistics and user-defined procedure rules.
 
 ### Analytical Odin Builds
 

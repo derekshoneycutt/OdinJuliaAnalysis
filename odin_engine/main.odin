@@ -216,6 +216,9 @@ append_value_declaration_symbols :: proc(
         value := unwrap_helper_type(ast.unparen_expr(declaration.values[index]))
         #partial switch typed_value in value.derived {
         case ^ast.Proc_Lit:
+            if typed_value.body == nil {
+                continue
+            }
             append_symbol(data, name, "procedure",
                 is_init = has_attribute(declaration, "init"))
             append_field_symbols(data, typed_value.type.params, "parameter")
@@ -688,7 +691,7 @@ register_procedure_scopes :: proc(
     for value, index in declaration.values {
         #partial switch procedure in value.derived {
         case ^ast.Proc_Lit:
-            if index >= len(declaration.names) {
+            if procedure.body == nil || index >= len(declaration.names) {
                 continue
             }
             name, named := identifier_name(declaration.names[index])
@@ -747,6 +750,10 @@ check_procedure_documentation :: proc(
         return
     }
     for value, index in declaration.values {
+        if procedure, is_procedure := value.derived.(^ast.Proc_Lit);
+            is_procedure && procedure.body == nil {
+            continue
+        }
         #partial switch _ in value.derived {
         case ^ast.Proc_Lit, ^ast.Proc_Group:
             if index >= len(declaration.names) {
