@@ -310,6 +310,7 @@ end
 """Replay output for failed phases in non-trace reports."""
 function write_failures(io::IO, failed::Vector{PhaseResult}, use_color::Bool)
     for result in failed
+        get(result.metadata, "report", nothing) === nothing || continue
         println(io)
         println(io, styled("FAILURE: $(result.name)", ANSI_RED, use_color))
         print(io, result.output)

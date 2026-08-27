@@ -28,6 +28,24 @@
     @test occursin("\e[1;32mPASS", text)
     @test occursin("Verification: PASS", text)
 
+    structured_failure = PhaseResult(
+        "Structured analysis",
+        "1 failure",
+        UInt64(1),
+        "FAIL",
+        "{\"large\":\"machine report\"}\n",
+        Dict{String, Any}("report" => (diagnostics=Any[],)))
+    structured_output = IOBuffer()
+    write_report(structured_output, [structured_failure])
+    structured_text = String(take!(structured_output))
+    @test occursin("Structured analysis", structured_text)
+    @test !occursin("machine report", structured_text)
+    @test !occursin("FAILURE: Structured analysis", structured_text)
+
+    trace_output = IOBuffer()
+    write_report(trace_output, [structured_failure]; verbosity=Trace)
+    @test occursin("machine report", String(take!(trace_output)))
+
     json_output = IOBuffer()
     write_report(json_output, results; format="json")
     report = JSON3.read(String(take!(json_output)))
