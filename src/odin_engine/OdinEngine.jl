@@ -22,6 +22,7 @@ using ..OdinJuliaAnalysis: valid_identifier_name
 
 export check_syntax
 export analyze
+export analyze_metrics
 
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
@@ -140,13 +141,7 @@ function analyze(
     files::Vector{String},
     configuration::EffectiveSettings=load_settings())
     isempty(files) && return empty_analysis()
-    ensure_engine()
-
-    command = Cmd(vcat([ENGINE_BUILD], files))
-    response = JSON3.read(read(command, String), OdinEngineResponse)
-    response.schema_version == SCHEMA_VERSION || error(
-        "Odin engine schema mismatch: expected $SCHEMA_VERSION, " *
-        "received $(response.schema_version)")
+    response = analyze_files(files)
     analysis = empty_analysis()
     for summary in response.files
         append_file_summary!(analysis, root, summary, configuration)
@@ -157,6 +152,37 @@ function analyze(
         files,
         configuration)
     return analysis
+end
+
+"""Return parser-backed Odin metrics without applying analysis policy."""
+function analyze_metrics(root::String, files::Vector{String})
+    isempty(files) && return (
+        parsed=true,
+        functions=FunctionAnalysis[],
+        struct_counts=Dict{String, Int}())
+    response = analyze_files(files)
+    functions = FunctionAnalysis[]
+    struct_counts = Dict{String, Int}()
+    for summary in response.files
+        append!(functions, backend_functions(root, summary))
+        struct_counts[relpath(String(summary.path), root)] = Int(summary.struct_count)
+    end
+    return (
+        parsed=all(summary -> summary.parsed && summary.syntax_errors == 0,
+            response.files),
+        functions,
+        struct_counts)
+end
+
+"""Run the native parser for the requested Odin source files."""
+function analyze_files(files)
+    ensure_engine()
+    command = Cmd(vcat([ENGINE_BUILD], files))
+    response = JSON3.read(read(command, String), OdinEngineResponse)
+    response.schema_version == SCHEMA_VERSION || error(
+        "Odin engine schema mismatch: expected $SCHEMA_VERSION, " *
+        "received $(response.schema_version)")
+    return response
 end
 
 """Create mutable collections for one native Odin analysis response."""

@@ -18,6 +18,8 @@ export TestCoverageEvidence, TestCoverageCounts, TestCoverageStatistics
 export DependencyEdge, Diagnostic, ImportBinding
 export ReferenceRecord
 export InteropSignature, InteropBridgePair
+export FileStatistics, FunctionStatistics, StatisticsSelection, SourceStatisticsReport
+export analyze_source_statistics
 export ArchitectureLayer, ArchitectureDependency, ArchitectureSettings
 export extension_id, extension_api_version, extension_rules
 export extension_phases, extension_dependencies, analyze_extension
@@ -83,6 +85,13 @@ mutable struct CheckOptionState
     full_report_path::Union{Nothing, String}
 end
 
+mutable struct StatsOptionState
+    path::String
+    format::String
+    function_name::Union{Nothing, String}
+    line::Union{Nothing, Int}
+end
+
 struct SourceLineCounts
     blank::Int
     comment::Int
@@ -91,11 +100,13 @@ end
 
 """Write analyzer command-line usage information."""
 function usage(io::IO)
-    println(io, "Usage: julia analyze.jl check [PATH] [OPTIONS]")
+    println(io, "Usage: julia analyze.jl COMMAND [PATH] [OPTIONS]")
     println(io)
-    println(io,
-       "Analyze Julia, Odin, and Markdown files under PATH (default: current directory).")
-    println(io, "Options:")
+    println(io, "Commands:")
+    println(io, "    check [PATH]              Verify a repository (default PATH: current directory)")
+    println(io, "    stats FILE                Measure one Julia or Odin source file")
+    println(io)
+    println(io, "Check options:")
     println(io, "    --format=text|json         Select human or machine output")
     println(io, "    --color=auto|always|never  Control text report colors")
     println(io, "    --progress=auto|always|never")
@@ -105,12 +116,19 @@ function usage(io::IO)
     println(io, "    --full-report=PATH         Write a comprehensive Markdown report")
     println(io, "    -h, --help                 Show this help")
     println(io)
+    println(io, "Stats options:")
+    println(io, "    --function=NAME           Select every exact function-name match")
+    println(io, "    --line=LINE               Select the innermost function at LINE")
+    println(io, "    --format=text|json        Select human or machine output")
+    println(io, "    -h, --help                 Show this help")
+    println(io)
     println(io, "Examples:")
     println(io, "    julia analyze.jl check .")
     println(io, "    julia analyze.jl check src --format=json")
+    println(io, "    julia analyze.jl stats src/example.jl --line=42")
     println(io)
     println(io,
-        "Exit codes: 0 pass, 1 policy findings, 2 incomplete analysis or bad usage.")
+        "Exit codes: 0 success, 1 policy findings, 2 incomplete analysis or bad usage.")
 end
 
 """Run the analyzer command requested by command-line arguments."""
@@ -121,7 +139,9 @@ function main(arguments::Vector{String})
     end
 
     command = first(arguments)
-    if command != "check"
+    if command == "stats"
+        return run_stats_command(arguments[2:end])
+    elseif command != "check"
         println(stderr, "OdinJuliaAnalysis: command not implemented: ", command)
         return 2
     end
@@ -141,6 +161,73 @@ function main(arguments::Vector{String})
     report = check_repository(options.root; configuration, progress)
     write_analysis_outputs(report, options, configuration)
     return report.exit_code
+end
+
+"""Measure and render statistics for one source file."""
+function run_stats_command(arguments)
+    options = parse_stats_options(arguments)
+    options === nothing && return 2
+    options === :help && return 0
+    report = try
+        analyze_source_statistics(
+            options.path;
+            function_name=options.function_name,
+            line=options.line)
+    catch error
+        println(stderr, "OdinJuliaAnalysis: ", sprint(showerror, error))
+        return 2
+    end
+    write_statistics_report(stdout, report, options.format)
+    return 0
+end
+
+"""Parse stats-command options and require exactly one source path."""
+function parse_stats_options(arguments)
+    options = StatsOptionState("", "text", nothing, nothing)
+    for argument in arguments
+        if argument in ("-h", "--help")
+            usage(stdout)
+            return :help
+        end
+        apply_stats_option!(options, argument) || return nothing
+    end
+    isempty(options.path) && return stats_option_error(
+        "stats requires a source file")
+    options.format in ("text", "json") || return stats_option_error(
+        "unsupported format: $(options.format)")
+    options.function_name === nothing || options.line === nothing ||
+        return stats_option_error("function and line selectors are mutually exclusive")
+    return options
+end
+
+"""Apply one stats option or positional source path."""
+function apply_stats_option!(options, argument)
+    if startswith(argument, "--format=")
+        options.format = split(argument, "="; limit=2)[2]
+    elseif startswith(argument, "--function=")
+        options.function_name = split(argument, "="; limit=2)[2]
+        isempty(options.function_name) && return stats_option_error(
+            "function name must not be empty") !== nothing
+    elseif startswith(argument, "--line=")
+        value = split(argument, "="; limit=2)[2]
+        options.line = tryparse(Int, value)
+        options.line === nothing && return stats_option_error(
+            "line must be an integer") !== nothing
+    elseif startswith(argument, "-")
+        return stats_option_error("unknown option: $argument") !== nothing
+    elseif isempty(options.path)
+        options.path = argument
+    else
+        return stats_option_error(
+            "stats accepts exactly one source file") !== nothing
+    end
+    return true
+end
+
+"""Write one stats option error and return parser failure."""
+function stats_option_error(message)
+    println(stderr, "OdinJuliaAnalysis: $message")
+    return nothing
 end
 
 """Write configured terminal and Markdown analysis outputs."""
@@ -713,28 +800,35 @@ end
 function analyze_files(root, files, struct_counts, diagnostics)
     return map(files) do path
         source = read(path, String)
-        lines = split(source, '\n'; keepempty=true)
-        physical_lines = isempty(source) ? 0 :
-            length(lines) - (isempty(last(lines)) ? 1 : 0)
-        content_lines = @view lines[1:physical_lines]
         relative_path = relpath(path, root)
         language = source_language(path)
         parsed = source_parsed(relative_path, language, diagnostics)
-        line_counts = file_line_counts(
-            path, source, lines, content_lines, physical_lines, language, parsed)
         struct_count = language == "julia" && parsed ?
             JuliaEngine.struct_count(source) : get(struct_counts, relative_path, 0)
-        FileAnalysis(
-            relative_path,
-            language;
-            physical_lines,
-            source_lines=physical_lines - line_counts.blank,
-            code_lines=line_counts.code,
-            comment_lines=line_counts.comment,
-            blank_lines=line_counts.blank,
-            struct_count,
-            parsed)
+        analyze_file(
+            relative_path, path, source, language, parsed, struct_count)
     end
+end
+
+"""Return line and declaration totals for one source file."""
+function analyze_file(path, filesystem_path, source, language, parsed, struct_count)
+    lines = split(source, '\n'; keepempty=true)
+    physical_lines = isempty(source) ? 0 :
+        length(lines) - (isempty(last(lines)) ? 1 : 0)
+    content_lines = @view lines[1:physical_lines]
+    line_counts = file_line_counts(
+        filesystem_path, source, lines, content_lines,
+        physical_lines, language, parsed)
+    return FileAnalysis(
+        path,
+        language;
+        physical_lines,
+        source_lines=physical_lines - line_counts.blank,
+        code_lines=line_counts.code,
+        comment_lines=line_counts.comment,
+        blank_lines=line_counts.blank,
+        struct_count,
+        parsed)
 end
 
 """Return the analyzer language name for one supported source path."""

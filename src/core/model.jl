@@ -380,6 +380,52 @@ struct CodeStatistics
     complexity_per_code_line::Float64
 end
 
+struct FunctionStatistics
+    name::String
+    start_line::Int
+    end_line::Int
+    physical_lines::Int
+    executable_lines::Int
+    parameter_count::Int
+    cyclomatic_complexity::Int
+    cognitive_complexity::Union{Nothing, Int}
+    documented::Bool
+    complexity_per_executable_line::Float64
+end
+
+struct FileStatistics
+    parsed::Bool
+    physical_lines::Int
+    source_lines::Int
+    code_lines::Int
+    comment_lines::Int
+    blank_lines::Int
+    function_count::Int
+    struct_count::Int
+    total_cyclomatic_complexity::Int
+    complexity_per_code_line::Float64
+    average_function_complexity::Float64
+    maximum_function_complexity::Int
+    average_executable_lines::Float64
+    maximum_executable_lines::Int
+end
+
+struct StatisticsSelection
+    kind::String
+    value::String
+    matches::Int
+end
+
+struct SourceStatisticsReport
+    schema_version::String
+    tool_version::String
+    path::String
+    language::String
+    file::FileStatistics
+    functions::Vector{FunctionStatistics}
+    selection::Union{Nothing, StatisticsSelection}
+end
+
 struct CocomoEstimate
     model::String
     effort_person_months::Float64
@@ -467,6 +513,14 @@ StructTypes.StructType(::Type{AnalysisThresholds}) = StructTypes.Struct()
 StructTypes.StructType(::Type{FileAnalysis}) = StructTypes.Struct()
 """Declare structural serialization for function analysis records."""
 StructTypes.StructType(::Type{FunctionAnalysis}) = StructTypes.Struct()
+"""Declare structural serialization for compact function statistics."""
+StructTypes.StructType(::Type{FunctionStatistics}) = StructTypes.Struct()
+"""Declare structural serialization for compact file statistics."""
+StructTypes.StructType(::Type{FileStatistics}) = StructTypes.Struct()
+"""Declare structural serialization for a statistics selector result."""
+StructTypes.StructType(::Type{StatisticsSelection}) = StructTypes.Struct()
+"""Declare structural serialization for targeted source statistics."""
+StructTypes.StructType(::Type{SourceStatisticsReport}) = StructTypes.Struct()
 """Declare structural serialization for dependency graph edges."""
 StructTypes.StructType(::Type{DependencyEdge}) = StructTypes.Struct()
 """Declare structural serialization for declaration inventory records."""

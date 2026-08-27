@@ -439,6 +439,12 @@ end
             "--progress=always"]).progress == :always
         @test OdinJuliaAnalysis.parse_check_options([
             "--progress=loud"]) === nothing
+        stats = OdinJuliaAnalysis.parse_stats_options([
+            custom_path, "--format=json", "--function=sample"])
+        @test stats.path == custom_path
+        @test stats.format == "json"
+        @test stats.function_name == "sample"
+        @test stats.line === nothing
     end
 end
 

@@ -22,6 +22,7 @@ static test reachability without making the analyzer responsible for running tes
 - [Analysis Capabilities](#analysis-capabilities)
   - [Rule Families](#rule-families)
   - [Repository Statistics](#repository-statistics)
+  - [Targeted Source Statistics](#targeted-source-statistics)
   - [Analytical Odin Builds](#analytical-odin-builds)
   - [Test Coverage Evidence](#test-coverage-evidence)
 - [Configuration](#configuration)
@@ -113,6 +114,14 @@ julia --project=. analyze.jl check /path/to/project \
   --report=/path/to/project/.build/reports/analysis.md
 ```
 
+Measure one source file without running repository verification:
+
+```sh
+julia --project=. analyze.jl stats src/analysis/reachability_engine.jl
+julia --project=. analyze.jl stats src/analysis/reachability_engine.jl \
+  --function=declaration_call_roots
+```
+
 > The packaged [`settings.jl`](settings.jl) is the analyzer's self-analysis policy. A
 > consuming repository should own a settings file tailored to its entry points, build
 > targets, responses, reviewed policies, and extensions. The [`sample/`](sample/)
@@ -124,8 +133,7 @@ julia --project=. analyze.jl check /path/to/project \
 julia analyze.jl check [PATH] [OPTIONS]
 ```
 
-`PATH` defaults to the current directory. Only the `check` command is currently
-implemented.
+`PATH` defaults to the current directory for `check`.
 
 | Option | Values | Default | Purpose |
 | --- | --- | --- | --- |
@@ -137,6 +145,23 @@ implemented.
 | `--full-report` | File path | None | Write the comprehensive Markdown audit artifact |
 | `-h`, `--help` | - | - | Show command help |
 
+Targeted source statistics use a separate command and do not load settings or evaluate
+policy:
+
+```text
+julia analyze.jl stats FILE [OPTIONS]
+```
+
+| Option | Values | Default | Purpose |
+| --- | --- | --- | --- |
+| `--function` | Exact function name | None | Return every exact name match |
+| `--line` | Positive source line | None | Return the innermost function containing the line |
+| `--format` | `text`, `json` | `text` | Select human or versioned machine output |
+| `-h`, `--help` | - | - | Show command help |
+
+`--function` and `--line` are mutually exclusive. Without either selector, `stats`
+returns file measurements and every measured function or procedure in source order.
+
 Progress always uses stderr. Text or JSON report data always uses stdout, so machine
 consumers can safely redirect stdout while retaining live progress.
 
@@ -146,6 +171,10 @@ consumers can safely redirect stdout while retaining live progress.
 | `1` | Analysis completed and policy failed | A finding met or exceeded the failure threshold |
 | `2` | Analysis was incomplete or invocation was invalid | Engine failure, extension failure, bad settings, or bad CLI usage |
 
+For `stats`, exit code `0` means measurements were produced and exit code `2` means the
+input, selector, parser, or language engine failed. It never returns policy exit code
+`1`.
+
 ## Architecture
 
 ### Component Map
@@ -154,6 +183,7 @@ consumers can safely redirect stdout while retaining live progress.
 flowchart LR
     CLI[analyze.jl CLI] --> Settings[Settings loader and validator]
     CLI --> Pipeline[Repository pipeline]
+  CLI --> LocalStats[Targeted source statistics]
     Settings --> Registry[Built-in and extension rule registry]
     Registry --> Pipeline
 
@@ -161,6 +191,8 @@ flowchart LR
     Pipeline --> Julia[JuliaSyntax and CodeComplexity]
     Pipeline --> JET[JET callable roots]
     Pipeline --> OdinBridge[Julia Odin-engine adapter]
+    LocalStats --> Julia
+    LocalStats --> OdinBridge
     OdinBridge --> OdinNative[Native Odin AST engine]
     Pipeline --> Markdown[Markdown engine]
     Pipeline --> Builds[Analytical Odin builds]
@@ -177,9 +209,12 @@ flowchart LR
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
     Statistics --> Report[AnalysisReport schema 4.0.0]
+    LocalStats --> StatsReport[SourceStatisticsReport schema 1.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
     Report --> MD[Markdown audit report]
+    StatsReport --> Text
+    StatsReport --> JSON
 ```
 
 The Julia package owns orchestration and policy. The native Odin executable owns
@@ -287,6 +322,28 @@ The report includes parser-backed totals rather than filename-only estimates.
 Markdown files are analyzed for policy but excluded from programming-language code totals.
 Bodyless Odin foreign procedures declared with `---` remain in interop signature evidence
 but are excluded from function statistics and user-defined procedure rules.
+
+### Targeted Source Statistics
+
+The `stats` command measures exactly one `.jl` or `.odin` file. It reuses JuliaSyntax,
+CodeComplexity, the native Odin AST helper, and the same line classifier used by the
+repository report, but it does not run discovery, JET, configured Odin builds,
+extensions, coverage ingestion, call-graph analysis, or policy rules.
+
+File output includes parse status; physical, source, code, comment, and blank lines;
+function and struct counts; total complexity; complexity density; and average and
+maximum function complexity and executable size. Function output includes source span,
+executable lines, positional parameters, cyclomatic complexity, Julia cognitive
+complexity when available, and documentation state.
+
+Exact name selection returns all overloads or repeated names rather than choosing one
+silently. Line selection returns the innermost measured function containing that line,
+which supports cursor-oriented inspection of nested functions.
+
+File code lines and function executable lines are intentionally different measurements.
+Function lines do not necessarily sum to file code lines because files can contain
+top-level code and nested function spans can overlap. Statistics are factual signals,
+not a composite quality score or a recommendation to refactor.
 
 ### Analytical Odin Builds
 

@@ -9,6 +9,74 @@ const RESPONSE_STYLES = Dict(
     Warn => ANSI_BOLD_YELLOW,
     Report => "")
 
+"""Write targeted source statistics in the requested format."""
+function write_statistics_report(io::IO, report, format::AbstractString)
+    if format == "json"
+        JSON3.pretty(io, report)
+        println(io)
+        return
+    end
+    format == "text" || throw(ArgumentError("unsupported format: $format"))
+    write_text_statistics(io, report)
+end
+
+"""Write human-readable file and selected function measurements."""
+function write_text_statistics(io, report)
+    println(io, "FILE STATISTICS")
+    println(io)
+    write_file_statistics(io, report)
+    println(io)
+    write_function_statistics(io, report)
+end
+
+"""Write scalar measurements for one source file."""
+function write_file_statistics(io, report)
+    file = report.file
+    write_statistic(io, "Path", report.path)
+    write_statistic(io, "Language", uppercasefirst(report.language))
+    write_statistic(io, "Parsed", file.parsed ? "yes" : "no")
+    write_statistic(io, "Physical lines", file.physical_lines)
+    write_statistic(io, "Source lines", file.source_lines)
+    write_statistic(io, "Code lines", file.code_lines)
+    write_statistic(io, "Comment lines", file.comment_lines)
+    write_statistic(io, "Blank lines", file.blank_lines)
+    write_statistic(io, "Functions", file.function_count)
+    write_statistic(io, "Structs", file.struct_count)
+    write_statistic(io, "Total cyclomatic", file.total_cyclomatic_complexity)
+    write_statistic(io, "Complexity/code", statistic_decimal(
+        file.complexity_per_code_line))
+    write_statistic(io, "Average complexity", statistic_decimal(
+        file.average_function_complexity))
+    write_statistic(io, "Maximum complexity", file.maximum_function_complexity)
+    write_statistic(io, "Average exec lines", statistic_decimal(
+        file.average_executable_lines))
+    write_statistic(io, "Maximum exec lines", file.maximum_executable_lines)
+end
+
+"""Write the measured or selected functions in source order."""
+function write_function_statistics(io, report)
+    heading = report.selection === nothing ? "FUNCTIONS" : "SELECTED FUNCTIONS"
+    println(io, heading)
+    println(io)
+    println(io, rpad("Line", 7), rpad("Name", 34),
+        lpad("Span", 6), lpad("Exec", 7), lpad("Params", 9),
+        lpad("Cyclomatic", 13), lpad("Cognitive", 12), lpad("Documented", 12))
+    for item in report.functions
+        cognitive = item.cognitive_complexity === nothing ? "-" :
+            string(item.cognitive_complexity)
+        println(io, rpad(item.start_line, 7), rpad(item.name, 34),
+            lpad(item.physical_lines, 6), lpad(item.executable_lines, 7),
+            lpad(item.parameter_count, 9), lpad(item.cyclomatic_complexity, 13),
+            lpad(cognitive, 12), lpad(item.documented ? "yes" : "no", 12))
+    end
+end
+
+"""Write one aligned scalar statistics field."""
+write_statistic(io, label, value) = println(io, rpad(label, 24), value)
+
+"""Format a statistics ratio without excessive precision."""
+statistic_decimal(value) = string(round(value; digits=3))
+
 """Write an analysis report in the requested machine or human format."""
 function write_report(
     io::IO,

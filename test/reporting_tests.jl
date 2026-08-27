@@ -205,6 +205,46 @@ end
         @test OdinJuliaAnalysis.main([
             "check", root, "--format=text", "--settings=$settings_path"]) == 0
         @test OdinJuliaAnalysis.main(["check", "--help"]) == 0
+
+        stats_path = joinpath(root, "stats.jl")
+        write(stats_path, """
+            # File comment.
+            documented(value) = value > 0 ? value : 0
+            duplicate(value) = value
+            duplicate(value, fallback) = value > 0 ? value : fallback
+            """)
+        stats = OdinJuliaAnalysis.analyze_source_statistics(stats_path)
+        @test stats.file.function_count == 3
+        @test stats.file.total_cyclomatic_complexity == 5
+        @test [item.name for item in stats.functions] == [
+            "documented", "duplicate", "duplicate"]
+
+        selected = OdinJuliaAnalysis.analyze_source_statistics(
+            stats_path; function_name="duplicate")
+        @test selected.selection.matches == 2
+        @test length(selected.functions) == 2
+
+        line_selected = OdinJuliaAnalysis.analyze_source_statistics(
+            stats_path; line=2)
+        @test only(line_selected.functions).name == "documented"
+
+        stats_output = IOBuffer()
+        OdinJuliaAnalysis.write_statistics_report(stats_output, selected, "text")
+        stats_text = String(take!(stats_output))
+        @test occursin("FILE STATISTICS", stats_text)
+        @test occursin("SELECTED FUNCTIONS", stats_text)
+        @test count("duplicate", stats_text) == 2
+
+        json_output = IOBuffer()
+        OdinJuliaAnalysis.write_statistics_report(json_output, selected, "json")
+        stats_json = JSON3.read(String(take!(json_output)))
+        @test stats_json.schema_version == "1.0.0"
+        @test stats_json.selection.matches == 2
+        @test OdinJuliaAnalysis.main([
+            "stats", stats_path, "--function=documented"]) == 0
+        @test OdinJuliaAnalysis.main(["stats", stats_path, "--line=0"]) == 2
+        @test OdinJuliaAnalysis.main([
+            "stats", stats_path, "--function=missing"]) == 2
     end
 end
 

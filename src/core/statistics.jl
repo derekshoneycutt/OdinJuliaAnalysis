@@ -83,3 +83,124 @@ function calculate_repository_statistics(
         calculate_cocomo(code.code_lines),
         calculate_locomo(code.code_lines, code.complexity))
 end
+
+"""Measure one Julia or Odin source file without running repository policy."""
+function analyze_source_statistics(
+    path::String;
+    function_name::Union{Nothing, String}=nothing,
+    line::Union{Nothing, Int}=nothing)
+    function_name === nothing || line === nothing || throw(ArgumentError(
+        "function and line selectors are mutually exclusive"))
+    isfile(path) || throw(ArgumentError("source path is not a file: $path"))
+    language = source_language(path)
+    language in ("julia", "odin") || throw(ArgumentError(
+        "source path must have a .jl or .odin extension: $path"))
+
+    normalized_path = replace(normpath(path), '\\' => '/')
+    source = read(path, String)
+    functions, struct_count = language == "julia" ?
+        julia_source_metrics(normalized_path, source) :
+        odin_source_metrics(path)
+    sort!(functions; by=function_statistics_sort_key)
+    file = analyze_file(
+        normalized_path, path, source, language, true, struct_count)
+    compact_functions = function_statistics.(functions)
+    selected, selection = select_function_statistics(
+        compact_functions, function_name, line)
+    code = calculate_code_statistics([file], functions)
+    return SourceStatisticsReport(
+        "1.0.0",
+        string(VERSION),
+        normalized_path,
+        language,
+        file_statistics(file, functions, code),
+        selected,
+        selection)
+end
+
+"""Return a deterministic scalar source-order key for one function."""
+function function_statistics_sort_key(item)
+    return join((
+        lpad(item.start_line, 12, '0'),
+        lpad(item.end_line, 12, '0'),
+        item.name), '\0')
+end
+
+"""Collect parser-backed Julia function and struct measurements."""
+function julia_source_metrics(path, source)
+    try
+        functions = JuliaEngine.analyze_functions(path, source)
+        return functions, JuliaEngine.struct_count(source)
+    catch error
+        error isa JuliaSyntax.ParseError || rethrow()
+        throw(ArgumentError("Julia source could not be parsed: $(sprint(showerror, error))"))
+    end
+end
+
+"""Collect parser-backed Odin procedure and struct measurements."""
+function odin_source_metrics(path)
+    root = dirname(abspath(path))
+    analysis = OdinEngine.analyze_metrics(root, [abspath(path)])
+    analysis.parsed || throw(ArgumentError("Odin source could not be parsed: $path"))
+    relative_path = relpath(abspath(path), root)
+    return analysis.functions, get(analysis.struct_counts, relative_path, 0)
+end
+
+"""Project one canonical function record into the compact statistics schema."""
+function function_statistics(item)
+    physical_lines = item.end_line - item.start_line + 1
+    density = item.executable_lines == 0 ? 0.0 :
+        item.cyclomatic_complexity / item.executable_lines
+    return FunctionStatistics(
+        item.name,
+        item.start_line,
+        item.end_line,
+        physical_lines,
+        item.executable_lines,
+        item.parameter_count,
+        item.cyclomatic_complexity,
+        item.cognitive_complexity,
+        item.documented,
+        density)
+end
+
+"""Build compact file statistics and derived function aggregates."""
+function file_statistics(file, functions, code)
+    count = length(functions)
+    complexities = [item.cyclomatic_complexity for item in functions]
+    executable_lines = [item.executable_lines for item in functions]
+    return FileStatistics(
+        file.parsed,
+        file.physical_lines,
+        file.source_lines,
+        file.code_lines,
+        file.comment_lines,
+        file.blank_lines,
+        count,
+        file.struct_count,
+        code.complexity,
+        code.complexity_per_code_line,
+        count == 0 ? 0.0 : sum(complexities) / count,
+        maximum(complexities; init=0),
+        count == 0 ? 0.0 : sum(executable_lines) / count,
+        maximum(executable_lines; init=0))
+end
+
+"""Select compact function statistics by exact name or containing line."""
+function select_function_statistics(functions, function_name, line)
+    if function_name !== nothing
+        matches = filter(item -> item.name == function_name, functions)
+        isempty(matches) && throw(ArgumentError(
+            "no function named `$function_name` was found"))
+        return matches, StatisticsSelection(
+            "function", function_name, length(matches))
+    elseif line !== nothing
+        line > 0 || throw(ArgumentError("line selector must be positive"))
+        matches = filter(item -> item.start_line <= line <= item.end_line, functions)
+        isempty(matches) && throw(ArgumentError(
+            "no function contains line $line"))
+        selected = argmin(item -> item.physical_lines, matches)
+        return [selected], StatisticsSelection("line", string(line), 1)
+    end
+    return functions, nothing
+end
