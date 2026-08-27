@@ -92,6 +92,80 @@ end
     @test only(diagnostics).rule_id == "COMMON-LINE-120"
     @test only(diagnostics).response == Warn
     @test only(diagnostics).allowed == 30
+
+    @testset "caps staging path responses" begin
+        for maximum in instances(FindingResponse)
+            report = ReportSettings(
+                :auto, 50, 50; staging_maximum_response=maximum)
+            @test OdinJuliaAnalysis.staging_response(
+                report, "staging_notes.md", Fail) == maximum
+            @test OdinJuliaAnalysis.staging_response(
+                report, "docs/staging_plans/notes.md", Fail) == maximum
+            @test OdinJuliaAnalysis.staging_response(
+                report, "docs/not_staging_notes.md", Fail) == Fail
+        end
+
+        rules = copy(configuration.rules)
+        rules["COMMON-LINE-120"] = RuleSetting("COMMON-LINE-120", true, Fail)
+        staging_configuration = OdinJuliaAnalysis.EffectiveSettings(
+            configuration.profile,
+            configuration.failure_threshold,
+            configuration.thresholds,
+            configuration.enforcement_excludes,
+            rules,
+            configuration.naming,
+            configuration.jet,
+            configuration.odin_build,
+            configuration.return_tuples,
+            configuration.parameter_counts,
+            configuration.function_metrics,
+            configuration.architecture,
+            configuration.allocations,
+            ReportSettings(:auto, 50, 50; staging_maximum_response=Report),
+            configuration.extensions,
+            configuration.rule_registry,
+            configuration.extension_rule_owners,
+            configuration.duplicate_code,
+            configuration.resource_lifetime,
+            configuration.security,
+            configuration.coverage,
+            configuration.documentation,
+            configuration.call_roots)
+        source = repeat("x", 121)
+
+        for path in ("staging_notes.md", "docs/staging_plans/notes.md")
+            diagnostics = OdinJuliaAnalysis.check_common_rules(
+                path, source, staging_configuration)
+            @test all(item -> item.response == Report, diagnostics)
+        end
+        diagnostics = OdinJuliaAnalysis.check_common_rules(
+            "docs/not_staging_notes.md", source, staging_configuration)
+        @test any(item -> item.response == Fail, diagnostics)
+
+        reviewed = Diagnostic(
+            "COMMON-LINE-120",
+            Fail,
+            "staging_notes.md",
+            1,
+            1,
+            "reviewed staging finding",
+            121,
+            120,
+            "fixture",
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            "reviewed-staging",
+            "fixture review")
+        reviewed_diagnostics = [reviewed]
+        OdinJuliaAnalysis.cap_staging_responses!(
+            reviewed_diagnostics, staging_configuration.report)
+        @test only(reviewed_diagnostics).response == Report
+        @test only(reviewed_diagnostics).reviewed_policy_id == "reviewed-staging"
+    end
 end
 
 @testset "settings validation" begin
@@ -117,6 +191,7 @@ end
     @test configuration.parameter_counts == ParameterCountSettings(8, 5, 8)
     @test configuration.documentation.julia_template.pattern == raw"\S"
     @test configuration.documentation.odin_template.pattern == raw"\S"
+    @test configuration.report.staging_maximum_response == Fail
     @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(
         DocumentationSettings(r"", r"\S"))
     @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(

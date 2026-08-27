@@ -386,7 +386,7 @@ AnalysisSettings(
                 certainty=:definite,
                 response=Ignore),
         ]),
-    ReportSettings(:auto, 50, 50),
+    ReportSettings(:auto, 50, 50; staging_maximum_response=Fail),
     AnalysisExtension[],
     DuplicateCodeSettings(false, 40, 6, 2, String[], ReviewedClonePolicy[]),
     ResourceLifetimeSettings(false, ResourceLifetimeContract[]),

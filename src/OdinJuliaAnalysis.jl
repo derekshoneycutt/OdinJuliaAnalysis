@@ -413,6 +413,7 @@ function assemble_analysis_report(
     apply_constructor_naming_convention!(
         state.diagnostics, state.declarations, configuration)
     apply_reviewed_naming_policies!(state.diagnostics, root, files, configuration)
+    cap_staging_responses!(state.diagnostics, configuration.report)
     files_analysis = analyze_files(
         root, files, state.struct_counts, state.diagnostics)
     statistics = calculate_repository_statistics(files_analysis, state.functions)
@@ -420,6 +421,7 @@ function assemble_analysis_report(
         state, root, files, configuration, files_analysis, statistics)
     append!(state.engines, extension_engine_statuses(
         configuration.extensions, state.extension_results))
+    cap_staging_responses!(state.diagnostics, configuration.report)
     sort!(state.diagnostics; by=diagnostic_sort_key)
     ignored = remove_ignored_diagnostics!(state.diagnostics)
     exit_code = analysis_exit_code(state.diagnostics, state.engines, configuration)

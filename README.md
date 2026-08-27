@@ -335,7 +335,7 @@ before source discovery begins.
 | `function_metrics` | Per-language line and cyclomatic response tiers |
 | `architecture` | Repository path layers and exact allowed dependency directions |
 | `allocations` | Known allocators, source patterns, and reviewed evidence |
-| `report` | Text finding limits and color default |
+| `report` | Text finding limits, color default, and staging-path response cap |
 | `extensions` | Ordered trusted extension values |
 | `duplicate_code` | Exact whole-body clone thresholds and reviewed clones |
 | `resource_lifetime` | Configured ownership and lifetime summaries |
@@ -388,6 +388,11 @@ flowchart LR
 `Ignore` does not erase evidence: ignored diagnostics and per-rule counts remain in the
 canonical report. Engine failures and incomplete extension results always produce exit
 code 2, independent of the policy threshold.
+
+`ReportSettings.staging_maximum_response` caps findings for any file whose name starts
+with `staging_` or whose path contains a directory starting with `staging_`. `Ignore`
+retains all such findings only as ignored evidence, while `Fail` leaves their configured
+rule responses unchanged.
 
 ### Profiles and Exclusions
 

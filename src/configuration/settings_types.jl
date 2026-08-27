@@ -50,6 +50,17 @@ struct ReportSettings
     color::Symbol
     warning_limit::Int
     report_limit::Int
+    staging_maximum_response::FindingResponse
+end
+
+"""Construct report settings with normal enforcement for staging paths."""
+function ReportSettings(
+    color::Symbol,
+    warning_limit::Int,
+    report_limit::Int;
+    staging_maximum_response::FindingResponse=Fail)
+    return ReportSettings(
+        color, warning_limit, report_limit, staging_maximum_response)
 end
 
 struct NamingConvention

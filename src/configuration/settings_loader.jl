@@ -739,9 +739,17 @@ end
 function configured_diagnostic(settings::EffectiveSettings, diagnostic::Diagnostic)
     rule = settings.rules[diagnostic.rule_id]
     rule.enabled || return nothing
+    response = staging_response(settings.report, diagnostic.path, rule.response)
+    return diagnostic_with_response(diagnostic, response)
+end
+
+"""Copy a diagnostic while replacing only its response."""
+function diagnostic_with_response(
+    diagnostic::Diagnostic,
+    response::FindingResponse)
     return Diagnostic(
         diagnostic.rule_id,
-        rule.response,
+        response,
         diagnostic.path,
         diagnostic.line,
         diagnostic.column,
@@ -757,4 +765,33 @@ function configured_diagnostic(settings::EffectiveSettings, diagnostic::Diagnost
         diagnostic.allocation_target,
         diagnostic.reviewed_policy_id,
         diagnostic.reviewed_policy_reason)
+end
+
+"""Apply the staging response ceiling to a collection of diagnostics."""
+function cap_staging_responses!(
+    diagnostics::Vector{Diagnostic},
+    settings::ReportSettings)
+    for index in eachindex(diagnostics)
+        diagnostic = diagnostics[index]
+        response = staging_response(settings, diagnostic.path, diagnostic.response)
+        if response != diagnostic.response
+            diagnostics[index] = diagnostic_with_response(diagnostic, response)
+        end
+    end
+    return diagnostics
+end
+
+"""Cap one response when its path belongs to staging content."""
+function staging_response(
+    settings::ReportSettings,
+    path::String,
+    response::FindingResponse)
+    is_staging_path(path) || return response
+    return FindingResponse(min(
+        Int(response), Int(settings.staging_maximum_response)))
+end
+
+"""Return whether a file is named or nested beneath a `staging_` path component."""
+function is_staging_path(path::String)
+    return any(component -> startswith(component, "staging_"), splitpath(path))
 end
