@@ -30,11 +30,7 @@ function declaration_call_roots(declarations)
                 declaration.language, declaration.name, "init"))
             continue
         end
-        normalized = replace(declaration.path, '\\' => '/')
-        test_path = startswith(normalized, "test/") || occursin("/test/", normalized) ||
-            endswith(normalized, "_test.jl") || endswith(normalized, "_test.odin") ||
-            endswith(normalized, "_tests.odin")
-        if test_path
+        if is_test_path(declaration.path)
             push!(roots, CallRoot(
                 "test:$(declaration.qualified_name)", declaration.path,
                 declaration.language, declaration.name, "test"))
@@ -45,6 +41,14 @@ function declaration_call_roots(declarations)
         end
     end
     return roots
+end
+
+"""Return whether a source path follows a recognized test-file convention."""
+function is_test_path(path)
+    normalized = replace(path, '\\' => '/')
+    return startswith(normalized, "test/") || occursin("/test/", normalized) ||
+        endswith(normalized, "_test.jl") || endswith(normalized, "_test.odin") ||
+        endswith(normalized, "_tests.odin")
 end
 
 """Collect callback and exported bridge roots from interop signatures."""
