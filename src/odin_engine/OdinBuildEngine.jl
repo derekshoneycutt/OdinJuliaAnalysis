@@ -76,7 +76,11 @@ function resolve_julia_linker_flags()
     output = IOBuffer()
     process = run(pipeline(
         ignorestatus(Cmd([
-            Base.julia_cmd().exec[1], julia_config_path, "--ldflags", "--ldlibs"])),
+            Base.julia_cmd().exec...,
+            julia_config_path,
+            "--ldflags",
+            "--ldlibs",
+        ])),
         stdout=output,
         stderr=devnull))
     process.exitcode == 0 || error("Failed to query Julia linker flags.")
