@@ -158,9 +158,40 @@ struct CallRootEntryPoint
     reason::String
 end
 
+struct ReviewedImportPolicy
+    id::String
+    path::String
+    language::Symbol
+    binding::String
+    response::FindingResponse
+    minimum_matches::Int
+    maximum_matches::Int
+    reason::String
+end
+
+"""Construct a reviewed import policy with one expected exact match."""
+function ReviewedImportPolicy(
+    id::String,
+    path::String,
+    language::Symbol,
+    binding::String,
+    reason::String;
+    response::FindingResponse=Report,
+    minimum_matches::Int=1,
+    maximum_matches::Int=1)
+    return ReviewedImportPolicy(
+        id, path, language, binding, response,
+        minimum_matches, maximum_matches, reason)
+end
+
 struct CallRootSettings
     entry_points::Vector{CallRootEntryPoint}
+    reviewed_imports::Vector{ReviewedImportPolicy}
 end
+
+"""Construct call-root settings without reviewed import policies."""
+CallRootSettings(entry_points) =
+    CallRootSettings(entry_points, ReviewedImportPolicy[])
 
 """Return no configured cross-language call roots."""
 default_call_root_settings() = CallRootSettings(CallRootEntryPoint[])

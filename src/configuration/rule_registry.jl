@@ -15,6 +15,10 @@ const RULE_REGISTRY = Dict(
         "CALL-ROOT-POLICY-DRIFT", "common",
         "Call-Graph Reachability > Configured Roots",
         "experimental", "stable", "error", true),
+    "IMPORT-POLICY-DRIFT" => RuleDefinition(
+        "IMPORT-POLICY-DRIFT", "common",
+        "Imports > Reviewed External Bindings",
+        "experimental", "stable", "error", true),
     "ARCHITECTURE-FORBIDDEN-DEPENDENCY" => RuleDefinition(
         "ARCHITECTURE-FORBIDDEN-DEPENDENCY", "common",
         "Dependency Architecture > Allowed Directions",

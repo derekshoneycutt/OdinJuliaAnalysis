@@ -16,6 +16,7 @@ export ResourceLifetimeSummary
 export SecurityBoundaryPath
 export TestCoverageEvidence, TestCoverageCounts, TestCoverageStatistics
 export DependencyEdge, Diagnostic, ImportBinding
+export IncludeEdge
 export ReferenceRecord
 export InteropSignature, InteropBridgePair
 export FileStatistics, FunctionStatistics, StatisticsSelection, SourceStatisticsReport
@@ -27,7 +28,8 @@ export EXTENSION_API_VERSION
 export NamingConvention, NamingSettings
 export ReviewedNamingPolicy
 export JetEntryPoint, JetSettings
-export CallRootEntryPoint, CallRootSettings, default_call_root_settings
+export CallRootEntryPoint, CallRootSettings, ReviewedImportPolicy
+export default_call_root_settings
 export default_jet_settings, default_naming_settings
 export default_odin_build_settings
 export default_return_tuple_settings
@@ -370,6 +372,9 @@ function analyze_julia_source_file!(relative_path, source, configuration, state)
         state.import_bindings,
         JuliaEngine.analyze_import_bindings(relative_path, source))
     syntax_failed || append!(
+        state.include_edges,
+        JuliaEngine.analyze_includes(relative_path, source))
+    syntax_failed || append!(
         state.references,
         JuliaEngine.analyze_references(relative_path, source))
     syntax_failed || append!(
@@ -630,6 +635,7 @@ function repository_analysis_state()
         dependencies=DependencyEdge[],
         declarations=DeclarationRecord[],
         import_bindings=ImportBinding[],
+        include_edges=IncludeEdge[],
         references=ReferenceRecord[],
         call_edges=CallEdge[],
         call_roots=CallRoot[],
@@ -660,7 +666,8 @@ function run_language_analysis!(state, root, files, configuration, progress)
     run_jet_analysis!(state.diagnostics, state.engines, root, configuration, progress)
     run_odin_analysis!(state, root, files, configuration, progress)
     append!(state.diagnostics, analyze_unused_imports(
-        state.import_bindings, state.references, configuration))
+        state.import_bindings, state.references, state.include_edges,
+        state.declarations, root, files, configuration))
     append!(state.interop_pairs, pair_interop_signatures(state.interop_signatures))
     JuliaEngine.resolve_dependencies!(state.dependencies, root, files)
     run_architecture_analysis!(state, configuration)

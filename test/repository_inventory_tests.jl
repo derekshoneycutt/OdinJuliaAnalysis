@@ -10,6 +10,20 @@ function settings_with_call_roots(entry_points)
     return OdinJuliaAnalysis.validate_settings(replaced)
 end
 
+"""Return effective settings carrying exact reviewed import policies."""
+function settings_with_reviewed_imports(policies)
+    base = Base.include(
+        Module(gensym(:ImportFixtureSettings)),
+        OdinJuliaAnalysis.DEFAULT_SETTINGS_PATH)
+    names = fieldnames(AnalysisSettings)
+    roots = CallRootSettings(base.call_roots.entry_points, policies)
+    replaced = AnalysisSettings(
+        (name == :odin_build ? OdinBuildSettings(OdinBuildTarget[]) :
+            name == :call_roots ? roots : getfield(base, name)
+            for name in names)...)
+    return OdinJuliaAnalysis.validate_settings(replaced)
+end
+
 @testset "dependency graph inventory" begin
     mktempdir() do root
         julia_path = joinpath(root, "app.jl")
@@ -310,6 +324,84 @@ end
         @test !occursin("## Interop Bridge Pairs", markdown)
         @test occursin("JULIA-UNUSED-IMPORT", markdown)
     end
+end
+
+@testset "unused imports follow same-module includes" begin
+    mktempdir() do root
+        write(joinpath(root, "umbrella.jl"), """
+            module Umbrella
+            import Dates: now
+            import UUIDs
+            include("implementation.jl")
+            include("nested.jl")
+            end
+            """)
+        write(joinpath(root, "implementation.jl"), "current_time() = now()\n")
+        write(joinpath(root, "nested.jl"), """
+            module Nested
+            UUIDs.uuid4()
+            end
+            """)
+        configuration = with_odin_build_targets(
+            with_jet_entries(
+                OdinJuliaAnalysis.load_settings(),
+                JetEntryPoint[]),
+            OdinBuildTarget[])
+
+        report = OdinJuliaAnalysis.check_repository(root; configuration)
+
+        findings = filter(
+            item -> item.rule_id == "JULIA-UNUSED-IMPORT",
+            report.diagnostics)
+        @test [(item.path, item.subject) for item in findings] == [
+            ("umbrella.jl", "UUIDs"),
+        ]
+    end
+end
+
+@testset "relative module imports use their local binding name" begin
+    bindings = OdinJuliaAnalysis.JuliaEngine.analyze_import_bindings(
+        "host.jl", "import ..TicTacCrawlReplEvaluation\n")
+
+    @test [(binding.target, binding.name) for binding in bindings] == [
+        ("..TicTacCrawlReplEvaluation", "TicTacCrawlReplEvaluation"),
+    ]
+end
+
+@testset "reviewed external imports are drift checked" begin
+    mktempdir() do root
+        write(joinpath(root, "main.jl"), "import Dates: now\n")
+        policy = ReviewedImportPolicy(
+            "external-main-now", "main.jl", :julia, "now",
+            "The embedding resolves this binding from Main.";
+            response=Ignore)
+        configuration = settings_with_reviewed_imports([policy])
+
+        report = OdinJuliaAnalysis.check_repository(root; configuration)
+
+        @test isempty(report.diagnostics)
+        reviewed = only(filter(
+            item -> item.rule_id == "JULIA-UNUSED-IMPORT",
+            report.ignored_diagnostics))
+        @test reviewed.reviewed_policy_id == "external-main-now"
+        @test reviewed.reviewed_policy_reason == policy.reason
+
+        write(joinpath(root, "main.jl"), "import Dates: now\nnow()\n")
+        stale = OdinJuliaAnalysis.check_repository(root; configuration)
+        @test any(
+            item -> item.rule_id == "IMPORT-POLICY-DRIFT",
+            stale.diagnostics)
+    end
+end
+
+@testset "Julia string-macro constructors are static call targets" begin
+    edges = OdinJuliaAnalysis.JuliaEngine.analyze_calls(
+        "display.jl", "render() = MIME\"text/plain\"()\n")
+
+    @test [(edge.callee, edge.kind) for edge in edges] == [
+        ("MIME\"text/plain\"", "direct"),
+    ]
+    @test isempty(OdinJuliaAnalysis.unresolved_call_diagnostics(edges))
 end
 
 @testset "call graph reachability and behavior" begin

@@ -137,6 +137,35 @@ function validate_call_root_settings(settings::CallRootSettings)
         isempty(strip(entry.reason)) && throw(ArgumentError(
             "call root entry point $(entry.id) requires a reason"))
     end
+    validate_reviewed_import_policies(settings.reviewed_imports)
+end
+
+"""Reject invalid, duplicate, or ambiguous reviewed import policies."""
+function validate_reviewed_import_policies(policies)
+    ids = Set{String}()
+    selectors = Set{Tuple{String, Symbol, String}}()
+    for policy in policies
+        isempty(strip(policy.id)) && throw(ArgumentError(
+            "reviewed import policy requires an id"))
+        policy.id in ids && throw(ArgumentError(
+            "duplicate reviewed import policy: $(policy.id)"))
+        push!(ids, policy.id)
+        validate_reviewed_policy_path(policy.path, "import")
+        policy.language in (:julia, :odin) || throw(ArgumentError(
+            "reviewed import policy $(policy.id) has unknown language"))
+        isempty(strip(policy.binding)) && throw(ArgumentError(
+            "reviewed import policy $(policy.id) requires a binding"))
+        selector = (policy.path, policy.language, policy.binding)
+        selector in selectors && throw(ArgumentError(
+            "duplicate reviewed import selector: $(policy.path):$(policy.binding)"))
+        push!(selectors, selector)
+        policy.minimum_matches >= 0 || throw(ArgumentError(
+            "reviewed import minimum matches must be positive"))
+        policy.maximum_matches >= policy.minimum_matches || throw(ArgumentError(
+            "reviewed import maximum matches must not be below minimum"))
+        isempty(strip(policy.reason)) && throw(ArgumentError(
+            "reviewed import policy $(policy.id) requires a reason"))
+    end
 end
 
 """Reject documentation templates that can match an empty comment."""

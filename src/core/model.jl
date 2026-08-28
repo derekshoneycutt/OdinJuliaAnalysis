@@ -103,6 +103,11 @@ struct ImportBinding
     column::Int
 end
 
+struct IncludeEdge
+    source_path::String
+    target_path::String
+end
+
 struct ReferenceRecord
     path::String
     language::String

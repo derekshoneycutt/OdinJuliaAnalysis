@@ -14,6 +14,7 @@ AnalysisSettings(
         RuleSetting("FUNCTION-METRIC-POLICY-DRIFT", true, Fail),
         RuleSetting("NAMING-POLICY-DRIFT", true, Fail),
         RuleSetting("CALL-ROOT-POLICY-DRIFT", true, Fail),
+        RuleSetting("IMPORT-POLICY-DRIFT", true, Fail),
         RuleSetting("SECURITY-UNSAFE-BOUNDARY", true, Report),
         RuleSetting("CALL-GRAPH-UNRESOLVED-EDGE", true, Report),
         RuleSetting("ARCHITECTURE-FORBIDDEN-DEPENDENCY", true, Report),

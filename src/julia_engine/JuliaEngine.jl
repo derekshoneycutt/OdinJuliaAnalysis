@@ -11,6 +11,7 @@ using ..OdinJuliaAnalysis: DeclarationRecord
 using ..OdinJuliaAnalysis: DependencyEdge
 using ..OdinJuliaAnalysis: EffectiveSettings
 using ..OdinJuliaAnalysis: FunctionAnalysis
+using ..OdinJuliaAnalysis: IncludeEdge
 using ..OdinJuliaAnalysis: ImportBinding
 using ..OdinJuliaAnalysis: InteropSignature
 using ..OdinJuliaAnalysis: Ignore
@@ -27,6 +28,7 @@ export analyze_calls
 export analyze_clone_candidates
 export analyze_declarations
 export analyze_functions
+export analyze_includes
 export analyze_import_bindings
 export analyze_interop
 export analyze_references
@@ -215,7 +217,7 @@ function append_julia_import_binding!(
         isempty(alias_children) && return
         local_node = last(alias_children)
     end
-    name = strip(String(JuliaSyntax.sourcetext(local_node)))
+    name = julia_import_local_name(local_node)
     raw_target = target === nothing ?
         strip(String(JuliaSyntax.sourcetext(target_node))) : target
     byte_offset = JuliaSyntax.first_byte(local_node)
@@ -223,6 +225,14 @@ function append_julia_import_binding!(
     push!(bindings, ImportBinding(
         path, "julia", raw_target, name, kind, line,
         byte_offset - offsets[line] + 1))
+end
+
+"""Return the local identifier introduced by one Julia import binding."""
+function julia_import_local_name(node)
+    text = strip(String(JuliaSyntax.sourcetext(node)))
+    Symbol(JuliaSyntax.kind(node)) == :importpath || return text
+    segments = split(text, '.')
+    return isempty(segments) ? text : last(segments)
 end
 
 """Collect parser-visible Julia identifier references outside import statements."""
@@ -270,6 +280,31 @@ function analyze_calls(path::String, source::String)
     calls = CallEdge[]
     collect_calls!(calls, tree, path, offsets, String[], false)
     return calls
+end
+
+"""Collect literal include targets resolved relative to their source file."""
+function analyze_includes(path::String, source::String)
+    tree = JuliaSyntax.parseall(JuliaSyntax.SyntaxNode, source; filename=path)
+    includes = IncludeEdge[]
+    collect_includes!(includes, tree, path)
+    return includes
+end
+
+"""Visit Julia calls and append statically resolvable include relationships."""
+function collect_includes!(includes, node, path)
+    children = something(JuliaSyntax.children(node), ())
+    if Symbol(JuliaSyntax.kind(node)) == :call && length(children) == 2 &&
+        Symbol(JuliaSyntax.kind(first(children))) == :Identifier &&
+        String(JuliaSyntax.sourcetext(first(children))) == "include"
+        target = Meta.parse(String(JuliaSyntax.sourcetext(children[2])))
+        if target isa String
+            target_path = normpath(joinpath(dirname(path), target))
+            push!(includes, IncludeEdge(path, replace(target_path, '\\' => '/')))
+        end
+    end
+    for child in children
+        collect_includes!(includes, child, path)
+    end
 end
 
 """Return the callee node of a call expression, or `nothing` when it has none.
@@ -327,7 +362,7 @@ function call_edge(callee_node, path, offsets, scope)
     callee_kind = Symbol(JuliaSyntax.kind(callee_node))
     byte_offset = JuliaSyntax.first_byte(callee_node)
     line = metric_line_for_offset(offsets, byte_offset)
-    call_kind = callee_kind == :Identifier ? "direct" :
+    call_kind = static_julia_callee(callee_node, callee_kind) ? "direct" :
         callee_kind == :. ? "qualified" : "dynamic"
     return CallEdge(
         path,
@@ -337,6 +372,15 @@ function call_edge(callee_node, path, offsets, scope)
         call_kind,
         line,
         byte_offset - offsets[line] + 1)
+end
+
+"""Return whether callee syntax names one statically identifiable Julia binding."""
+function static_julia_callee(callee_node, callee_kind)
+    callee_kind == :Identifier && return true
+    callee_kind == :macrocall || return false
+    children = something(JuliaSyntax.children(callee_node), ())
+    return !isempty(children) &&
+    Symbol(JuliaSyntax.kind(first(children))) == :StringMacroName
 end
 
 """Collect supported Julia C interop signatures from surface syntax."""

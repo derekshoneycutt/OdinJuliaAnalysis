@@ -539,6 +539,7 @@ Reviewed policies make deliberate exceptions visible and drift checked.
 | `ReviewedComplexity` | Path, language, function, and metric | `FUNCTION-METRIC-POLICY-DRIFT` |
 | `ReviewedAllocationPolicy` | Path, procedure, category, operation, target, source, and certainty | `ODIN-ALLOCATION-POLICY-DRIFT` |
 | `CallRootEntryPoint` | Language and callable name | `CALL-ROOT-POLICY-DRIFT` |
+| `ReviewedImportPolicy` | Path, language, and imported binding | `IMPORT-POLICY-DRIFT` |
 
 Every policy records a stable ID, reason, response, and minimum/maximum match count.
 Missing, excessive, or ambiguous matches become blocking drift findings instead of
