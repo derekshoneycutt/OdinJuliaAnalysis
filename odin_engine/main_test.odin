@@ -63,8 +63,14 @@ caller :: proc() {
 
 ALLOCATION_CLASSIFICATION_FIXTURE :: `package fixture
 
+import vmem "core:mem/virtual"
+
 // Exercise representative allocation forms.
 allocate :: proc() {
+    static_arena: vmem.Arena
+    _ = vmem.arena_init_static(&static_arena)
+    growing_arena: vmem.Arena
+    _ = vmem.arena_init_growing(&growing_arena)
     values := make([dynamic]int)
     append(&values, 1)
     _ = new(int, context.allocator)
@@ -278,6 +284,20 @@ verify_test_procedure_bodies :: proc(t: ^testing.T, summary: ^File_Summary) {
 
 // Verify representative implicit, growth, and explicit allocation findings.
 verify_test_allocation_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
+    static_arena, static_found := find_test_finding(
+        summary, "ODIN-ALLOCATION-ARENA", "arena_init_static")
+    testing.expect(t, static_found)
+    if static_found {
+        testing.expect_value(t, static_arena.procedure, "allocate")
+        testing.expect_value(t, static_arena.target, "static_arena")
+    }
+    growing_arena, growing_found := find_test_finding(
+        summary, "ODIN-ALLOCATION-ARENA", "arena_init_growing")
+    testing.expect(t, growing_found)
+    if growing_found {
+        testing.expect_value(t, growing_arena.procedure, "allocate")
+        testing.expect_value(t, growing_arena.target, "growing_arena")
+    }
     implicit, implicit_found := find_test_finding(
         summary, "ODIN-ALLOCATION-IMPLICIT", "make")
     testing.expect(t, implicit_found)

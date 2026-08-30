@@ -11,7 +11,7 @@ import "core:os"
 import "core:strings"
 
 SCHEMA_VERSION :: "3.12.0"
-ENGINE_VERSION :: "0.14.0"
+ENGINE_VERSION :: "0.15.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -643,13 +643,15 @@ check_allocator_initialization :: proc(
         return false
     }
     owner, named := identifier_name(selector.expr)
-    if !named || owner != "vmem" || selector.field.name != "arena_init_static" {
+    operation := selector.field.name
+    if !named || owner != "vmem" ||
+        (operation != "arena_init_static" && operation != "arena_init_growing") {
         return false
     }
     append_allocation_finding(
         data,
         call,
-        "arena_init_static",
+        operation,
         "ODIN-ALLOCATION-ARENA",
         {
             target = allocation_target(
