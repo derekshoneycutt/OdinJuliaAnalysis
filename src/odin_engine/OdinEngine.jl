@@ -27,7 +27,7 @@ export analyze_metrics
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
-const SCHEMA_VERSION = "3.11.0"
+const SCHEMA_VERSION = "3.12.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -62,6 +62,7 @@ const OdinDeclarationSymbol = @NamedTuple begin
     column::Int
     is_struct::Bool
     is_init::Bool
+    is_rodata::Bool
 end
 
 const OdinImport = @NamedTuple begin
@@ -310,7 +311,8 @@ function declaration_records(source_path, summary)
             scope,
             Int(symbol.line),
             Int(symbol.column),
-            Bool(symbol.is_init)))
+            Bool(symbol.is_init),
+            Bool(symbol.is_rodata)))
     end
     return declarations
 end

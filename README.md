@@ -59,10 +59,10 @@ static test reachability without making the analyzer responsible for running tes
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `4.0.0` |
+| Analysis schema | `4.1.0` |
 | Extension API | `2.0.0` |
-| Native Odin schema | `3.11.0` |
-| Native Odin engine | `0.13.0` |
+| Native Odin schema | `3.12.0` |
+| Native Odin engine | `0.14.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 70 |
 | Source types | `.jl`, `.odin`, `.md` |
@@ -208,7 +208,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 4.0.0]
+    Statistics --> Report[AnalysisReport schema 4.1.0]
     LocalStats --> StatsReport[SourceStatisticsReport schema 1.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
@@ -762,7 +762,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.0.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.1.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
 | Full Markdown | `--full-report=PATH` | Deep review and inventory audit | Comprehensive inventories and findings |
 
@@ -787,7 +787,8 @@ Schema `4.0.0` removes the former top-level function and evidence arrays. Consum
 traverse `files`, then each file's `functions`; source-located evidence is assigned to
 the innermost containing function, while file-scope evidence remains on its file.
 Cross-function clone groups and interop pairs are stored once under a deterministic
-primary owner.
+primary owner. Schema `4.1.0` adds `is_rodata` declaration metadata; existing declaration
+kind values remain unchanged.
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |

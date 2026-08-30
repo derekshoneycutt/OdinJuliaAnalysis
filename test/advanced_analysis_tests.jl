@@ -61,7 +61,7 @@
             root; configuration=duplicate_code_configuration(enabled))
     end
     clone_groups = OdinJuliaAnalysis.analysis_clone_groups(report.files)
-    @test report.schema_version == "4.0.0"
+    @test report.schema_version == "4.1.0"
     @test [group.language for group in clone_groups] == ["julia", "odin"]
     @test all(group -> length(group.occurrences) == 2, clone_groups)
     @test all(group -> group.token_count > 0, clone_groups)
@@ -340,7 +340,7 @@ end
             root; configuration=security_configuration(security))
     end
     security_paths = OdinJuliaAnalysis.analysis_security_paths(report.files)
-    @test report.schema_version == "4.0.0"
+    @test report.schema_version == "4.1.0"
     @test length(security_paths) == 2
     @test Set(path.language for path in security_paths) == Set(("julia", "odin"))
     julia_path = only(filter(path -> path.language == "julia", security_paths))
@@ -528,7 +528,7 @@ end
         OdinJuliaAnalysis.check_repository(
             root; configuration=coverage_configuration(coverage))
     end
-    @test report.schema_version == "4.0.0"
+    @test report.schema_version == "4.1.0"
     @test report.test_coverage_statistics !== nothing
     @test report.test_coverage_statistics.overall.declarations == 6
     @test report.test_coverage_statistics.overall.corroborated == 2

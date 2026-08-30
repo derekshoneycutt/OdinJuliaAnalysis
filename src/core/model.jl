@@ -86,12 +86,13 @@ struct DeclarationRecord
     line::Int
     column::Int
     is_init::Bool
+    is_rodata::Bool
 end
 
-"""Construct a declaration without an implicit initialization lifecycle."""
+"""Construct a declaration without Odin lifecycle or storage metadata."""
 DeclarationRecord(path, language, name, qualified_name, kind, scope, line, column) =
     DeclarationRecord(
-        path, language, name, qualified_name, kind, scope, line, column, false)
+        path, language, name, qualified_name, kind, scope, line, column, false, false)
 
 struct ImportBinding
     path::String

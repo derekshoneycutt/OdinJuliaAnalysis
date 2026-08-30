@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.11.0"
-ENGINE_VERSION :: "0.13.0"
+SCHEMA_VERSION :: "3.12.0"
+ENGINE_VERSION :: "0.14.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -47,6 +47,14 @@ Declaration_Symbol :: struct {
     column: int,
     is_struct: bool,
     is_init: bool,
+    is_rodata: bool,
+}
+
+// Optional semantic metadata attached to one emitted declaration symbol.
+Declaration_Symbol_Options :: struct {
+    is_struct: bool,
+    is_init: bool,
+    is_rodata: bool,
 }
 
 Import_Edge :: struct {
@@ -156,8 +164,7 @@ append_symbol :: proc(
     data: ^Analysis_Visitor_Data,
     expression: ^ast.Expr,
     kind: string,
-    is_struct := false,
-    is_init := false) {
+    options := Declaration_Symbol_Options{}) {
     name, named := identifier_name(expression)
     if !named || name == "_" {
         return
@@ -167,8 +174,9 @@ append_symbol :: proc(
         kind = kind,
         line = expression.pos.line,
         column = expression.pos.column,
-        is_struct = is_struct,
-        is_init = is_init,
+        is_struct = options.is_struct,
+        is_init = options.is_init,
+        is_rodata = options.is_rodata,
     })
 }
 
@@ -191,8 +199,9 @@ append_field_symbols :: proc(
 append_enum_symbols :: proc(
     data: ^Analysis_Visitor_Data,
     name: ^ast.Expr,
-    enum_type: ^ast.Enum_Type) {
-    append_symbol(data, name, "type")
+    enum_type: ^ast.Enum_Type,
+    options := Declaration_Symbol_Options{}) {
+    append_symbol(data, name, "type", options)
     for enum_field in enum_type.fields {
         normalized_field := ast.unparen_expr(enum_field)
         if field_value, ok := normalized_field.derived.(^ast.Field_Value); ok {
@@ -207,10 +216,12 @@ append_enum_symbols :: proc(
 append_value_declaration_symbols :: proc(
     data: ^Analysis_Visitor_Data,
     declaration: ^ast.Value_Decl) {
+    is_rodata := has_attribute(declaration, "rodata")
+    options := Declaration_Symbol_Options{is_rodata = is_rodata}
     for name, index in declaration.names {
         if index >= len(declaration.values) {
             kind := "constant" if !declaration.is_mutable else "variable"
-            append_symbol(data, name, kind)
+            append_symbol(data, name, kind, options)
             continue
         }
         value := unwrap_helper_type(ast.unparen_expr(declaration.values[index]))
@@ -219,20 +230,22 @@ append_value_declaration_symbols :: proc(
             if typed_value.body == nil {
                 continue
             }
-            append_symbol(data, name, "procedure",
-                is_init = has_attribute(declaration, "init"))
+            append_symbol(data, name, "procedure", {is_rodata = is_rodata,
+                is_init = has_attribute(declaration, "init")})
             append_field_symbols(data, typed_value.type.params, "parameter")
         case ^ast.Proc_Group:
-            append_symbol(data, name, "procedure")
+            append_symbol(data, name, "procedure", options)
         case ^ast.Struct_Type:
-            append_symbol(data, name, "type", true)
+            append_symbol(data, name, "type", {
+                is_struct = true, is_rodata = is_rodata})
             append_field_symbols(data, typed_value.fields, "field")
         case ^ast.Enum_Type:
-            append_enum_symbols(data, name, typed_value)
+            append_enum_symbols(data, name, typed_value, options)
         case ^ast.Union_Type, ^ast.Distinct_Type, ^ast.Bit_Set_Type:
-            append_symbol(data, name, "type")
+            append_symbol(data, name, "type", options)
         case:
-            append_symbol(data, name, value_declaration_kind(declaration, value))
+            append_symbol(data, name,
+                value_declaration_kind(declaration, value), options)
         }
     }
 }
@@ -406,7 +419,8 @@ check_nonconst_global :: proc(
     data: ^Analysis_Visitor_Data,
     declaration: ^ast.Value_Decl) {
     if !declaration.is_mutable ||
-        containing_procedure(data, declaration.pos.offset) != "" {
+        containing_procedure(data, declaration.pos.offset) != "" ||
+        has_attribute(declaration, "rodata") {
         return
     }
     for name_expression in declaration.names {

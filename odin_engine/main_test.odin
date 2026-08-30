@@ -26,6 +26,10 @@ SAMPLE_CONSTANT :: 1
 Forwarded_Type :: external.Forwarded_Type
 FORWARDED_CONSTANT :: external.FORWARDED_CONSTANT
 PACKAGE_GLOBAL := 2
+@(rodata)
+RODATA_GLOBAL := [?]int{3, 4}
+@(rodata)
+RODATA_FIRST, RODATA_SECOND := 5, 6
 
 foreign import fixture_library "system:fixture.lib"
 
@@ -127,6 +131,16 @@ find_test_symbol :: proc(
     return nil, false
 }
 
+// Verify one named symbol remains a variable while carrying read-only data metadata.
+test_expect_rodata_symbol :: proc(
+    t: ^testing.T, summary: ^File_Summary, name: string) {
+    symbol, found := find_test_symbol(summary, name, "variable")
+    testing.expect(t, found)
+    if found {
+        testing.expect(t, symbol.is_rodata)
+    }
+}
+
 // Return the first explicit call edge matching one caller and callee.
 find_test_call_edge :: proc(
     summary: ^File_Summary,
@@ -198,6 +212,13 @@ verify_test_analysis_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
         testing.expect_value(t, mutable_global.operation, "global")
         testing.expect_value(t, mutable_global.certainty, "definite")
     }
+    mutable_global_count := 0
+    for finding in summary.findings {
+        if finding.rule_id == "ODIN-NONCONST-GLOBAL" {
+            mutable_global_count += 1
+        }
+    }
+    testing.expect_value(t, mutable_global_count, 1)
 }
 
 // Verify all declaration kinds emitted from the metrics fixture.
@@ -229,6 +250,9 @@ verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     testing.expect(t, !foreign_parameter_found)
     testing.expect(t, parameter_found)
     testing.expect(t, variable_found)
+    test_expect_rodata_symbol(t, summary, "RODATA_GLOBAL")
+    test_expect_rodata_symbol(t, summary, "RODATA_FIRST")
+    test_expect_rodata_symbol(t, summary, "RODATA_SECOND")
     _, discard_found := find_test_symbol(summary, "_", "variable")
     testing.expect(t, !discard_found)
 }

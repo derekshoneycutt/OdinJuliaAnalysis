@@ -171,6 +171,10 @@ end
 
             PACKAGE_GLOBAL := 1
             PACKAGE_CONSTANT :: 2
+            @(rodata)
+            RODATA_GLOBAL := [?]Int{3, 4}
+            @(rodata)
+            RODATA_FIRST, RODATA_SECOND := 5, 6
 
             // Exercise a procedure-local value.
             sample :: proc() {
@@ -178,14 +182,22 @@ end
             }
             """)
         configuration = OdinJuliaAnalysis.load_settings()
+        analysis = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], configuration)
         diagnostics = filter(
             item -> item.rule_id == "ODIN-NONCONST-GLOBAL",
-            OdinJuliaAnalysis.OdinEngine.analyze(
-                root, [path], configuration).diagnostics)
+            analysis.diagnostics)
 
         @test [item.subject for item in diagnostics] == ["PACKAGE_GLOBAL"]
         @test only(diagnostics).response == Warn
         @test only(diagnostics).operation == "global"
+        declarations = Dict(item.name => item for item in analysis.declarations)
+        @test declarations["PACKAGE_GLOBAL"].kind == "variable"
+        @test !declarations["PACKAGE_GLOBAL"].is_rodata
+        for name in ("RODATA_GLOBAL", "RODATA_FIRST", "RODATA_SECOND")
+            @test declarations[name].kind == "variable"
+            @test declarations[name].is_rodata
+        end
 
         for response in (Ignore, Report, Warn, Fail)
             configured = with_rules(configuration, Dict(

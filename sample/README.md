@@ -97,7 +97,7 @@ requires the analyzed project to contain both Julia and Odin source files and pu
 the discovered language list as a generic report artifact. It demonstrates stable
 extension identity, explicit API `2.0.0` compatibility, declared rule ownership,
 lifecycle selection, diagnostics, and JSON-serializable artifacts. Extensions inspect
-the same nested `context.files` hierarchy serialized by report schema `4.0.0`: each file
+the same nested `context.files` hierarchy serialized by report schema `4.1.0`: each file
 owns its functions and file-scope evidence, and each function owns its source-scoped
 evidence. Core remains responsible for sorting, response mapping, report rendering, and
 exit semantics.

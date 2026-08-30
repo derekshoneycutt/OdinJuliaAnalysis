@@ -225,7 +225,7 @@ end
             ("main.odin", "run.item", "parameter", "run"),
             ("main.odin", "run.local", "variable", "run"),
         ]
-        @test report.schema_version == "4.0.0"
+        @test report.schema_version == "4.1.0"
     end
 end
 
@@ -281,7 +281,7 @@ end
             [("bridge_add", "matched")]
         pair = only(interop_pairs)
         @test pair.mismatch === nothing
-        @test report.schema_version == "4.0.0"
+        @test report.schema_version == "4.1.0"
         bridge_function = only(filter(
             item -> item.name == "bridge",
             OdinJuliaAnalysis.analysis_functions(report.files)))
