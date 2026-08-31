@@ -14,7 +14,7 @@ function apply_reviewed_complexity!(
     drift = Diagnostic[]
     for index in eachindex(diagnostics)
         diagnostic = diagnostics[index]
-        diagnostic.source == "function-metrics" || continue
+        diagnostic.source in ("function-metrics", "odin-ast") || continue
         policy_indices = findall(
             policy -> reviewed_complexity_matches(policy, diagnostic),
             policies)

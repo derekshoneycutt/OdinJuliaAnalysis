@@ -361,6 +361,36 @@ end
         @test [item.response for item in configured_diagnostics] == [
             Report, Report, Warn]
 
+        metrics = configuration.function_metrics
+        reviewed = ReviewedComplexity(
+            "reviewed-odin-parameters",
+            "fixture.odin",
+            :odin,
+            "warning",
+            :parameters,
+            "The fixture intentionally exercises a reviewed parameter count.";
+            response=Ignore)
+        reviewed_configuration = with_function_metrics(
+            configuration,
+            FunctionMetricSettings(
+                metrics.julia_lines,
+                metrics.odin_lines,
+                metrics.julia_cyclomatic,
+                metrics.odin_cyclomatic,
+                [metrics.reviewed; reviewed]))
+        reviewed_diagnostics = filter(
+            item -> startswith(item.rule_id, "ODIN-PARAMETERS-"),
+            OdinJuliaAnalysis.OdinEngine.analyze(
+                root, [path], reviewed_configuration).diagnostics)
+        OdinJuliaAnalysis.apply_reviewed_complexity!(
+            reviewed_diagnostics, root, [path], reviewed_configuration)
+        @test [item.response for item in reviewed_diagnostics] == [
+            Ignore, Warn, Fail]
+        @test first(reviewed_diagnostics).reviewed_policy_id ==
+            "reviewed-odin-parameters"
+        @test all(item -> item.rule_id != "FUNCTION-METRIC-POLICY-DRIFT",
+            reviewed_diagnostics)
+
         disabled = with_rules(configuration, Dict(
             "ODIN-PARAMETERS-WARN" => RuleSetting(
                 "ODIN-PARAMETERS-WARN", false, Warn),

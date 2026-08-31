@@ -428,10 +428,11 @@ function validate_reviewed_complexity_policy(policy)
         "reviewed complexity language must be :julia or :odin"))
     isempty(strip(policy.function_name)) && throw(ArgumentError(
         "reviewed complexity function name cannot be empty"))
-    policy.metric in (:executable_lines, :cyclomatic_complexity) ||
+    policy.metric in (
+        :executable_lines, :cyclomatic_complexity, :parameters) ||
         throw(ArgumentError(
-            "reviewed complexity metric must be :executable_lines or " *
-                ":cyclomatic_complexity"))
+            "reviewed function metric must be :executable_lines, " *
+                ":cyclomatic_complexity, or :parameters"))
     policy.minimum_matches >= 0 || throw(ArgumentError(
         "reviewed complexity minimum matches must be positive"))
     policy.maximum_matches >= policy.minimum_matches || throw(ArgumentError(
