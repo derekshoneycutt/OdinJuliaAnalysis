@@ -80,7 +80,9 @@ end
 
 """Apply reviewed external-binding decisions and report policy drift."""
 function apply_reviewed_import_policies!(diagnostics, root, files, configuration)
-    scanned_paths = Set(relpath(abspath(path), abspath(root)) for path in files)
+    scanned_paths = Set(
+        replace(relpath(abspath(path), abspath(root)), '\\' => '/')
+        for path in files)
     policies = filter(
         policy -> policy.path in scanned_paths,
         configuration.call_roots.reviewed_imports)

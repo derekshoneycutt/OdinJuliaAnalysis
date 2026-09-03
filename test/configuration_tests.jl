@@ -6,6 +6,16 @@
         "COMMON-NO-TABS",
     ]
 
+    @testset "excludes CRLF carriage returns from line width" begin
+        boundary_source = repeat("x", 90) * "\r\n" * repeat("x", 91) * "\r\n"
+        diagnostics = OdinJuliaAnalysis.check_common_rules(
+            "fixture.md", boundary_source)
+
+        @test length(diagnostics) == 1
+        @test only(diagnostics).line == 2
+        @test only(diagnostics).measured == 91
+    end
+
     @testset "exempts Julia and Odin comment-only lines" begin
         long_text = repeat("x", 121)
         julia_source = "# $long_text\n#=\n$long_text\n=#\nvalue = 1 # $long_text\n"

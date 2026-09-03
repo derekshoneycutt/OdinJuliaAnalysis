@@ -398,7 +398,7 @@ function analyze_source_files!(
     configuration)
     for path in files
         source = read(path, String)
-        relative_path = relpath(path, root)
+        relative_path = replace(relpath(path, root), '\\' => '/')
         append!(state.diagnostics, check_common_rules(
             relative_path, source, configuration))
 
@@ -811,7 +811,7 @@ end
 function analyze_files(root, files, struct_counts, diagnostics)
     return map(files) do path
         source = read(path, String)
-        relative_path = relpath(path, root)
+        relative_path = replace(relpath(path, root), '\\' => '/')
         language = source_language(path)
         parsed = source_parsed(relative_path, language, diagnostics)
         struct_count = language == "julia" && parsed ?

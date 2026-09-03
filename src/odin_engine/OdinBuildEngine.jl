@@ -39,10 +39,13 @@ end
 
 """Execute one analytical Odin build and retain its complete result."""
 function run_build_target(root, target)
-    relative_output = joinpath(OUTPUT_DIRECTORY, target.output_name)
-    rm(joinpath(root, relative_output); force=true)
+    output_name = Sys.iswindows() ? target.output_name * ".exe" : target.output_name
+    physical_output = joinpath(OUTPUT_DIRECTORY, output_name)
+    relative_output = replace(
+        joinpath(OUTPUT_DIRECTORY, target.output_name), '\\' => '/')
+    rm(joinpath(root, physical_output); force=true)
     arguments = vcat(
-        ["odin", "build", target.input, "-out:$relative_output"],
+        ["odin", "build", target.input, "-out:$physical_output"],
         target.flags)
     if target.include_julia_linker_flags
         push!(arguments, "-extra-linker-flags:$(resolve_julia_linker_flags())")

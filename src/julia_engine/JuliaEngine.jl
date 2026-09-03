@@ -552,7 +552,8 @@ function resolve_dependencies!(dependencies, root, files)
     for file in files
         endswith(file, ".jl") || continue
         source = read(file, String)
-        append!(definitions, analyze_modules(relpath(file, root), source))
+        path = replace(relpath(file, root), '\\' => '/')
+        append!(definitions, analyze_modules(path, source))
     end
     for index in eachindex(dependencies)
         edge = dependencies[index]

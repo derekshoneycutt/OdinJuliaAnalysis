@@ -492,10 +492,13 @@ function validate_odin_build_target(target)
     end
 end
 
+"""Normalize one repository path to its platform-independent representation."""
+normalize_repository_path(path::String) = replace(normpath(path), '\\' => '/')
+
 """Validate one normalized repository-relative settings path."""
 function validate_repository_path(path::String, label::String)
     invalid = isempty(strip(path)) || isabspath(path) ||
-        normpath(path) != path || startswith(path, "..")
+        normalize_repository_path(path) != path || startswith(path, "..")
     invalid && throw(ArgumentError(
         "$label must be normalized and repository-relative"))
 end
@@ -510,7 +513,8 @@ function validate_jet_settings(settings::JetSettings)
             "duplicate JET entry point ID: $(entry.id)"))
         push!(entry_ids, entry.id)
         invalid_path = isempty(strip(entry.path)) || isabspath(entry.path) ||
-            normpath(entry.path) != entry.path || startswith(entry.path, "..")
+            normalize_repository_path(entry.path) != entry.path ||
+            startswith(entry.path, "..")
         invalid_path && throw(ArgumentError(
             "JET entry point path must be normalized and repository-relative"))
         all(argument_type -> argument_type isa Type, entry.argument_types) === true ||
@@ -543,7 +547,7 @@ end
 """Validate one reviewed policy path as normalized and repository-relative."""
 function validate_reviewed_policy_path(path, policy_kind)
     invalid_path = isempty(strip(path)) || isabspath(path) ||
-        normpath(path) != path || startswith(path, "..")
+        normalize_repository_path(path) != path || startswith(path, "..")
     invalid_path && throw(ArgumentError(
         "reviewed $policy_kind policy path must be normalized and repository-relative"))
 end

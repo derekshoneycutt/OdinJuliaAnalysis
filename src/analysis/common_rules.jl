@@ -88,9 +88,11 @@ function check_common_rules(
     source::String,
     configuration::EffectiveSettings=load_settings())
     diagnostics = Diagnostic[]
-    lines = split(source, '\n'; keepempty=true)
+    normalized_source = replace(source, "\r\n" => "\n")
+    lines = split(normalized_source, '\n'; keepempty=true)
     line_length_exemptions = find_line_length_exemptions(path, lines)
-    line_length_widths = effective_line_length_widths(path, source, lines)
+    line_length_widths = effective_line_length_widths(
+        path, normalized_source, lines)
 
     for (line_number, line) in enumerate(lines)
         line_number in line_length_exemptions || check_line_length!(

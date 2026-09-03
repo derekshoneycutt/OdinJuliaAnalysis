@@ -276,9 +276,9 @@ end
         @test build.status == "passed"
         @test build.exit_code == 0
         @test build.input == "fixture"
-        @test build.output == joinpath(
-            ".build", "analysis", "odin", "fixture-analysis")
-        @test isfile(joinpath(root, build.output))
+        @test build.output == ".build/analysis/odin/fixture-analysis"
+        physical_output = Sys.iswindows() ? build.output * ".exe" : build.output
+        @test isfile(joinpath(root, physical_output))
         @test build.flags == strict_flags
         @test build.command[1:3] == ["odin", "build", "fixture"]
     end

@@ -4,7 +4,9 @@ function apply_reviewed_complexity!(
     root::String,
     files::Vector{String},
     configuration::EffectiveSettings)
-    scanned_paths = Set(relpath(abspath(path), abspath(root)) for path in files)
+    scanned_paths = Set(
+        replace(relpath(abspath(path), abspath(root)), '\\' => '/')
+        for path in files)
     policies = filter(
         policy -> policy.path in scanned_paths,
         configuration.function_metrics.reviewed)

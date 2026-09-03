@@ -26,7 +26,8 @@ export analyze_metrics
 
 const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
-const ENGINE_BUILD = joinpath(ANALYSIS_ROOT, ".build", "odin-engine")
+const ENGINE_BUILD = joinpath(
+    ANALYSIS_ROOT, ".build", Sys.iswindows() ? "odin-engine.exe" : "odin-engine")
 const SCHEMA_VERSION = "3.12.0"
 
 const OdinFinding = @NamedTuple begin
@@ -166,7 +167,8 @@ function analyze_metrics(root::String, files::Vector{String})
     struct_counts = Dict{String, Int}()
     for summary in response.files
         append!(functions, backend_functions(root, summary))
-        struct_counts[relpath(String(summary.path), root)] = Int(summary.struct_count)
+        struct_counts[repository_path(String(summary.path), root)] =
+            Int(summary.struct_count)
     end
     return (
         parsed=all(summary -> summary.parsed && summary.syntax_errors == 0,
@@ -204,7 +206,7 @@ end
 
 """Append all canonical facts from one native Odin file summary."""
 function append_file_summary!(analysis, root, summary, configuration)
-    source_path = relpath(String(summary.path), root)
+    source_path = repository_path(String(summary.path), root)
     analysis.struct_counts[source_path] = Int(summary.struct_count)
     append_summary_analysis!(
         analysis.diagnostics,
@@ -334,7 +336,7 @@ end
 function resolve_odin_target(root, source_path, target)
     occursin(':', target) && return nothing, "external"
     candidate = normpath(joinpath(root, dirname(source_path), target))
-    relative_path = relpath(candidate, root)
+    relative_path = repository_path(candidate, root)
     parts = splitpath(relative_path)
     repository_owned = isdir(candidate) && !isabspath(relative_path) &&
         !isempty(parts) && first(parts) != ".."
@@ -382,7 +384,7 @@ function documentation_diagnostics(root, summary, configuration)
         diagnostic = Diagnostic(
             "ODIN-DOC-MISSING",
             Ignore,
-            relpath(String(summary.path), root),
+            repository_path(String(summary.path), root),
             Int(metric.start_line),
             1,
             "Odin procedure `$(name)` requires a doc comment matching " *
@@ -425,7 +427,7 @@ function declaration_order_diagnostics(root, summary, configuration)
             diagnostic = Diagnostic(
                 "ODIN-DECLARATION-ORDER",
                 Ignore,
-                relpath(String(summary.path), root),
+                repository_path(String(summary.path), root),
                 Int(symbol.line),
                 Int(symbol.column),
                 "Odin $(declaration_kind) declarations must appear before procedures.",
@@ -478,7 +480,7 @@ function parameter_count_diagnostics(root, summary, configuration)
         diagnostic = Diagnostic(
             rule_id,
             Ignore,
-            relpath(String(summary.path), root),
+            repository_path(String(summary.path), root),
             Int(metric.start_line),
             1,
             "Odin procedure `$(name)` has $(count) parameters; " *
@@ -507,7 +509,7 @@ function return_tuple_diagnostics(root, summary, configuration)
         diagnostic = Diagnostic(
             "ODIN-RETURN-TUPLE",
             Ignore,
-            relpath(String(summary.path), root),
+            repository_path(String(summary.path), root),
             Int(metric.start_line),
             1,
             "Odin procedure `$(name)` returns $(count) values; maximum is $(maximum).",
@@ -541,7 +543,7 @@ function naming_diagnostics(root, summary, configuration)
         diagnostic = Diagnostic(
             "ODIN-NAMING",
             Ignore,
-            relpath(String(summary.path), root),
+            repository_path(String(summary.path), root),
             Int(symbol.line),
             Int(symbol.column),
             "Odin $(kind_name) `$(name)` must use $(convention.casing).",
@@ -560,7 +562,7 @@ end
 
 """Convert backend procedure measurements into canonical function records."""
 function backend_functions(root, summary)
-    path = relpath(String(summary.path), root)
+    path = repository_path(String(summary.path), root)
     lines = split(read(String(summary.path), String), '\n'; keepempty=true)
     return [FunctionAnalysis(
         path,
@@ -595,7 +597,7 @@ function backend_diagnostic(root, summary, finding, configuration)
     return Diagnostic(
         rule_id,
         Ignore,
-        relpath(String(summary.path), root),
+        repository_path(String(summary.path), root),
         Int(finding.line),
         Int(finding.column),
         String(finding.message),
@@ -668,7 +670,8 @@ function append_allocation_policy_count_drift!(drift, policies, match_counts)
 end
 
 """Return a path relative to the repository being analyzed."""
-repository_path(path::String, root::String) = relpath(abspath(path), abspath(root))
+repository_path(path::String, root::String) =
+    replace(relpath(abspath(path), abspath(root)), '\\' => '/')
 
 """Return whether a diagnostic satisfies every policy constraint."""
 function policy_matches(policy, diagnostic::Diagnostic, root::String)
@@ -769,7 +772,7 @@ function syntax_diagnostic(root, summary)
     return Diagnostic(
         "ODIN-SYNTAX",
         Ignore,
-        relpath(String(summary.path), root),
+        repository_path(String(summary.path), root),
         1,
         1,
         "Odin parser reported $(summary.syntax_errors) syntax error(s).",
