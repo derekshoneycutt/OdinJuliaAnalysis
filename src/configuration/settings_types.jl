@@ -46,11 +46,38 @@ struct ScanProfile
     enforcement_excludes::Vector{String}
 end
 
+struct ReviewedDiagnosticPolicy
+    id::String
+    rule_id::String
+    path::String
+    subject::String
+    response::FindingResponse
+    minimum_matches::Int
+    maximum_matches::Int
+    reason::String
+end
+
+"""Construct an exact reviewed-diagnostic policy with bounded match defaults."""
+function ReviewedDiagnosticPolicy(
+    id::String,
+    rule_id::String,
+    path::String,
+    subject::String,
+    reason::String;
+    response::FindingResponse=Ignore,
+    minimum_matches::Int=1,
+    maximum_matches::Int=1)
+    return ReviewedDiagnosticPolicy(
+        id, rule_id, path, subject, response,
+        minimum_matches, maximum_matches, reason)
+end
+
 struct ReportSettings
     color::Symbol
     warning_limit::Int
     report_limit::Int
     staging_maximum_response::FindingResponse
+    reviewed_diagnostics::Vector{ReviewedDiagnosticPolicy}
 end
 
 """Construct report settings with normal enforcement for staging paths."""
@@ -58,9 +85,12 @@ function ReportSettings(
     color::Symbol,
     warning_limit::Int,
     report_limit::Int;
-    staging_maximum_response::FindingResponse=Fail)
+    staging_maximum_response::FindingResponse=Fail,
+    reviewed_diagnostics::Vector{ReviewedDiagnosticPolicy}=
+        ReviewedDiagnosticPolicy[])
     return ReportSettings(
-        color, warning_limit, report_limit, staging_maximum_response)
+        color, warning_limit, report_limit, staging_maximum_response,
+        reviewed_diagnostics)
 end
 
 struct NamingConvention

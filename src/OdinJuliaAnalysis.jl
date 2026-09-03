@@ -4,6 +4,7 @@ export main
 export AnalysisSettings, AnalysisThresholds, FindingResponse, Ignore, Report, Warn, Fail
 export AllocationSettings, AllocatorSourcePattern, ReviewedAllocationPolicy
 export KnownAllocatingProcedure, ReportSettings, RuleSetting, ScanProfile
+export ReviewedDiagnosticPolicy
 export OdinBuildSettings, OdinBuildTarget
 export ReturnTupleSettings
 export ParameterCountSettings
@@ -64,6 +65,7 @@ include("analysis/unused_imports.jl")
 include("analysis/interop_engine.jl")
 include("analysis/naming_policies.jl")
 include("analysis/reviewed_complexity.jl")
+include("analysis/reviewed_diagnostics.jl")
 include("core/discovery.jl")
 include("analysis/common_rules.jl")
 include("markdown_engine/MarkdownEngine.jl")
@@ -513,6 +515,8 @@ function assemble_analysis_report(
         state, root, files, configuration, files_analysis, statistics)
     append!(state.engines, extension_engine_statuses(
         configuration.extensions, state.extension_results))
+    apply_reviewed_diagnostic_policies!(
+        state.diagnostics, root, files, configuration)
     cap_staging_responses!(state.diagnostics, configuration.report)
     sort!(state.diagnostics; by=diagnostic_sort_key)
     ignored = remove_ignored_diagnostics!(state.diagnostics)

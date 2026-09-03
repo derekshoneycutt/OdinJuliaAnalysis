@@ -538,6 +538,7 @@ Reviewed policies make deliberate exceptions visible and drift checked.
 | `ReviewedNamingPolicy` | Path, language, declaration kind, and name | `NAMING-POLICY-DRIFT` |
 | `ReviewedComplexity` | Path, language, function, and metric | `FUNCTION-METRIC-POLICY-DRIFT` |
 | `ReviewedAllocationPolicy` | Path, procedure, category, operation, target, source, and certainty | `ODIN-ALLOCATION-POLICY-DRIFT` |
+| `ReviewedDiagnosticPolicy` | Rule ID, path, and subject | `REVIEWED-DIAGNOSTIC-POLICY-DRIFT` |
 | `CallRootEntryPoint` | Language and callable name | `CALL-ROOT-POLICY-DRIFT` |
 | `ReviewedImportPolicy` | Path, language, and imported binding | `IMPORT-POLICY-DRIFT` |
 

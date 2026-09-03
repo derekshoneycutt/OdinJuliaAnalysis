@@ -192,6 +192,10 @@ const RULE_REGISTRY = Dict(
     "NAMING-POLICY-DRIFT" => RuleDefinition(
         "NAMING-POLICY-DRIFT", "common", "Verification Gate > Naming Policies",
         "mature", "stable", "error", true),
+    "REVIEWED-DIAGNOSTIC-POLICY-DRIFT" => RuleDefinition(
+        "REVIEWED-DIAGNOSTIC-POLICY-DRIFT", "common",
+        "Verification Gate > Reviewed Diagnostics",
+        "mature", "stable", "error", true),
     "ODIN-ALLOCATION-IMPLICIT" => RuleDefinition(
         "ODIN-ALLOCATION-IMPLICIT", "odin", "Odin Rules > Memory and Allocation",
         "experimental", "stable", "warning", false),

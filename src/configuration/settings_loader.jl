@@ -109,7 +109,7 @@ function validate_settings(
     validate_documentation_settings(settings.documentation)
     validate_call_root_settings(settings.call_roots)
     validate_allocation_settings(settings.allocations)
-    validate_report_settings(settings.report)
+    validate_report_settings(settings.report, rule_registry)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
         settings.thresholds,
         copy(profiles[selected_profile].enforcement_excludes),
@@ -750,14 +750,44 @@ function validate_rule_settings(
     return rules
 end
 
-"""Validate report color mode and finding display limits."""
-function validate_report_settings(settings::ReportSettings)
+"""Validate report controls and exact reviewed-diagnostic policies."""
+function validate_report_settings(settings::ReportSettings, rule_registry=RULE_REGISTRY)
     settings.color in (:auto, :always, :never) || throw(ArgumentError(
         "report color must be :auto, :always, or :never"))
     settings.warning_limit >= 0 ||
         throw(ArgumentError("warning limit cannot be negative"))
     settings.report_limit >= 0 ||
         throw(ArgumentError("report limit cannot be negative"))
+    validate_reviewed_diagnostic_policies(
+        settings.reviewed_diagnostics, rule_registry)
+end
+
+"""Validate reviewed-diagnostic selectors, bounds, and unique IDs."""
+function validate_reviewed_diagnostic_policies(policies, rule_registry)
+    ids = Set{String}()
+    selectors = Set{Tuple{String, String, String}}()
+    for policy in policies
+        isempty(strip(policy.id)) && throw(ArgumentError(
+            "reviewed diagnostic policy ID cannot be empty"))
+        policy.id in ids && throw(ArgumentError(
+            "duplicate reviewed diagnostic policy ID: $(policy.id)"))
+        haskey(rule_registry, policy.rule_id) || throw(ArgumentError(
+            "unknown reviewed diagnostic rule ID: $(policy.rule_id)"))
+        validate_reviewed_policy_path(policy.path, "diagnostic")
+        isempty(strip(policy.subject)) && throw(ArgumentError(
+            "reviewed diagnostic policy $(policy.id) requires a subject"))
+        0 <= policy.minimum_matches <= policy.maximum_matches ||
+            throw(ArgumentError(
+                "invalid reviewed diagnostic match bounds: $(policy.id)"))
+        isempty(strip(policy.reason)) && throw(ArgumentError(
+            "reviewed diagnostic policy $(policy.id) requires a reason"))
+        selector = (policy.rule_id, policy.path, policy.subject)
+        selector in selectors && throw(ArgumentError(
+            "duplicate reviewed diagnostic selector: " *
+                "$(policy.rule_id):$(policy.path):$(policy.subject)"))
+        push!(ids, policy.id)
+        push!(selectors, selector)
+    end
 end
 
 """Return the lowercase serialized name of a finding response."""

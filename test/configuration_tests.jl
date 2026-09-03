@@ -168,6 +168,44 @@ end
     end
 end
 
+@testset "reviewed diagnostic policies" begin
+    policy = ReviewedDiagnosticPolicy(
+        "accepted-platform-cache",
+        "JULIA-NONCONST-GLOBAL",
+        "src/cache.jl",
+        "PLATFORM_CACHE",
+        "The platform-specific cache has process lifetime.")
+    report = ReportSettings(:auto, 50, 50; reviewed_diagnostics=[policy])
+    reviewed = Diagnostic(
+        "JULIA-NONCONST-GLOBAL", Warn, "src/cache.jl", 2, 1,
+        "Mutable global.", nothing, nothing, "julia-syntax",
+        "PLATFORM_CACHE", "global", nothing, "stable")
+
+    @test OdinJuliaAnalysis.reviewed_diagnostic_matches(policy, reviewed)
+    accepted = OdinJuliaAnalysis.apply_reviewed_diagnostic_policy(reviewed, policy)
+    @test accepted.response == Ignore
+    @test accepted.reviewed_policy_id == policy.id
+    @test accepted.reviewed_policy_reason == policy.reason
+
+    drift = Diagnostic[]
+    OdinJuliaAnalysis.append_reviewed_diagnostic_drift!(drift, [policy], [0])
+    @test only(drift).rule_id == "REVIEWED-DIAGNOSTIC-POLICY-DRIFT"
+    @test only(drift).response == Fail
+
+    duplicate = ReviewedDiagnosticPolicy(
+        "duplicate-platform-cache",
+        policy.rule_id,
+        policy.path,
+        policy.subject,
+        "Duplicate selector fixture.")
+    @test_throws ArgumentError begin
+        OdinJuliaAnalysis.validate_reviewed_diagnostic_policies(
+            [policy, duplicate], OdinJuliaAnalysis.RULE_REGISTRY)
+    end
+    OdinJuliaAnalysis.validate_report_settings(
+        report, OdinJuliaAnalysis.RULE_REGISTRY)
+end
+
 @testset "settings validation" begin
     configuration = OdinJuliaAnalysis.load_settings()
     @test Set(keys(configuration.rules)) == Set(keys(OdinJuliaAnalysis.RULE_REGISTRY))
