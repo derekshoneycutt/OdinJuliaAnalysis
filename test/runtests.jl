@@ -183,7 +183,31 @@ function with_allocation_policies(configuration, policies)
     allocations = AllocationSettings(
         configuration.allocations.known_procedures,
         configuration.allocations.source_patterns,
+        configuration.allocations.response_overrides,
         policies)
+    return OdinJuliaAnalysis.EffectiveSettings(
+        configuration.profile,
+        configuration.failure_threshold,
+        configuration.thresholds,
+        configuration.enforcement_excludes,
+        configuration.rules,
+        configuration.naming,
+        configuration.jet,
+        configuration.odin_build,
+        configuration.return_tuples,
+        configuration.parameter_counts,
+        configuration.function_metrics,
+        allocations,
+        configuration.report)
+end
+
+"""Return effective settings with replacement allocation response overrides."""
+function with_allocation_response_overrides(configuration, overrides)
+    allocations = AllocationSettings(
+        configuration.allocations.known_procedures,
+        configuration.allocations.source_patterns,
+        overrides,
+        configuration.allocations.reviewed_policies)
     return OdinJuliaAnalysis.EffectiveSettings(
         configuration.profile,
         configuration.failure_threshold,

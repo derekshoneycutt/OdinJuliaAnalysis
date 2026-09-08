@@ -40,6 +40,9 @@ AnalysisSettings(
             AllocatorSourcePattern("context.temp_allocator", :temporary),
             AllocatorSourcePattern("heap.allocator()", :heap),
         ],
+        [
+            AllocationResponseOverride(r"_test\.odin$", :context, Ignore),
+        ],
         ReviewedAllocationPolicy[]),
     ReportSettings(:auto, 50, 50),
     AnalysisExtension[SampleExtension()],

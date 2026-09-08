@@ -639,6 +639,22 @@ function validate_allocator_source_patterns(patterns)
     end
 end
 
+"""Validate filename allocation response overrides and selector uniqueness."""
+function validate_allocation_response_overrides(overrides)
+    selectors = Set{Tuple{String, Symbol}}()
+    for override in overrides
+        pattern = override.filename_pattern.pattern
+        isempty(pattern) && throw(ArgumentError(
+            "allocation response filename pattern cannot be empty"))
+        override.category in ALLOCATION_CATEGORIES || throw(ArgumentError(
+            "unknown allocation response override category: $(override.category)"))
+        selector = (pattern, override.category)
+        selector in selectors && throw(ArgumentError(
+            "duplicate allocation response override: $pattern:$(override.category)"))
+        push!(selectors, selector)
+    end
+end
+
 """Validate the fields and match bounds of one reviewed allocation policy."""
 function validate_reviewed_allocation_policy(policy)
     isempty(strip(policy.id)) && throw(ArgumentError(
@@ -698,6 +714,7 @@ end
 function validate_allocation_settings(settings::AllocationSettings)
     validate_known_allocating_procedures(settings.known_procedures)
     validate_allocator_source_patterns(settings.source_patterns)
+    validate_allocation_response_overrides(settings.response_overrides)
     validate_reviewed_allocation_policies(settings.reviewed_policies)
 end
 

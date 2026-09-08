@@ -2,7 +2,8 @@ module OdinJuliaAnalysis
 
 export main
 export AnalysisSettings, AnalysisThresholds, FindingResponse, Ignore, Report, Warn, Fail
-export AllocationSettings, AllocatorSourcePattern, ReviewedAllocationPolicy
+export AllocationResponseOverride, AllocationSettings, AllocatorSourcePattern
+export ReviewedAllocationPolicy
 export KnownAllocatingProcedure, ReportSettings, RuleSetting, ScanProfile
 export ReviewedDiagnosticPolicy
 export OdinBuildSettings, OdinBuildTarget

@@ -293,6 +293,7 @@ end
         :heap,
         :custom,
     ]
+    @test isempty(configuration.allocations.response_overrides)
     @test [policy.id
         for policy in configuration.allocations.reviewed_policies] == [
         "analysis-test-metrics-arena",
@@ -333,6 +334,29 @@ end
         [ignored_response])
     @test OdinJuliaAnalysis.validate_allocation_settings(
         ignored_allocations) === nothing
+    response_override = AllocationResponseOverride(r"_test\.odin$", :context, Ignore)
+    overridden_allocations = AllocationSettings(
+        KnownAllocatingProcedure[],
+        AllocatorSourcePattern[],
+        [response_override],
+        ReviewedAllocationPolicy[])
+    @test OdinJuliaAnalysis.validate_allocation_settings(
+        overridden_allocations) === nothing
+    duplicate_overrides = AllocationSettings(
+        KnownAllocatingProcedure[],
+        AllocatorSourcePattern[],
+        [response_override, response_override],
+        ReviewedAllocationPolicy[])
+    @test_throws ArgumentError OdinJuliaAnalysis.validate_allocation_settings(
+        duplicate_overrides)
+    invalid_override = AllocationResponseOverride(r"_test\.odin$", :invalid, Ignore)
+    invalid_overrides = AllocationSettings(
+        KnownAllocatingProcedure[],
+        AllocatorSourcePattern[],
+        [invalid_override],
+        ReviewedAllocationPolicy[])
+    @test_throws ArgumentError OdinJuliaAnalysis.validate_allocation_settings(
+        invalid_overrides)
     invalid_range = ReviewedAllocationPolicy(
         "invalid-range",
         "src/example.odin",

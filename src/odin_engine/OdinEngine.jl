@@ -16,6 +16,7 @@ using ..OdinJuliaAnalysis: ImportBinding
 using ..OdinJuliaAnalysis: InteropSignature
 using ..OdinJuliaAnalysis: ReferenceRecord
 using ..OdinJuliaAnalysis: configured_diagnostic
+using ..OdinJuliaAnalysis: diagnostic_with_response
 using ..OdinJuliaAnalysis: executable_source_lines
 using ..OdinJuliaAnalysis: load_settings
 using ..OdinJuliaAnalysis: valid_identifier_name
@@ -361,7 +362,9 @@ function append_summary_analysis!(
         raw_diagnostic = backend_diagnostic(root, summary, finding, configuration)
         startswith(raw_diagnostic.rule_id, "ODIN-ALLOCATION-") &&
             push!(resource_events, raw_diagnostic)
-        diagnostic = configured_diagnostic(configuration, raw_diagnostic)
+        diagnostic = startswith(raw_diagnostic.rule_id, "ODIN-ALLOCATION-") ?
+            configured_allocation_diagnostic(configuration, raw_diagnostic) :
+            configured_diagnostic(configuration, raw_diagnostic)
         diagnostic === nothing || push!(diagnostics, diagnostic)
     end
     append!(diagnostics, naming_diagnostics(root, summary, configuration))
@@ -612,6 +615,29 @@ function backend_diagnostic(root, summary, finding, configuration)
         optional_string(finding, :target),
         nothing,
         nothing)
+end
+
+"""Apply the baseline and first matching filename override to an allocation."""
+function configured_allocation_diagnostic(configuration, diagnostic)
+    configured = configured_diagnostic(configuration, diagnostic)
+    configured === nothing && return nothing
+    response = allocation_response_override(
+        configuration,
+        configured,
+        configured.response)
+    return diagnostic_with_response(configured, response)
+end
+
+"""Return the first filename/category allocation response override or the baseline."""
+function allocation_response_override(configuration, diagnostic, baseline)
+    category = allocation_category(diagnostic.rule_id)
+    filename = basename(diagnostic.path)
+    for override in configuration.allocations.response_overrides
+        override.category == category || continue
+        occursin(override.filename_pattern, filename) || continue
+        return override.response
+    end
+    return baseline
 end
 
 """Apply reviewed allocation policies and report policy drift."""

@@ -399,6 +399,13 @@ struct AllocatorSourcePattern
     category::Symbol
 end
 
+"""Override one allocation category's response for matching filenames."""
+struct AllocationResponseOverride
+    filename_pattern::Regex
+    category::Symbol
+    response::FindingResponse
+end
+
 struct ReviewedAllocationPolicy
     id::String
     path::String
@@ -446,7 +453,17 @@ end
 struct AllocationSettings
     known_procedures::Vector{KnownAllocatingProcedure}
     source_patterns::Vector{AllocatorSourcePattern}
+    response_overrides::Vector{AllocationResponseOverride}
     reviewed_policies::Vector{ReviewedAllocationPolicy}
+end
+
+"""Construct allocation settings without filename response overrides."""
+function AllocationSettings(known_procedures, source_patterns, reviewed_policies)
+    return AllocationSettings(
+        known_procedures,
+        source_patterns,
+        AllocationResponseOverride[],
+        reviewed_policies)
 end
 
 struct ArchitectureLayer

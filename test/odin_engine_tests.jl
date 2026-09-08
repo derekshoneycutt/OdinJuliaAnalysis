@@ -134,6 +134,39 @@ end
     end
 end
 
+@testset verbose=TEST_VERBOSE "allocation filename response overrides" begin
+    configuration = OdinJuliaAnalysis.load_settings()
+    override = AllocationResponseOverride(r"_test\.odin$", :context, Ignore)
+    configuration = with_allocation_response_overrides(configuration, [override])
+    mktempdir() do root
+        test_path = joinpath(root, "allocation_test.odin")
+        source_path = joinpath(root, "allocation.odin")
+        fixture = """
+            package fixture
+
+            // Allocate fixture values.
+            allocate :: proc() {
+                _ = new(int, context.allocator)
+                _ = new(int)
+            }
+            """
+        write(test_path, fixture)
+        write(source_path, fixture)
+        test_diagnostics = OdinJuliaAnalysis.OdinEngine.check_syntax(
+            root, [test_path], configuration)
+        source_diagnostics = OdinJuliaAnalysis.OdinEngine.check_syntax(
+            root, [source_path], configuration)
+        test_allocations = filter(
+            item -> startswith(item.rule_id, "ODIN-ALLOCATION-"),
+            test_diagnostics)
+        source_allocations = filter(
+            item -> startswith(item.rule_id, "ODIN-ALLOCATION-"),
+            source_diagnostics)
+        @test [item.response for item in test_allocations] == [Ignore, Warn]
+        @test [item.response for item in source_allocations] == [Warn, Warn]
+    end
+end
+
 @testset verbose=TEST_VERBOSE "reviewed allocation policies" begin
     configuration = OdinJuliaAnalysis.load_settings()
     mktempdir() do root

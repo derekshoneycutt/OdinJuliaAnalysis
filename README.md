@@ -529,6 +529,24 @@ The analyzer also infers conventional `main` roots, test roots, exported bridge/
 roots, JET roots, and Odin procedures marked `@(init)`. Odin initialization procedures
 run before `main`, so they participate in reachability without manual configuration.
 
+### Allocation Response Overrides
+
+`AllocationResponseOverride` changes one allocation category's response for filenames
+matching a regular expression. Patterns match the basename rather than the full repository
+path, and the first matching override in declaration order wins. For example, test code can
+make explicit context allocation visible in source without reporting it:
+
+```julia
+AllocationSettings(
+  known_procedures,
+  source_patterns,
+  [AllocationResponseOverride(r"_test\.odin$", :context, Ignore)],
+  reviewed_policies)
+```
+
+Reviewed allocation policies remain the final authority for exact sites and may replace a
+filename override's response.
+
 ### Reviewed Policies
 
 Reviewed policies make deliberate exceptions visible and drift checked.
