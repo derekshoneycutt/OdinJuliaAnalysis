@@ -32,7 +32,7 @@ end
         mkpath(odin_package)
         write(julia_path, """
             module App
-            using JSON3
+            using JSON
             module Local
             import ..Local: value
             end
@@ -81,7 +81,7 @@ end
                 edge.kind)
             for edge in report.dependencies
         ] == [
-            ("app.jl", "JSON3", nothing, "external", "julia", "using"),
+            ("app.jl", "JSON", nothing, "external", "julia", "using"),
             (
                 "app.jl",
                 "..Local",

@@ -12,7 +12,7 @@ const RESPONSE_STYLES = Dict(
 """Write targeted source statistics in the requested format."""
 function write_statistics_report(io::IO, report, format::AbstractString)
     if format == "json"
-        JSON3.pretty(io, report)
+        JSON.print(io, report, 4)
         println(io)
         return
     end
@@ -86,7 +86,7 @@ function write_report(
     warning_limit::Int=50,
     report_limit::Int=50)
     if format == "json"
-        JSON3.pretty(io, report)
+        JSON.print(io, report, 4)
         println(io)
         return
     end

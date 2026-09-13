@@ -670,7 +670,7 @@ function write_markdown_extensions(io, report)
     println(io, "| --- | --- | --- | --- | --- |")
     for result in report.extensions
         artifacts = isempty(result.artifacts) ? "-" :
-            "`$(markdown_cell(JSON3.write(result.artifacts)))`"
+            "`$(markdown_cell(JSON.json(result.artifacts)))`"
         println(io, "| `$(markdown_cell(result.extension_id))` | ",
             "`$(result.phase)` | $(uppercase(result.status)) | ",
             "$(markdown_cell(something(result.message, "-"))) | $artifacts |")

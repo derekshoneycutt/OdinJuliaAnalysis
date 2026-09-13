@@ -48,7 +48,7 @@
 
     json_output = IOBuffer()
     write_report(json_output, results; format="json")
-    report = JSON3.read(String(take!(json_output)))
+    report = JSON.parse(String(take!(json_output)))
     @test report.schema_version == "1.0.0"
     @test report.passed
     @test only(report.phases).metadata.checks == 3

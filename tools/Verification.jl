@@ -7,7 +7,7 @@ control of commands, CLI policy, phase metadata, and optional text-section callb
 """
 module Verification
 
-using JSON3
+using JSON
 
 export Details, PhaseResult, Summary, Trace, Verbosity
 export capture_command, capture_command_streams, color_enabled
@@ -132,7 +132,7 @@ function write_json_report(io::IO, results::Vector{PhaseResult})
         "schema_version" => "1.0.0",
         "passed" => all(result -> result.status == "PASS", results),
         "phases" => phase_json.(results))
-    JSON3.pretty(io, report)
+    JSON.print(io, report, 4)
     println(io)
 end
 

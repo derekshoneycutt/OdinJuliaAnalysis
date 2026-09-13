@@ -2,7 +2,7 @@
 
 module SampleVerification
 
-using JSON3
+using JSON
 
 const REPOSITORY_ROOT = normpath(joinpath(@__DIR__, ".."))
 const ANALYSIS_PROJECT = get(
@@ -186,7 +186,7 @@ end
 """Summarize one canonical analyzer process result."""
 function analysis_result_summary(result)
     report, parse_error = try
-        (JSON3.read(result.output), nothing)
+        (JSON.parse(result.output), nothing)
     catch exception
         (nothing, sprint(showerror, exception))
     end

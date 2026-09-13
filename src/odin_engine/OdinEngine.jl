@@ -1,6 +1,6 @@
 module OdinEngine
 
-using JSON3
+using JSON
 
 using ..OdinJuliaAnalysis: Diagnostic
 using ..OdinJuliaAnalysis: CallEdge
@@ -182,11 +182,22 @@ end
 function analyze_files(files)
     ensure_engine()
     command = Cmd(vcat([ENGINE_BUILD], files))
-    response = JSON3.read(read(command, String), OdinEngineResponse)
+    response = decode_odin_engine_value(
+        OdinEngineResponse, JSON.parse(read(command, String)))
     response.schema_version == SCHEMA_VERSION || error(
         "Odin engine schema mismatch: expected $SCHEMA_VERSION, " *
         "received $(response.schema_version)")
     return response
+end
+
+"""Decode one JSON.jl value into the native Odin engine response schema."""
+function decode_odin_engine_value(::Type{T}, value) where {T}
+    T <: AbstractVector && return collect(eltype(T), (
+        decode_odin_engine_value(eltype(T), item) for item in value))
+    T <: NamedTuple && return T(Tuple(
+        decode_odin_engine_value(fieldtype(T, index), value[String(name)])
+        for (index, name) in enumerate(fieldnames(T))))
+    return convert(T, value)
 end
 
 """Create mutable collections for one native Odin analysis response."""

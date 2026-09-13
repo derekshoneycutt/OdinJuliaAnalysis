@@ -7,7 +7,7 @@ Pkg.activate(SELF_TEST_ROOT; io=devnull)
 
 module OdinJuliaAnalysisSelfTest
 
-using JSON3
+using JSON
 
 include(joinpath(@__DIR__, "tools", "Verification.jl"))
 using .Verification
@@ -111,9 +111,9 @@ end
 """Run analyzer tests directly and extract Julia's structured test counts."""
 function run_test_phase(trace::Bool=false)
     test_file = joinpath(REPOSITORY_ROOT, "test", "runtests.jl")
-    expression = "using Test, JSON3; result=include($(repr(test_file))); " *
+    expression = "using Test, JSON; result=include($(repr(test_file))); " *
         "counts=Test.get_test_counts(result); println(\"$COUNT_MARKER\", " *
-        "JSON3.write(Dict(" *
+        "JSON.json(Dict(" *
         "\"passed\"=>counts.passes + counts.cumulative_passes, " *
         "\"failed\"=>counts.fails + counts.cumulative_fails, " *
         "\"errors\"=>counts.errors + counts.cumulative_errors, " *
@@ -145,7 +145,7 @@ function parse_test_counts(output::String)
     marker === nothing && return Dict{String, Any}()
     return try
         Dict{String, Any}(String(key) => value
-            for (key, value) in pairs(JSON3.read(output[last(marker) + 1:end])))
+            for (key, value) in pairs(JSON.parse(output[last(marker) + 1:end])))
     catch exception
         @debug "Unable to parse analyzer test counts" exception
         Dict{String, Any}()
@@ -192,7 +192,7 @@ end
 """Parse one analyzer JSON report, returning nothing for malformed output."""
 function parse_json_report(output::String)
     return try
-        JSON3.read(output)
+        JSON.parse(output)
     catch exception
         @debug "Unable to parse analyzer JSON report" exception
         nothing

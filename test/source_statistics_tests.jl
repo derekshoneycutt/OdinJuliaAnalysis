@@ -50,7 +50,7 @@
         @test overloads.selection.matches == 2
         @test issorted(item.start_line for item in overloads.functions)
 
-        encoded = JSON3.read(JSON3.write(overloads))
+        encoded = JSON.parse(JSON.json(overloads))
         @test encoded.schema_version == "1.0.0"
         @test length(encoded.functions) == 2
         @test !haskey(encoded.functions[1], :call_edges)

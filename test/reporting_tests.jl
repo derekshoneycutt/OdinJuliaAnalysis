@@ -239,7 +239,7 @@ end
 
         json_output = IOBuffer()
         OdinJuliaAnalysis.write_statistics_report(json_output, selected, "json")
-        stats_json = JSON3.read(String(take!(json_output)))
+        stats_json = JSON.parse(String(take!(json_output)))
         @test stats_json.schema_version == "1.0.0"
         @test stats_json.selection.matches == 2
         @test OdinJuliaAnalysis.main([

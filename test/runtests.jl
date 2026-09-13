@@ -1,7 +1,7 @@
 using Test
 using OdinJuliaAnalysis
 using JET
-using JSON3
+using JSON
 
 const TEST_VERBOSE = get(ENV, "ODIN_JULIA_ANALYSIS_TEST_VERBOSE", "false") == "true"
 

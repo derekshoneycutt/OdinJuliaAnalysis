@@ -533,8 +533,8 @@ run before `main`, so they participate in reachability without manual configurat
 
 `AllocationResponseOverride` changes one allocation category's response for filenames
 matching a regular expression. Patterns match the basename rather than the full repository
-path, and the first matching override in declaration order wins. For example, test code can
-make explicit context allocation visible in source without reporting it:
+path, and the first matching override in declaration order wins. For example, test code
+can make explicit context allocation visible in source without reporting it:
 
 ```julia
 AllocationSettings(

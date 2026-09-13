@@ -155,7 +155,7 @@ function validate_extension_result(result, extension, phase, configuration)
         "extension $id returned result for the wrong phase"))
     result.status in EXTENSION_RESULT_STATUSES || throw(ArgumentError(
         "extension $id returned unsupported status: $(result.status)"))
-    JSON3.write(result.artifacts)
+    JSON.json(result.artifacts)
     configured = Diagnostic[]
     for diagnostic in result.diagnostics
         owner = get(configuration.extension_rule_owners, diagnostic.rule_id, nothing)

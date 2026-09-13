@@ -505,72 +505,8 @@ struct AnalysisReport
     exit_code::Int
 end
 
-"""Declare custom StructTypes serialization for diagnostics."""
-StructTypes.StructType(::Type{Diagnostic}) = StructTypes.CustomStruct()
-"""Declare structural serialization for engine status records."""
-StructTypes.StructType(::Type{EngineStatus}) = StructTypes.Struct()
-"""Declare structural serialization for analytical Odin build results."""
-StructTypes.StructType(::Type{OdinBuildAnalysis}) = StructTypes.Struct()
-"""Declare custom StructTypes serialization for rule summaries."""
-StructTypes.StructType(::Type{RuleRunSummary}) = StructTypes.CustomStruct()
-"""Declare structural serialization for analysis thresholds."""
-StructTypes.StructType(::Type{AnalysisThresholds}) = StructTypes.Struct()
-"""Declare structural serialization for file analysis records."""
-StructTypes.StructType(::Type{FileAnalysis}) = StructTypes.Struct()
-"""Declare structural serialization for function analysis records."""
-StructTypes.StructType(::Type{FunctionAnalysis}) = StructTypes.Struct()
-"""Declare structural serialization for compact function statistics."""
-StructTypes.StructType(::Type{FunctionStatistics}) = StructTypes.Struct()
-"""Declare structural serialization for compact file statistics."""
-StructTypes.StructType(::Type{FileStatistics}) = StructTypes.Struct()
-"""Declare structural serialization for a statistics selector result."""
-StructTypes.StructType(::Type{StatisticsSelection}) = StructTypes.Struct()
-"""Declare structural serialization for targeted source statistics."""
-StructTypes.StructType(::Type{SourceStatisticsReport}) = StructTypes.Struct()
-"""Declare structural serialization for dependency graph edges."""
-StructTypes.StructType(::Type{DependencyEdge}) = StructTypes.Struct()
-"""Declare structural serialization for declaration inventory records."""
-StructTypes.StructType(::Type{DeclarationRecord}) = StructTypes.Struct()
-"""Declare structural serialization for import binding records."""
-StructTypes.StructType(::Type{ImportBinding}) = StructTypes.Struct()
-"""Declare structural serialization for identifier reference records."""
-StructTypes.StructType(::Type{ReferenceRecord}) = StructTypes.Struct()
-"""Declare structural serialization for explicit call graph edges."""
-StructTypes.StructType(::Type{CallEdge}) = StructTypes.Struct()
-"""Declare structural serialization for configured and inferred call roots."""
-StructTypes.StructType(::Type{CallRoot}) = StructTypes.Struct()
-"""Declare structural serialization for one duplicate-code occurrence."""
-StructTypes.StructType(::Type{CloneOccurrence}) = StructTypes.Struct()
-"""Declare structural serialization for one exact duplicate-code group."""
-StructTypes.StructType(::Type{CloneGroup}) = StructTypes.Struct()
-"""Declare structural serialization for configured resource lifetime summaries."""
-StructTypes.StructType(::Type{ResourceLifetimeSummary}) = StructTypes.Struct()
-"""Declare structural serialization for configured security boundary paths."""
-StructTypes.StructType(::Type{SecurityBoundaryPath}) = StructTypes.Struct()
-"""Declare structural serialization for declaration-level coverage evidence."""
-StructTypes.StructType(::Type{TestCoverageEvidence}) = StructTypes.Struct()
-"""Declare structural serialization for coverage evidence counts."""
-StructTypes.StructType(::Type{TestCoverageCounts}) = StructTypes.Struct()
-"""Declare structural serialization for repository coverage statistics."""
-StructTypes.StructType(::Type{TestCoverageStatistics}) = StructTypes.Struct()
-"""Declare structural serialization for normalized interop signatures."""
-StructTypes.StructType(::Type{InteropSignature}) = StructTypes.Struct()
-"""Declare structural serialization for interop bridge pairs."""
-StructTypes.StructType(::Type{InteropBridgePair}) = StructTypes.Struct()
-"""Declare structural serialization for code statistics."""
-StructTypes.StructType(::Type{CodeStatistics}) = StructTypes.Struct()
-"""Declare structural serialization for COCOMO estimates."""
-StructTypes.StructType(::Type{CocomoEstimate}) = StructTypes.Struct()
-"""Declare structural serialization for LOCOMO estimates."""
-StructTypes.StructType(::Type{LocomoEstimate}) = StructTypes.Struct()
-"""Declare structural serialization for repository statistics."""
-StructTypes.StructType(::Type{RepositoryStatistics}) = StructTypes.Struct()
-"""Declare structural serialization for extension results."""
-StructTypes.StructType(::Type{ExtensionResult}) = StructTypes.Struct()
-"""Declare structural serialization for complete analysis reports."""
-StructTypes.StructType(::Type{AnalysisReport}) = StructTypes.Struct()
 """Lower a diagnostic into its stable serialized representation."""
-StructTypes.lower(diagnostic::Diagnostic) = (
+JSON.lower(diagnostic::Diagnostic) = (
     rule_id=diagnostic.rule_id,
     response=response_name(diagnostic.response),
     path=diagnostic.path,
@@ -589,7 +525,7 @@ StructTypes.lower(diagnostic::Diagnostic) = (
     reviewed_policy_id=diagnostic.reviewed_policy_id,
     reviewed_policy_reason=diagnostic.reviewed_policy_reason)
 """Lower a rule summary into its stable serialized representation."""
-StructTypes.lower(summary::RuleRunSummary) = (
+JSON.lower(summary::RuleRunSummary) = (
     rule_id=summary.rule_id,
     response=response_name(summary.response),
     status=summary.status,

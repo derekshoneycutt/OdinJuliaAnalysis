@@ -552,7 +552,7 @@ end
         "1.0.0", "0.1.0", "sample.jl", "julia", file_stats,
         [function_stats], StatisticsSelection("line", "3", 1))
 
-    encoded = JSON3.read(JSON3.write(report))
+    encoded = JSON.parse(JSON.json(report))
     @test encoded.schema_version == "1.0.0"
     @test encoded.path == "sample.jl"
     @test encoded.file.total_cyclomatic_complexity == 2
