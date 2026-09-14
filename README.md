@@ -680,8 +680,8 @@ Pass that value between `FunctionMetricSettings` and `AllocationSettings` in the
 - `ARCHITECTURE-FORBIDDEN-DEPENDENCY` reports actual layer directions absent from the
   exact allowed list;
 - `ARCHITECTURE-DEPENDENCY-CYCLE` reports strongly connected layer groups;
-- `ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT` reports relative or repository-local imports
-  that cannot be resolved.
+- `JULIA-UNRESOLVED-INTERNAL-IMPORT` and `ODIN-UNRESOLVED-INTERNAL-IMPORT` report
+  language-specific relative or repository-local imports that cannot be resolved.
 
 Layer paths are repository-relative. More-specific paths take precedence over broader
 paths, allowing a root layer such as `.` with nested subsystem layers. Julia resolution

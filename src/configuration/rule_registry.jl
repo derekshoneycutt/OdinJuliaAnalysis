@@ -27,8 +27,12 @@ const RULE_REGISTRY = Dict(
         "ARCHITECTURE-DEPENDENCY-CYCLE", "common",
         "Dependency Architecture > Cycles",
         "experimental", "stable", "report", false),
-    "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT" => RuleDefinition(
-        "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT", "common",
+    "JULIA-UNRESOLVED-INTERNAL-IMPORT" => RuleDefinition(
+        "JULIA-UNRESOLVED-INTERNAL-IMPORT", "julia",
+        "Dependency Architecture > Resolution",
+        "experimental", "stable", "report", false),
+    "ODIN-UNRESOLVED-INTERNAL-IMPORT" => RuleDefinition(
+        "ODIN-UNRESOLVED-INTERNAL-IMPORT", "odin",
         "Dependency Architecture > Resolution",
         "experimental", "stable", "report", false),
     "COMMON-LINE-90" => RuleDefinition(

@@ -92,8 +92,11 @@ function unresolved_architecture_diagnostics(dependencies)
     diagnostics = Diagnostic[]
     for edge in dependencies
         edge.resolution == "unresolved" || continue
+        rule_id = edge.language == "julia" ?
+            "JULIA-UNRESOLVED-INTERNAL-IMPORT" :
+            "ODIN-UNRESOLVED-INTERNAL-IMPORT"
         push!(diagnostics, Diagnostic(
-            "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT",
+            rule_id,
             Ignore,
             edge.source_path,
             edge.line,

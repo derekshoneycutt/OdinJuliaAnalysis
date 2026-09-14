@@ -47,6 +47,7 @@ end
         write(joinpath(odin_package, "math.odin"), """
             package math
             import "../.."
+            import "../missing"
             """)
         base_configuration = with_odin_build_targets(
             with_jet_entries(
@@ -64,7 +65,8 @@ end
             for rule_id in (
                 "ARCHITECTURE-FORBIDDEN-DEPENDENCY",
                 "ARCHITECTURE-DEPENDENCY-CYCLE",
-                "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT"))
+                "JULIA-UNRESOLVED-INTERNAL-IMPORT",
+                "ODIN-UNRESOLVED-INTERNAL-IMPORT"))
         configuration = with_architecture(
             with_rules(base_configuration, architecture_rules),
             architecture)
@@ -104,6 +106,13 @@ end
                 "odin",
                 "import"),
             (
+                "lib/math/math.odin",
+                "../missing",
+                nothing,
+                "unresolved",
+                "odin",
+                "import"),
+            (
                 "main.odin",
                 "core:fmt",
                 nothing,
@@ -125,14 +134,20 @@ end
             ("App", "module", nothing),
             ("App.Local", "module", "App"),
         ]
+        architecture_rule_ids = (
+            "ARCHITECTURE-DEPENDENCY-CYCLE",
+            "ARCHITECTURE-FORBIDDEN-DEPENDENCY",
+            "JULIA-UNRESOLVED-INTERNAL-IMPORT",
+            "ODIN-UNRESOLVED-INTERNAL-IMPORT")
         architecture_diagnostics = filter(
-            diagnostic -> startswith(diagnostic.rule_id, "ARCHITECTURE-"),
+            diagnostic -> diagnostic.rule_id in architecture_rule_ids,
             report.diagnostics)
         @test sort!([
             diagnostic.rule_id for diagnostic in architecture_diagnostics]) == [
             "ARCHITECTURE-DEPENDENCY-CYCLE",
             "ARCHITECTURE-FORBIDDEN-DEPENDENCY",
-            "ARCHITECTURE-UNRESOLVED-INTERNAL-IMPORT",
+            "JULIA-UNRESOLVED-INTERNAL-IMPORT",
+            "ODIN-UNRESOLVED-INTERNAL-IMPORT",
         ]
         @test all(diagnostic -> diagnostic.response == Warn, architecture_diagnostics)
         @test isempty(report.extensions)
@@ -143,7 +158,7 @@ end
         @test all(
             summary -> summary.status == "evaluated" && summary.findings == 1,
             filter(
-                summary -> startswith(summary.rule_id, "ARCHITECTURE-"),
+                summary -> summary.rule_id in architecture_rule_ids,
                 report.rules))
 
         @test_throws ArgumentError OdinJuliaAnalysis.validate_settings(
