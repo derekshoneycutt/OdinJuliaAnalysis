@@ -428,6 +428,8 @@ end
             "function", "App", 5, 1),
         DeclarationRecord("app.jl", "julia", "unused", "App.unused",
             "function", "App", 9, 1),
+        DeclarationRecord("extension.jl", "julia", "unused", "Extension.unused",
+            "function", "Extension", 1, 1),
     ]
     edges = CallEdge[
         CallEdge("app.jl", "julia", "App.main", "helper", "direct", 2, 5),
@@ -441,9 +443,11 @@ end
     @test sort([item.rule_id for item in diagnostics]) == [
         "CALL-GRAPH-UNRESOLVED-EDGE",
         "JULIA-UNREACHABLE-FUNCTION",
+        "JULIA-UNREACHABLE-FUNCTION",
     ]
     @test only(filter(
-        item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION",
+        item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
+            item.path == "app.jl",
         diagnostics)).subject == "App.unused"
 
     bridged = settings_with_call_roots([
@@ -457,6 +461,31 @@ end
         declarations, edges, ReferenceRecord[], bridged_roots, bridged)
     @test !any(item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION",
         bridged_diagnostics)
+
+    path_bridged = settings_with_call_roots([
+        CallRootEntryPoint(
+            "bridge:path-unused", :julia, "unused", "extension.jl",
+            "called through a path-qualified extension API"),
+    ])
+    path_bridged_roots = OdinJuliaAnalysis.collect_call_roots(
+        declarations, InteropSignature[], path_bridged)
+    @test count(root -> root.declaration == "unused" && root.category == "bridge",
+        path_bridged_roots) == 1
+    @test only(filter(
+        root -> root.declaration == "unused" && root.category == "bridge",
+        path_bridged_roots)).path == "extension.jl"
+    path_bridged_diagnostics = OdinJuliaAnalysis.analyze_reachability(
+        declarations, edges, ReferenceRecord[], path_bridged_roots, path_bridged)
+    @test any(
+        item -> item.rule_id == "JULIA-UNREACHABLE-FUNCTION" &&
+            item.path == "app.jl" && item.subject == "App.unused",
+        path_bridged_diagnostics)
+
+    @test_throws ArgumentError settings_with_call_roots([
+        CallRootEntryPoint(
+            "bridge:invalid-path", :julia, "unused", "../extension.jl",
+            "invalid fixture path"),
+    ])
 
     stale = settings_with_call_roots([
         CallRootEntryPoint("bridge:removed", :julia, "removed", "called from Odin"),

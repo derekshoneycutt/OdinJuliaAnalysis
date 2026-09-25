@@ -520,11 +520,14 @@ CallRootSettings([
 | `id` | Stable entry-point identity |
 | `language` | Language of the entered callable, `:julia` or `:odin` |
 | `name` | Callable name, either unqualified or fully qualified |
+| `path` | Optional exact normalized source path for overloaded callables |
 | `reason` | Why the callable is entered from outside its call graph |
 
-Every declared callable matching `name` becomes a `bridge` call root, so one entry covers
-a convention implemented by many modules. Entries matching no declaration become blocking
-`CALL-ROOT-POLICY-DRIFT` findings rather than silently suppressing reachability.
+Without `path`, every declared callable matching `name` becomes a `bridge` call root,
+so one entry covers a convention implemented by many modules. With `path`, only the
+matching declaration in that exact file becomes a root. Entries matching no declaration
+become blocking `CALL-ROOT-POLICY-DRIFT` findings rather than silently suppressing
+reachability.
 The analyzer also infers conventional `main` roots, test roots, exported bridge/callback
 roots, JET roots, and Odin procedures marked `@(init)`. Odin initialization procedures
 run before `main`, so they participate in reachability without manual configuration.

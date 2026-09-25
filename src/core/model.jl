@@ -134,6 +134,14 @@ struct CallRoot
     language::String
     declaration::String
     category::String
+    exact_path::Bool
+end
+
+"""Construct a conventional call root whose declaration name is repository-wide."""
+function CallRoot(
+    id::String, path::String, language::String, declaration::String,
+    category::String)
+    return CallRoot(id, path, language, declaration, category, false)
 end
 
 struct CloneOccurrence

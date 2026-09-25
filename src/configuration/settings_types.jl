@@ -185,7 +185,14 @@ struct CallRootEntryPoint
     id::String
     language::Symbol
     name::String
+    path::Union{Nothing, String}
     reason::String
+end
+
+"""Construct a name-qualified call root without a source-path selector."""
+function CallRootEntryPoint(
+    id::String, language::Symbol, name::String, reason::String)
+    return CallRootEntryPoint(id, language, name, nothing, reason)
 end
 
 struct ReviewedImportPolicy

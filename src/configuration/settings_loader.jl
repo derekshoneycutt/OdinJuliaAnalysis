@@ -134,6 +134,8 @@ function validate_call_root_settings(settings::CallRootSettings)
                 "$(entry.language)"))
         isempty(strip(entry.name)) && throw(ArgumentError(
             "call root entry point $(entry.id) requires a callable name"))
+        entry.path === nothing || validate_repository_path(
+            entry.path, "call root entry point $(entry.id) path")
         isempty(strip(entry.reason)) && throw(ArgumentError(
             "call root entry point $(entry.id) requires a reason"))
     end

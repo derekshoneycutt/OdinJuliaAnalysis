@@ -72,7 +72,8 @@ function configured_call_roots(declarations, configuration)
         for declaration in matching_call_root_declarations(declarations, entry)
             push!(roots, CallRoot(
                 "$(entry.id):$(declaration.path)", declaration.path,
-                declaration.language, declaration.name, "bridge"))
+                declaration.language, declaration.name, "bridge",
+                entry.path !== nothing))
         end
     end
     return roots
@@ -85,6 +86,7 @@ function matching_call_root_declarations(declarations, entry)
     return filter(declarations) do declaration
         declaration.language == language &&
             declaration.kind == callable_kind &&
+            (entry.path === nothing || declaration.path == entry.path) &&
             (declaration.name == entry.name ||
                 declaration.qualified_name == entry.name)
     end
@@ -112,7 +114,8 @@ function call_root_drift_diagnostics(declarations, configuration)
     return [Diagnostic(
         "CALL-ROOT-POLICY-DRIFT", Fail, ".", 1, 1,
         "Call root entry point `$(entry.id)` matches no declared " *
-            "$(entry.language) callable named `$(entry.name)`.",
+            "$(entry.language) callable named `$(entry.name)`" *
+            (entry.path === nothing ? "." : " in `$(entry.path)`."),
         nothing, nothing, "call-root-policy", entry.name, "call-root", nothing,
         "definite")
         for entry in configuration.call_roots.entry_points
@@ -172,7 +175,7 @@ function language_reachability_diagnostics(language, declarations, call_edges, r
         declaration -> declaration.language == language &&
             declaration.kind == callable_kind,
         declarations)
-    reachable = reachable_call_names(
+    reachable_names, reachable_sites = reachable_callables(
         language, callable_declarations, call_edges, language_roots)
     rule_id = language == "julia" ?
         "JULIA-UNREACHABLE-FUNCTION" : "ODIN-UNREACHABLE-PROCEDURE"
@@ -182,28 +185,34 @@ function language_reachability_diagnostics(language, declarations, call_edges, r
             "`$(declaration.qualified_name)` is not reachable from a configured root.",
         nothing, nothing, "call-graph", declaration.qualified_name,
         "reachability", nothing, "probable")
-        for declaration in callable_declarations if !(declaration.name in reachable)]
+        for declaration in callable_declarations
+        if !(declaration.name in reachable_names ||
+            (declaration.path, declaration.name) in reachable_sites)]
 end
 
 """Return the fixed-point closure of explicit calls from one language's roots."""
-function reachable_call_names(language, declarations, call_edges, roots)
+function reachable_callables(language, declarations, call_edges, roots)
     names = Set(declaration.name for declaration in declarations)
-    reachable = Set(root.declaration for root in roots)
+    reachable_names = Set(
+        root.declaration for root in roots if !root.exact_path)
+    reachable_sites = Set(
+        (root.path, root.declaration) for root in roots if root.exact_path)
     changed = true
     while changed
         changed = false
         for edge in call_edges
             edge.language == language || continue
             caller = terminal_call_name(edge.caller)
-            isempty(caller) || caller in reachable || continue
+            isempty(caller) || caller in reachable_names ||
+                (edge.source_path, caller) in reachable_sites || continue
             callee = terminal_call_name(edge.callee)
             callee in names || continue
-            callee in reachable && continue
-            push!(reachable, callee)
+            callee in reachable_names && continue
+            push!(reachable_names, callee)
             changed = true
         end
     end
-    return reachable
+    return reachable_names, reachable_sites
 end
 
 """Return the terminal declaration segment from a call or lexical scope."""
