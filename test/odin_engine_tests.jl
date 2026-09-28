@@ -312,7 +312,6 @@ end
         "-disallow-do",
         "-warnings-as-errors",
         "-error-pos-style:unix",
-        "-define:ODIN_TEST_THREADS=1",
         "-out:" * joinpath(build_directory,
             Sys.iswindows() ? "odin-engine-tests.exe" : "odin-engine-tests"),
     ]
