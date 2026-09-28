@@ -608,7 +608,8 @@ end
     end
 
     source_root = joinpath(mktempdir(), "src")
-    excludes = OdinJuliaAnalysis.exclusions_for_root(source_root, ["src/julialib"])
-    @test excludes == ["julialib"]
+    excludes = OdinJuliaAnalysis.exclusions_for_root(
+        source_root, ["libs/julia/bindings"])
+    @test excludes == ["libs/julia/bindings"]
 end
 
