@@ -224,6 +224,29 @@ function with_allocation_response_overrides(configuration, overrides)
         configuration.report)
 end
 
+"""Return effective settings with replacement allocator source patterns."""
+function with_allocator_source_patterns(configuration, source_patterns)
+    allocations = AllocationSettings(
+        configuration.allocations.known_procedures,
+        source_patterns,
+        configuration.allocations.response_overrides,
+        configuration.allocations.reviewed_policies)
+    return OdinJuliaAnalysis.EffectiveSettings(
+        configuration.profile,
+        configuration.failure_threshold,
+        configuration.thresholds,
+        configuration.enforcement_excludes,
+        configuration.rules,
+        configuration.naming,
+        configuration.jet,
+        configuration.odin_build,
+        configuration.return_tuples,
+        configuration.parameter_counts,
+        configuration.function_metrics,
+        allocations,
+        configuration.report)
+end
+
 """Return effective settings with replacement JET entry points."""
 function with_jet_entries(configuration, entry_points)
     return OdinJuliaAnalysis.EffectiveSettings(

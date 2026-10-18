@@ -134,6 +134,32 @@ end
     end
 end
 
+@testset verbose=TEST_VERBOSE "owned allocator source patterns" begin
+    mktempdir() do root
+        path = joinpath(root, "owner.odin")
+        write(path, """
+            package fixture
+
+            // Allocate through the owner-selected backing domain.
+            allocate :: proc(owner: Owner) {
+                value := new(int, owner.backing_allocator)
+            }
+            """)
+        configuration = OdinJuliaAnalysis.load_settings()
+        configuration = with_allocator_source_patterns(configuration, [
+            AllocatorSourcePattern("owner.backing_allocator", :custom)])
+        allocations = filter(
+            item -> startswith(item.rule_id, "ODIN-ALLOCATION-"),
+            OdinJuliaAnalysis.OdinEngine.analyze(
+                root, [path], configuration).diagnostics)
+        @test length(allocations) == 1
+        @test only(allocations).rule_id == "ODIN-ALLOCATION-CUSTOM"
+        @test only(allocations).allocator_source == "owner.backing_allocator"
+        @test only(allocations).allocation_target == "int"
+        @test only(allocations).procedure == "allocate"
+    end
+end
+
 @testset verbose=TEST_VERBOSE "allocation filename response overrides" begin
     configuration = OdinJuliaAnalysis.load_settings()
     override = AllocationResponseOverride(r"_test\.odin$", :context, Ignore)
