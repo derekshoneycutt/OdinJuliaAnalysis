@@ -130,9 +130,18 @@ Procedure_Scope :: struct {
     end_offset: int,
 }
 
+Context_Allocator_Alias :: struct {
+    name: string,
+    procedure: string,
+    expression: ^ast.Expr,
+    restored: bool,
+}
+
 Analysis_Visitor_Data :: struct {
+    path: string,
     source: string,
     findings: ^[dynamic]Finding,
+    context_allocator_aliases: ^[dynamic]Context_Allocator_Alias,
     procedure_scopes: ^[dynamic]Procedure_Scope,
     procedures: ^[dynamic]Procedure_Metric,
     symbols: ^[dynamic]Declaration_Symbol,
@@ -534,6 +543,9 @@ identifier_name :: proc(expression: ^ast.Expr) -> (string, bool) {
     if identifier, ok := normalized_expression.derived.(^ast.Ident); ok {
         return identifier.name, true
     }
+    if implicit, ok := normalized_expression.derived.(^ast.Implicit); ok {
+        return implicit.tok.text, true
+    }
     if selector, ok := normalized_expression.derived.(^ast.Selector_Expr); ok {
         return selector.field.name, true
     }
@@ -553,6 +565,195 @@ named_argument :: proc(call: ^ast.Call_Expr, name: string) -> ^ast.Expr {
         }
     }
     return nil
+}
+
+// Return whether an expression is the ambient heap allocator.
+is_context_allocator :: proc(expression: ^ast.Expr) -> bool {
+    selector, ok := ast.unparen_expr(expression).derived.(^ast.Selector_Expr)
+    if !ok || selector.field.name != "allocator" {
+        return false
+    }
+    owner, named := identifier_name(selector.expr)
+    return named && owner == "context"
+}
+
+// Record one policy finding tied to a parser-exact allocator expression.
+append_context_allocator_finding :: proc(
+    data: ^Analysis_Visitor_Data,
+    expression: ^ast.Expr,
+    operation, target, message: string) {
+    append(data.findings, Finding {
+        rule_id = "ODIN-ALLOCATION-CONTEXT",
+        line = expression.pos.line,
+        column = expression.pos.column,
+        message = message,
+        subject = operation,
+        operation = operation,
+        procedure = containing_procedure(data, expression.pos.offset),
+        target = target,
+        allocator_source = expression_source(data.source, expression),
+        certainty = "definite",
+    })
+}
+
+// Reject allocator parameters whose defaults hide their selected lifetime.
+check_context_allocator_defaults :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    for value in declaration.values {
+        procedure, ok := value.derived.(^ast.Proc_Lit)
+        if !ok || procedure.type == nil || procedure.type.params == nil {
+            continue
+        }
+        for field in procedure.type.params.list {
+            if field.default_value == nil {
+                continue
+            }
+            for name in field.names {
+                parameter, named := identifier_name(name)
+                if named && is_context_allocator(field.default_value) {
+                    append_context_allocator_finding(
+                        data, field.default_value, "allocator-default", parameter,
+                        "Allocator parameters must not default to context.allocator; " +
+                            "require the caller to select the owner explicitly.")
+                }
+            }
+        }
+    }
+}
+
+// Track ambient allocator aliases until context restoration can be verified.
+check_context_allocator_aliases :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    for value, index in declaration.values {
+        if !is_context_allocator(value) || index >= len(declaration.names) {
+            continue
+        }
+        target, named := identifier_name(declaration.names[index])
+        if !named {
+            continue
+        }
+        append(&data.context_allocator_aliases^, Context_Allocator_Alias {
+            name = target,
+            procedure = containing_procedure(data, value.pos.offset),
+            expression = value,
+        })
+    }
+}
+
+// Permit a saved ambient allocator only when it is used solely to restore context.
+finish_context_allocator_aliases :: proc(data: ^Analysis_Visitor_Data) {
+    for &alias in data.context_allocator_aliases^ {
+        reference_count := 0
+        for reference in data.references^ {
+            if reference.name == alias.name && reference.scope == alias.procedure {
+                reference_count += 1
+            }
+        }
+        if alias.restored && reference_count >= 1 && reference_count <= 2 {
+            continue
+        }
+        append_context_allocator_finding(
+            data, alias.expression, "allocator-alias", alias.name,
+            "Do not retain context.allocator in an alias; use the actual owner allocator.")
+    }
+}
+
+// Reject context allocator values passed through allocator-bearing calls.
+check_context_allocator_arguments :: proc(
+    data: ^Analysis_Visitor_Data,
+    call: ^ast.Call_Expr) {
+    callee, named := identifier_name(call.expr)
+    if named && (callee == "make" || callee == "new") {
+        return
+    }
+    for argument in call.args {
+        value := argument
+        if field_value, ok := argument.derived.(^ast.Field_Value); ok {
+            value = field_value.value
+        }
+        if !is_context_allocator(value) {
+            continue
+        }
+        append_context_allocator_finding(
+            data, value, "allocator-pass", expression_source(data.source, call.expr),
+            "Do not relay context.allocator through an allocator parameter; pass the " +
+                "actual owner allocator or keep root allocation at its owner boundary.")
+    }
+}
+
+// Reject context fallback and storage in allocator-named assignments.
+check_context_allocator_assignments :: proc(
+    data: ^Analysis_Visitor_Data,
+    statement: ^ast.Assign_Stmt) {
+    pair_count := min(len(statement.lhs), len(statement.rhs))
+    for index in 0..<pair_count {
+        if is_context_allocator(statement.lhs[index]) {
+            restored_name, restored := identifier_name(statement.rhs[index])
+            if restored {
+                procedure := containing_procedure(
+                    data, statement.rhs[index].pos.offset)
+                for &alias in data.context_allocator_aliases^ {
+                    if alias.name == restored_name && alias.procedure == procedure {
+                        alias.restored = true
+                    }
+                }
+            }
+        }
+        value := statement.rhs[index]
+        if !is_context_allocator(value) {
+            continue
+        }
+        lhs := statement.lhs[index]
+        if is_context_allocator(lhs) {
+            continue
+        }
+        target := expression_source(data.source, lhs)
+        operation := "allocator-alias"
+        if _, is_selector := ast.unparen_expr(lhs).derived.(^ast.Selector_Expr);
+            is_selector {
+            operation = "allocator-store"
+        } else if name, named := identifier_name(lhs);
+            named && has_allocator_name(name) {
+            operation = "allocator-fallback"
+            target = name
+        }
+        message := "Do not retain or relay context.allocator; select the actual owner allocator."
+        if operation == "allocator-store" {
+            message = "Do not store context.allocator in a field; store the actual owner allocator."
+        } else if operation == "allocator-fallback" {
+            message = "Do not replace missing or invalid owner allocator state with context.allocator."
+        }
+        append_context_allocator_finding(
+            data, value, operation, target, message)
+    }
+}
+
+// Reject storing context.allocator in an allocator-named struct field.
+check_context_allocator_compound :: proc(
+    data: ^Analysis_Visitor_Data,
+    compound: ^ast.Comp_Lit) {
+    for element in compound.elems {
+        field_value, ok := element.derived.(^ast.Field_Value)
+        if !ok {
+            continue
+        }
+        target, named := identifier_name(field_value.field)
+        if !named || !is_context_allocator(field_value.value) {
+            continue
+        }
+        append_context_allocator_finding(
+            data, field_value.value, "allocator-store", target,
+            "Do not store context.allocator in a field; store a real owner or domain.")
+    }
+}
+
+// Match allocator spellings without allocating a normalized copy.
+has_allocator_name :: proc(name: string) -> bool {
+    return strings.contains(name, "allocator") ||
+        strings.contains(name, "Allocator") ||
+        strings.contains(name, "ALLOCATOR")
 }
 
 // Classify an explicit allocator expression into its allocation policy rule.
@@ -948,6 +1149,10 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     data := (^Analysis_Visitor_Data)(visitor.data)
     if declaration, is_declaration := node.derived.(^ast.Value_Decl); is_declaration {
         register_procedure_scopes(data, declaration)
+        if !is_test_source(data.path) {
+            check_context_allocator_defaults(data, declaration)
+            check_context_allocator_aliases(data, declaration)
+        }
         check_procedure_documentation(data, declaration)
         check_nonconst_global(data, declaration)
         append_value_declaration_symbols(data, declaration)
@@ -966,10 +1171,23 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     #partial switch _ in node.derived {
     case ^ast.If_Stmt, ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Case_Clause:
         record_decision(data, node)
+    case ^ast.Assign_Stmt:
+        if assignment, ok := node.derived.(^ast.Assign_Stmt);
+            ok && !is_test_source(data.path) {
+            check_context_allocator_assignments(data, assignment)
+        }
+    case ^ast.Comp_Lit:
+        if compound, ok := node.derived.(^ast.Comp_Lit);
+            ok && !is_test_source(data.path) {
+            check_context_allocator_compound(data, compound)
+        }
     }
     if call, is_call := node.derived.(^ast.Call_Expr); is_call {
         append_call_edge(data, call)
         check_allocation_call(data, call)
+        if !is_test_source(data.path) {
+            check_context_allocator_arguments(data, call)
+        }
     }
     return visitor
 }
@@ -980,9 +1198,13 @@ check_allocations :: proc(
     summary: ^File_Summary,
     allocator: runtime.Allocator) {
     procedure_scopes := make([dynamic]Procedure_Scope, 0, allocator)
+    context_allocator_aliases := make(
+        [dynamic]Context_Allocator_Alias, 0, allocator)
     data := Analysis_Visitor_Data {
+        path = file.fullpath,
         source = file.src,
         findings = &summary.findings,
+        context_allocator_aliases = &context_allocator_aliases,
         procedure_scopes = &procedure_scopes,
         procedures = &summary.procedures,
         symbols = &summary.symbols,
@@ -998,6 +1220,15 @@ check_allocations :: proc(
         data = rawptr(&data),
     }
     ast.walk(&visitor, file)
+    if !is_test_source(data.path) {
+        finish_context_allocator_aliases(&data)
+    }
+}
+
+// Exclude test sources from production context-allocator policy findings.
+is_test_source :: proc(path: string) -> bool {
+    return strings.ends_with(path, "_test.odin") ||
+        strings.contains(path, "/src/test_helpers/")
 }
 
 // Record the latest token line within the active parenthesis frame.

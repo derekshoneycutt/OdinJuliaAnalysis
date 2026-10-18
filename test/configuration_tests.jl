@@ -611,4 +611,3 @@ end
         @test owners["DYNAMIC-FIXTURE"] == "dynamic"
     end
 end
-
