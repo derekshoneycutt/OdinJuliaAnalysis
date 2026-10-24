@@ -1,4 +1,12 @@
 const RULE_REGISTRY = Dict(
+    "ODIN-SINGLE-LINE-CONTROL-BODY" => RuleDefinition(
+        "ODIN-SINGLE-LINE-CONTROL-BODY", "odin",
+        "Odin Rules > Control Body Formatting",
+        "mature", "definite", "report", false),
+    "ODIN-DO-CONTROL-BODY" => RuleDefinition(
+        "ODIN-DO-CONTROL-BODY", "odin",
+        "Odin Rules > Control Body Formatting",
+        "mature", "definite", "report", false),
     "SECURITY-UNSAFE-BOUNDARY" => RuleDefinition(
         "SECURITY-UNSAFE-BOUNDARY", "common",
         "Security > Configured Trust Boundaries",

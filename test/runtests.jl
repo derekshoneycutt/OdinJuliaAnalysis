@@ -369,6 +369,7 @@ end
     include("source_statistics_tests.jl")
     include("reporting_tests.jl")
     include("odin_engine_tests.jl")
+    include("odin_control_body_tests.jl")
     include("advanced_analysis_tests.jl")
     include("verification_tool_tests.jl")
 end

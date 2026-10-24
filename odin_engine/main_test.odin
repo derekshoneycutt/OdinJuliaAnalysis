@@ -12,6 +12,48 @@ Analysis_Test_Fixture :: struct {
     path: string,
 }
 
+// Verify native control findings use body tokens rather than header line spans.
+@(test)
+odin_engine_test_control_bodies :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+    context.allocator = allocator
+    source := "package fixture\n" +
+        "sample :: proc() {\n" +
+        "    if true {} else do return\n" +
+        "    for {}\n" +
+        "    for value in values do consume(value)\n" +
+        "    if true {\n        return\n    }\n" +
+        "}\n"
+    fixture := write_analysis_test_fixture(t, source, allocator)
+    defer if fixture.directory != "" {
+        _ = os.remove_all(fixture.directory)
+    }
+    summary := analyze_file(fixture.path, allocator)
+    testing.expect(t, summary.parsed)
+    testing.expect_value(t, summary.syntax_errors, 0)
+    expected_lines := [4]int{3, 3, 4, 5}
+    expected_columns := [4]int{13, 21, 9, 25}
+    count := 0
+    for finding in summary.findings {
+        if finding.rule_id == "ODIN-SINGLE-LINE-CONTROL-BODY" ||
+            finding.rule_id == "ODIN-DO-CONTROL-BODY" {
+            if count < 4 {
+                testing.expect_value(t, finding.line, expected_lines[count])
+                testing.expect_value(t, finding.column, expected_columns[count])
+            }
+            count += 1
+        }
+    }
+    testing.expect_value(t, count, 4)
+}
+
 PROCEDURE_METRICS_FIXTURE :: `package fixture
 
 Sample_Type :: struct {

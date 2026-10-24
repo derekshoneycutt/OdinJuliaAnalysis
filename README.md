@@ -62,9 +62,9 @@ static test reachability without making the analyzer responsible for running tes
 | Analysis schema | `4.1.0` |
 | Extension API | `2.0.0` |
 | Native Odin schema | `3.12.0` |
-| Native Odin engine | `0.14.0` |
+| Native Odin engine | `0.16.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 70 |
+| Built-in rules | 75 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -268,15 +268,15 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 70 built-in rules. Every configured rule has an enablement flag and
+The registry contains 75 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
 | --- | ---: | --- |
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
-| Cross-language analysis and policy | 9 | Architecture, call-graph uncertainty, security boundaries, and reviewed-policy drift |
-| Julia core and metrics | 23 | Syntax, behavior, duplicate code, reachability, naming, mutable globals, documentation, metrics, unused imports, and JET |
-| Odin core, metrics, builds, and allocations | 29 | Syntax, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
+| Cross-language analysis and policy | 10 | Architecture, call-graph uncertainty, security boundaries, and reviewed-policy drift |
+| Julia core and metrics | 24 | Syntax, behavior, duplicate code, reachability, naming, mutable globals, documentation, metrics, unused imports, and JET |
+| Odin core, metrics, builds, and allocations | 32 | Syntax, control bodies, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
@@ -284,6 +284,7 @@ Representative rule IDs:
 | Concern | Julia | Odin | Shared or Markdown |
 | --- | --- | --- | --- |
 | Syntax | `JULIA-SYNTAX` | `ODIN-SYNTAX` | - |
+| Control body formatting | - | `ODIN-SINGLE-LINE-CONTROL-BODY`, `ODIN-DO-CONTROL-BODY` | - |
 | Naming | `JULIA-NAMING` | `ODIN-NAMING` | `NAMING-POLICY-DRIFT` |
 | Mutable globals | `JULIA-NONCONST-GLOBAL`, `JULIA-CONST-MUTABLE-REF` | `ODIN-NONCONST-GLOBAL` | - |
 | Behavior | `JULIA-EMPTY-CATCH`, `JULIA-BROAD-CATCH`, `JULIA-UNSIGNALED-ARGUMENT-MUTATION`, `JULIA-GLOBAL-WRITE` | - | `SECURITY-UNSAFE-BOUNDARY` |
@@ -297,6 +298,28 @@ Representative rule IDs:
 | Reachability | `JULIA-UNREACHABLE-FUNCTION` | `ODIN-UNREACHABLE-PROCEDURE` | `CALL-GRAPH-UNRESOLVED-EDGE`, `CALL-ROOT-POLICY-DRIFT` |
 | Allocation | - | `ODIN-ALLOCATION-*` | `ODIN-ALLOCATION-POLICY-DRIFT` |
 | Build health | - | `ODIN-BUILD-FAILED` | - |
+
+### Odin Control Body Formatting
+
+Two independent parser-backed rules default to `Report`:
+
+- `ODIN-SINGLE-LINE-CONTROL-BODY` reports `if`/`else` and all `for` bodies
+  whose opening and closing braces share a physical source line, including
+  empty bodies. Header wrapping does not affect detection.
+- `ODIN-DO-CONTROL-BODY` reports `do` bodies for those statements, regardless
+  of line breaks in parser-accepted syntax. Each such body receives only this
+  rule, not an additional braced-body finding.
+
+Each actual branch is checked independently; ordinary `else if` chaining is
+allowed. Findings point to the opening brace or `do` token. Comments and
+strings are not statements. `when`, `switch`, `defer`, standalone blocks, and
+procedure literals are not independent targets, but covered statements nested
+inside them are checked. Test files have no exemption.
+
+Use ordinary `RuleSetting` entries to disable either rule or choose `Ignore`,
+`Report`, `Warn`, or `Fail`. `Ignore` retains ignored evidence. These checks do
+not require a successful analytical build and do not replace a consumer's
+compiler `-disallow-do` flag.
 
 The `*-REPORT`, `*-WARN`, and `*-FAIL` metric rules use exact, increasing thresholds.
 This preserves low-severity visibility without making every review signal block a build.

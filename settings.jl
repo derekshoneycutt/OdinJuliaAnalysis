@@ -51,6 +51,8 @@ AnalysisSettings(
         RuleSetting("ODIN-SYNTAX", true, Fail),
         RuleSetting("ODIN-BUILD-FAILED", true, Fail),
         RuleSetting("ODIN-CLOSING-PAREN-PLACEMENT", true, Fail),
+        RuleSetting("ODIN-SINGLE-LINE-CONTROL-BODY", true, Report),
+        RuleSetting("ODIN-DO-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-NAMING", true, Warn),
         RuleSetting("ODIN-NONCONST-GLOBAL", true, Warn),
         RuleSetting("ODIN-UNUSED-IMPORT", true, Report),

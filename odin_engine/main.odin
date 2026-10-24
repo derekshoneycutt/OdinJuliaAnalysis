@@ -11,7 +11,7 @@ import "core:os"
 import "core:strings"
 
 SCHEMA_VERSION :: "3.12.0"
-ENGINE_VERSION :: "0.15.0"
+ENGINE_VERSION :: "0.16.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -1141,12 +1141,84 @@ append_constructing_allocation_finding :: proc(
         })
 }
 
+// Locate the final do token before a parser-confirmed single-statement body.
+control_do_position :: proc(
+    data: ^Analysis_Visitor_Data,
+    start: tokenizer.Pos,
+    body_start: tokenizer.Pos) -> tokenizer.Pos {
+    scanner: tokenizer.Tokenizer
+    tokenizer.init(&scanner, data.source[start.offset:body_start.offset], data.path)
+    position := start
+    found := false
+    for {
+        token := tokenizer.scan(&scanner)
+        if token.kind == .EOF {
+            break
+        }
+        if token.kind == .Do {
+            position = token.pos
+            position.offset += start.offset
+            if position.line == 1 {
+                position.column += start.column - 1
+            }
+            position.line += start.line - 1
+            found = true
+        }
+    }
+    assert(found, "A parser-confirmed do body must have a preceding do token")
+    return position
+}
+
+// Check one actual branch or loop body, excluding else-if links.
+check_control_body :: proc(
+    data: ^Analysis_Visitor_Data,
+    statement: ^ast.Stmt,
+    start: tokenizer.Pos) {
+    if statement == nil {
+        return
+    }
+    body, is_block := statement.derived.(^ast.Block_Stmt)
+    if !is_block {
+        return
+    }
+    rule := "ODIN-SINGLE-LINE-CONTROL-BODY"
+    message := "Control body braces must occupy separate lines."
+    position := body.open
+    if body.uses_do {
+        rule = "ODIN-DO-CONTROL-BODY"
+        message = "Use a multiline braced control body instead of `do`."
+        position = control_do_position(data, start, body.open)
+    } else if body.open.line != body.close.line {
+        return
+    }
+    append(data.findings, Finding {
+        rule_id = rule,
+        line = position.line,
+        column = position.column,
+        message = message,
+    })
+}
+
+// Check conditional branches and every supported loop body without double visits.
+check_control_bodies :: proc(data: ^Analysis_Visitor_Data, node: ^ast.Node) {
+    #partial switch statement in node.derived {
+    case ^ast.If_Stmt:
+        check_control_body(data, statement.body, statement.if_pos)
+        check_control_body(data, statement.else_stmt, statement.else_pos)
+    case ^ast.For_Stmt:
+        check_control_body(data, statement.body, statement.for_pos)
+    case ^ast.Range_Stmt:
+        check_control_body(data, statement.body, statement.for_pos)
+    }
+}
+
 // Inspect declarations, decisions, and calls during an analysis AST walk.
 visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
     if node == nil {
         return visitor
     }
     data := (^Analysis_Visitor_Data)(visitor.data)
+    check_control_bodies(data, node)
     if declaration, is_declaration := node.derived.(^ast.Value_Decl); is_declaration {
         register_procedure_scopes(data, declaration)
         if !is_test_source(data.path) {
