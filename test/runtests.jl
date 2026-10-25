@@ -90,7 +90,8 @@ function with_extensions(configuration, extensions)
         configuration.function_metrics,
         configuration.allocations,
         configuration.report,
-        AnalysisExtension[extensions...])
+        AnalysisExtension[extensions...],
+        configuration.odin_spacing)
     return OdinJuliaAnalysis.validate_settings(settings)
 end
 
@@ -126,7 +127,8 @@ function with_rules(
         configuration.resource_lifetime,
         configuration.security,
         configuration.coverage,
-        configuration.documentation)
+        configuration.documentation,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement documentation templates."""
@@ -153,7 +155,8 @@ function with_documentation(configuration, documentation)
     configuration.resource_lifetime,
     configuration.security,
     configuration.coverage,
-    documentation)
+    documentation,
+    configuration.odin_spacing)
 end
 
 """Return effective settings with replacement architecture policy."""
@@ -175,7 +178,14 @@ function with_architecture(configuration, architecture)
         configuration.report,
         configuration.extensions,
         configuration.rule_registry,
-        configuration.extension_rule_owners)
+        configuration.extension_rule_owners,
+        configuration.duplicate_code,
+        configuration.resource_lifetime,
+        configuration.security,
+        configuration.coverage,
+        configuration.documentation,
+        configuration.call_roots,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement allocation policies."""
@@ -198,7 +208,8 @@ function with_allocation_policies(configuration, policies)
         configuration.parameter_counts,
         configuration.function_metrics,
         allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement allocation response overrides."""
@@ -221,7 +232,8 @@ function with_allocation_response_overrides(configuration, overrides)
         configuration.parameter_counts,
         configuration.function_metrics,
         allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement allocator source patterns."""
@@ -244,7 +256,8 @@ function with_allocator_source_patterns(configuration, source_patterns)
         configuration.parameter_counts,
         configuration.function_metrics,
         allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement JET entry points."""
@@ -262,7 +275,8 @@ function with_jet_entries(configuration, entry_points)
         configuration.parameter_counts,
         configuration.function_metrics,
         configuration.allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement analytical Odin build targets."""
@@ -280,7 +294,8 @@ function with_odin_build_targets(configuration, targets)
         configuration.parameter_counts,
         configuration.function_metrics,
         configuration.allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with independently replaced return tuple maxima."""
@@ -298,7 +313,8 @@ function with_return_tuples(configuration, return_tuples)
         configuration.parameter_counts,
         configuration.function_metrics,
         configuration.allocations,
-        configuration.report)
+        configuration.report,
+        configuration.odin_spacing)
 end
 
 """Return effective settings with replacement parameter count thresholds."""
@@ -316,7 +332,8 @@ function with_parameter_counts(configuration, parameter_counts)
     parameter_counts,
     configuration.function_metrics,
     configuration.allocations,
-    configuration.report)
+    configuration.report,
+    configuration.odin_spacing)
 end
 
 """Return effective settings with replacement function metric thresholds."""
@@ -334,7 +351,37 @@ function with_function_metrics(configuration, function_metrics)
     configuration.parameter_counts,
     function_metrics,
     configuration.allocations,
-    configuration.report)
+    configuration.report,
+    configuration.odin_spacing)
+end
+
+"""Return effective settings with replacement Odin separator spacing policies."""
+function with_odin_spacing(configuration, spacing)
+    return OdinJuliaAnalysis.EffectiveSettings(
+    configuration.profile,
+    configuration.failure_threshold,
+    configuration.thresholds,
+    configuration.enforcement_excludes,
+    configuration.rules,
+    configuration.naming,
+    configuration.jet,
+    configuration.odin_build,
+    configuration.return_tuples,
+    configuration.parameter_counts,
+    configuration.function_metrics,
+    configuration.architecture,
+    configuration.allocations,
+    configuration.report,
+    configuration.extensions,
+    configuration.rule_registry,
+    configuration.extension_rule_owners,
+    configuration.duplicate_code,
+    configuration.resource_lifetime,
+    configuration.security,
+    configuration.coverage,
+    configuration.documentation,
+    configuration.call_roots,
+    spacing)
 end
 
 """Write package settings with replacement JET entry points for CLI fixtures."""
@@ -354,7 +401,8 @@ function write_jet_settings(path, entry_points_expression)
             JetSettings($entry_points_expression),
             OdinBuildSettings(OdinBuildTarget[]),
             base.allocations,
-            base.report)
+            base.report,
+            base.odin_spacing)
         """)
     return path
 end

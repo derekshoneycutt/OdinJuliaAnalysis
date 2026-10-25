@@ -12,6 +12,9 @@ using ..OdinJuliaAnalysis: EffectiveSettings
 using ..OdinJuliaAnalysis: Fail
 using ..OdinJuliaAnalysis: FunctionAnalysis
 using ..OdinJuliaAnalysis: Ignore
+using ..OdinJuliaAnalysis: HorizontalSpacing
+using ..OdinJuliaAnalysis: SeparatorSpacing
+using ..OdinJuliaAnalysis: OdinSpacingSettings
 using ..OdinJuliaAnalysis: ImportBinding
 using ..OdinJuliaAnalysis: InteropSignature
 using ..OdinJuliaAnalysis: ReferenceRecord
@@ -29,7 +32,7 @@ const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(
     ANALYSIS_ROOT, ".build", Sys.iswindows() ? "odin-engine.exe" : "odin-engine")
-const SCHEMA_VERSION = "3.12.0"
+const SCHEMA_VERSION = "3.13.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -42,6 +45,22 @@ const OdinFinding = @NamedTuple begin
     target::String
     allocator_source::String
     certainty::String
+end
+
+const OdinSeparatorEvidence = @NamedTuple begin
+    kind::String
+    separator_context::String
+    line::Int
+    column::Int
+    offset::Int
+    before_eligible::Bool
+    before_spaces::Int
+    before_ascii_spaces::Bool
+    after_eligible::Bool
+    after_spaces::Int
+    after_ascii_spaces::Bool
+    internal_required::Bool
+    internal_adjacent::Bool
 end
 
 const OdinProcedureMetric = @NamedTuple begin
@@ -115,6 +134,7 @@ const OdinFileSummary = @NamedTuple begin
     syntax_warnings::Int
     struct_count::Int
     findings::Vector{OdinFinding}
+    separators::Vector{OdinSeparatorEvidence}
     procedures::Vector{OdinProcedureMetric}
     symbols::Vector{OdinDeclarationSymbol}
     imports::Vector{OdinImport}
@@ -383,7 +403,78 @@ function append_summary_analysis!(
     append!(diagnostics, parameter_count_diagnostics(root, summary, configuration))
     append!(diagnostics, declaration_order_diagnostics(root, summary, configuration))
     append!(diagnostics, documentation_diagnostics(root, summary, configuration))
+    append!(diagnostics, spacing_diagnostics(root, summary, configuration))
     append!(functions, backend_functions(root, summary))
+end
+
+"""Apply configured policy to parser-confirmed separator spacing evidence."""
+function spacing_diagnostics(root, summary, configuration)
+    diagnostics = Diagnostic[]
+    path = repository_path(String(summary.path), root)
+    evidence = sort!(collect(summary.separators); by=item -> Int(item.offset))
+    for separator in evidence
+        rule_id, policy = separator_rule_and_policy(
+            String(separator.kind), configuration.odin_spacing)
+        message = separator_spacing_message(separator, policy)
+        message === nothing && continue
+        diagnostic = Diagnostic(
+            rule_id, Ignore, path, Int(separator.line), Int(separator.column),
+            message, nothing, nothing, "odin-ast-spacing",
+            String(separator.separator_context), String(separator.kind), nothing,
+            "definite")
+        configured = configured_diagnostic(configuration, diagnostic)
+        configured === nothing || push!(diagnostics, configured)
+    end
+    return diagnostics
+end
+
+"""Select the rule and independent spacing policy for one native separator kind."""
+function separator_rule_and_policy(kind::String, settings::OdinSpacingSettings)
+    kind == "colon" && return (
+        "ODIN-DECLARATION-COLON-SPACING", settings.declaration_colon)
+    kind == "equals" && return ("ODIN-EQUALS-SPACING", settings.equals)
+    kind == "inferred" && return (
+        "ODIN-INFERRED-DECLARATION-SPACING", settings.inferred_declaration)
+    kind == "constant" && return (
+        "ODIN-CONSTANT-DECLARATION-SPACING", settings.constant_declaration)
+    throw(ArgumentError("unknown native Odin separator kind: $kind"))
+end
+
+"""Return one combined diagnostic message for side and composite-token violations."""
+function separator_spacing_message(separator, policy::SeparatorSpacing)
+    issues = String[]
+    append_spacing_side_issue!(
+        issues, "before", policy.before,
+        Bool(separator.before_eligible), Int(separator.before_spaces),
+        Bool(separator.before_ascii_spaces))
+    append_spacing_side_issue!(
+        issues, "after", policy.after,
+        Bool(separator.after_eligible), Int(separator.after_spaces),
+        Bool(separator.after_ascii_spaces))
+    if Bool(separator.internal_required) && !Bool(separator.internal_adjacent)
+        push!(issues, "operator punctuation must be adjacent")
+    end
+    isempty(issues) && return nothing
+    return "Odin $(separator.separator_context) separator `$(separator.kind)` " *
+        "has invalid spacing: $(join(issues, "; "))."
+end
+
+"""Append a spacing issue only when an eligible side violates its exact policy."""
+function append_spacing_side_issue!(
+    issues,
+    side::String,
+    spacing::HorizontalSpacing,
+    eligible::Bool,
+    actual_spaces::Int,
+    actual_ascii_spaces::Bool)
+    eligible || return
+    expected = spacing.exact_spaces
+    expected === nothing && return
+    actual_ascii_spaces && actual_spaces == expected && return
+    expected_text = "$expected ASCII space(s)"
+    actual_text = actual_ascii_spaces ? "$actual_spaces ASCII space(s)" :
+        "$actual_spaces ASCII space(s) plus other horizontal whitespace"
+    push!(issues, "$side expects $expected_text, found $actual_text")
 end
 
 """Report attached Odin doc comments that do not match the configured template."""

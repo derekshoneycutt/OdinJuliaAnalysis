@@ -69,6 +69,150 @@ end
     end
 end
 
+@testset "Odin separator spacing syntax boundaries" begin
+    cases = [
+        ("value : int", ["ODIN-DECLARATION-COLON-SPACING"]),
+        ("first, second : int", ["ODIN-DECLARATION-COLON-SPACING"]),
+        ("value: int", String[]),
+        ("helper :: proc(value :=1) {}", ["ODIN-EQUALS-SPACING"]),
+        ("helper :: proc() -> (result : int) {}", ["ODIN-DECLARATION-COLON-SPACING"]),
+        ("value : = 1", ["ODIN-INFERRED-DECLARATION-SPACING"]),
+        ("VALUE : /* split */ : 1", ["ODIN-CONSTANT-DECLARATION-SPACING"]),
+        ("value : int : 1", ["ODIN-DECLARATION-COLON-SPACING"]),
+        ("value /* comment */:int", ["ODIN-DECLARATION-COLON-SPACING"]),
+        ("value:\n    int", String[]),
+        ("value: /* comment */ int", String[]),
+        ("value += 1\ncheck := value == 1\nother := value != 2", String[]),
+        ("text := \"value : int\"\nraw := `NAME::1`", String[]),
+        ("switch value { case 1: }\npart := values[1:2]", String[]),
+        ("δοκιμή : int", ["ODIN-DECLARATION-COLON-SPACING"]),
+    ]
+    configuration = OdinJuliaAnalysis.load_settings()
+    mktempdir() do root
+        path = joinpath(root, "boundaries.odin")
+        for (body, expected) in cases, newline in ("\n", "\r\n")
+            write(path, replace(
+                "package fixture\n// Exercise separator boundaries.\nexample :: proc() {\n" *
+                body * "\n}\n", "\n" => newline))
+            analysis = OdinJuliaAnalysis.OdinEngine.analyze(root, [path], configuration)
+            @test !any(item -> item.rule_id == "ODIN-SYNTAX", analysis.diagnostics)
+            spacing = filter(item -> endswith(item.rule_id, "-SPACING"),
+                analysis.diagnostics)
+            @test [item.rule_id for item in spacing] == expected
+        end
+    end
+end
+
+@testset "Odin separator spacing policies" begin
+    mktempdir() do root
+        path = joinpath(root, "spacing.odin")
+        write(path, """
+            package fixture
+
+            typed : int=1
+            typed_constant: int: 2
+            inferred:= 3
+            CONSTANT:: 4
+            wrapped:
+                int = 5
+            commented /* before */: /* after */ int = 6
+
+            example :: proc() {
+                assigned=7
+                consume(named=8)
+                Point{x=9}
+                multiple:  int = 10
+                tabbed:\tint = 11
+                before_commented /* before */:int = 12
+            }
+            """)
+        configuration = OdinJuliaAnalysis.load_settings()
+        overridden = with_rules(configuration, Dict(
+            "ODIN-DECLARATION-COLON-SPACING" => RuleSetting(
+                "ODIN-DECLARATION-COLON-SPACING", true, Warn),
+            "ODIN-EQUALS-SPACING" => RuleSetting(
+                "ODIN-EQUALS-SPACING", true, Fail),
+            "ODIN-INFERRED-DECLARATION-SPACING" => RuleSetting(
+                "ODIN-INFERRED-DECLARATION-SPACING", true, Report),
+            "ODIN-CONSTANT-DECLARATION-SPACING" => RuleSetting(
+                "ODIN-CONSTANT-DECLARATION-SPACING", true, Ignore)))
+        diagnostics = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], overridden).diagnostics
+        @test isempty(filter(item -> item.rule_id == "ODIN-SYNTAX", diagnostics))
+        spacing = filter(
+            item -> endswith(item.rule_id, "-SPACING"), diagnostics)
+        @test all(item -> item.source == "odin-ast-spacing", spacing)
+        @test all(item -> item.path == "spacing.odin", spacing)
+        @test [item.rule_id for item in spacing] == [
+            "ODIN-DECLARATION-COLON-SPACING",
+            "ODIN-EQUALS-SPACING",
+            "ODIN-CONSTANT-DECLARATION-SPACING",
+            "ODIN-INFERRED-DECLARATION-SPACING",
+            "ODIN-CONSTANT-DECLARATION-SPACING",
+            "ODIN-EQUALS-SPACING",
+            "ODIN-EQUALS-SPACING",
+            "ODIN-EQUALS-SPACING",
+            "ODIN-DECLARATION-COLON-SPACING",
+            "ODIN-DECLARATION-COLON-SPACING",
+            "ODIN-DECLARATION-COLON-SPACING",
+        ]
+        @test [item.response for item in spacing] == [
+            Warn, Fail, Ignore, Report, Ignore, Fail, Fail, Fail,
+            Warn, Warn, Warn]
+        @test spacing[1].line == 3
+        @test spacing[1].column == 7
+        @test occursin("before expects 0 ASCII space(s)", spacing[1].message)
+        @test occursin("operator punctuation must be adjacent", spacing[3].message) ==
+            false
+        @test occursin("typed constant value", spacing[3].message)
+        @test all(item -> item.line ∉ (8, 9), spacing)
+        single_side = only(filter(item -> item.line == 17, spacing))
+        @test occursin("after expects 1 ASCII space(s)", single_side.message)
+        @test !occursin("before expects", single_side.message)
+
+        exact_after = SeparatorSpacing(
+            HorizontalSpacing(nothing), HorizontalSpacing(2))
+        unrestricted_side = SeparatorSpacing(
+            HorizontalSpacing(nothing), HorizontalSpacing(nothing))
+        exact_configuration = with_odin_spacing(
+            configuration,
+            OdinSpacingSettings(
+                exact_after,
+                unrestricted_side,
+                unrestricted_side,
+                unrestricted_side))
+        exact_diagnostics = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], exact_configuration).diagnostics
+        exact_colons = filter(
+            item -> item.rule_id == "ODIN-DECLARATION-COLON-SPACING",
+            exact_diagnostics)
+        @test [item.line for item in exact_colons] == [3, 4, 16, 17]
+        @test occursin("other horizontal whitespace", only(filter(
+            item -> item.line == 16, exact_colons)).message)
+
+        unrestricted = SeparatorSpacing(
+            HorizontalSpacing(nothing), HorizontalSpacing(nothing))
+        unrestricted_configuration = with_odin_spacing(
+            configuration,
+            OdinSpacingSettings(
+                unrestricted, unrestricted, unrestricted, unrestricted))
+        unrestricted_diagnostics = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], unrestricted_configuration).diagnostics
+        @test isempty(filter(
+            item -> endswith(item.rule_id, "-SPACING"),
+            unrestricted_diagnostics))
+
+        disabled_configuration = with_rules(configuration, Dict(
+            "ODIN-EQUALS-SPACING" => RuleSetting(
+                "ODIN-EQUALS-SPACING", false, Ignore)))
+        disabled_diagnostics = OdinJuliaAnalysis.OdinEngine.analyze(
+            root, [path], disabled_configuration).diagnostics
+        @test isempty(filter(
+            item -> item.rule_id == "ODIN-EQUALS-SPACING",
+            disabled_diagnostics))
+    end
+end
+
 @testset verbose=TEST_VERBOSE "Odin allocation analysis" begin
     mktempdir() do root
         path = joinpath(root, "allocations.odin")
@@ -349,5 +493,5 @@ end
     process = run(pipeline(ignorestatus(command), stdout=output, stderr=output))
     text = String(take!(output))
     @test process.exitcode == 0
-    @test occursin("Finished 5 tests", text)
+    @test occursin("Finished 6 tests", text)
 end

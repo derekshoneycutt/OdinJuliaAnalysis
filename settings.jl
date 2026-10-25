@@ -51,6 +51,10 @@ AnalysisSettings(
         RuleSetting("ODIN-SYNTAX", true, Fail),
         RuleSetting("ODIN-BUILD-FAILED", true, Fail),
         RuleSetting("ODIN-CLOSING-PAREN-PLACEMENT", true, Fail),
+        RuleSetting("ODIN-DECLARATION-COLON-SPACING", true, Report),
+        RuleSetting("ODIN-EQUALS-SPACING", true, Report),
+        RuleSetting("ODIN-INFERRED-DECLARATION-SPACING", true, Report),
+        RuleSetting("ODIN-CONSTANT-DECLARATION-SPACING", true, Report),
         RuleSetting("ODIN-SINGLE-LINE-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-DO-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-NAMING", true, Warn),
@@ -172,6 +176,16 @@ AnalysisSettings(
                 certainty=:definite,
                 response=Ignore),
             ReviewedAllocationPolicy(
+                "analysis-test-separator-arena",
+                "odin_engine/main_test.odin",
+                "odin_engine_test_separator_evidence",
+                :arena,
+                "A test-lifetime arena owns parser fixtures and analysis results.";
+                operation="arena_init_static",
+                target="arena",
+                certainty=:definite,
+                response=Ignore),
+            ReviewedAllocationPolicy(
                 "analysis-arena-backing",
                 "odin_engine/main.odin",
                 "main",
@@ -271,6 +285,27 @@ AnalysisSettings(
                 "canonical_body_tokens",
                 :dynamic_growth,
                 "The analysis arena owns canonical body tokens.";
+                operation="append",
+                target="tokens",
+                certainty=:potential,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-source-token-storage",
+                "odin_engine/main.odin",
+                "tokenize_source",
+                :custom,
+                "The analysis arena owns the source tokenizer stream.";
+                operation="make",
+                target="[dynamic]tokenizer.Token",
+                allocator_source="allocator",
+                certainty=:definite,
+                response=Ignore),
+            ReviewedAllocationPolicy(
+                "analysis-source-token-growth",
+                "odin_engine/main.odin",
+                "tokenize_source",
+                :dynamic_growth,
+                "The analysis arena owns the source tokenizer stream.";
                 operation="append",
                 target="tokens",
                 certainty=:potential,
@@ -377,8 +412,8 @@ AnalysisSettings(
                 allocator_source="allocator",
                 certainty=:definite,
                 response=Ignore,
-                minimum_matches=6,
-                maximum_matches=6),
+                minimum_matches=7,
+                maximum_matches=7),
             ReviewedAllocationPolicy(
                 "analysis-summary-storage",
                 "odin_engine/main.odin",
@@ -402,4 +437,5 @@ AnalysisSettings(
         SecurityCallContract[]),
     CoverageSettings(false, String[], 20),
     DocumentationSettings(r"\S", r"\S"),
-    default_call_root_settings())
+    default_call_root_settings(),
+    default_odin_spacing_settings())

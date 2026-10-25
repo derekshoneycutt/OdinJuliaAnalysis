@@ -1,4 +1,20 @@
 const RULE_REGISTRY = Dict(
+    "ODIN-DECLARATION-COLON-SPACING" => RuleDefinition(
+        "ODIN-DECLARATION-COLON-SPACING", "odin",
+        "Odin Rules > Formatting > Binding Spacing",
+        "mature", "definite", "report", false),
+    "ODIN-EQUALS-SPACING" => RuleDefinition(
+        "ODIN-EQUALS-SPACING", "odin",
+        "Odin Rules > Formatting > Binding Spacing",
+        "mature", "definite", "report", false),
+    "ODIN-INFERRED-DECLARATION-SPACING" => RuleDefinition(
+        "ODIN-INFERRED-DECLARATION-SPACING", "odin",
+        "Odin Rules > Formatting > Binding Spacing",
+        "mature", "definite", "report", false),
+    "ODIN-CONSTANT-DECLARATION-SPACING" => RuleDefinition(
+        "ODIN-CONSTANT-DECLARATION-SPACING", "odin",
+        "Odin Rules > Formatting > Binding Spacing",
+        "mature", "definite", "report", false),
     "ODIN-SINGLE-LINE-CONTROL-BODY" => RuleDefinition(
         "ODIN-SINGLE-LINE-CONTROL-BODY", "odin",
         "Odin Rules > Control Body Formatting",

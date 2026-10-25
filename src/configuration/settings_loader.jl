@@ -108,6 +108,7 @@ function validate_settings(
     validate_coverage_settings(settings.coverage)
     validate_documentation_settings(settings.documentation)
     validate_call_root_settings(settings.call_roots)
+    validate_odin_spacing_settings(settings.odin_spacing)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report, rule_registry)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -117,7 +118,34 @@ function validate_settings(
         settings.parameter_counts, settings.function_metrics, settings.architecture,
         settings.allocations, settings.report, extensions, rule_registry, rule_owners,
         settings.duplicate_code, settings.resource_lifetime, settings.security,
-        settings.coverage, settings.documentation, settings.call_roots)
+        settings.coverage, settings.documentation, settings.call_roots,
+        settings.odin_spacing)
+end
+
+"""Validate all independently configurable Odin separator policies."""
+function validate_odin_spacing_settings(settings::OdinSpacingSettings)
+    for policy in (
+        settings.declaration_colon,
+        settings.equals,
+        settings.inferred_declaration,
+        settings.constant_declaration)
+        validate_separator_spacing(policy)
+    end
+end
+
+"""Validate exact or unrestricted spacing on both sides of a separator."""
+function validate_separator_spacing(policy::SeparatorSpacing)
+    validate_horizontal_spacing(policy.before)
+    validate_horizontal_spacing(policy.after)
+end
+
+"""Reject invalid exact-space values in a horizontal spacing policy."""
+function validate_horizontal_spacing(spacing::HorizontalSpacing)
+    count = spacing.exact_spaces
+    count === nothing && return
+    count isa Bool && throw(ArgumentError("spacing count cannot be Bool"))
+    count isa Int && count >= 0 || throw(ArgumentError(
+        "spacing count must be a nonnegative Int or nothing"))
 end
 
 """Reject unusable or duplicated cross-language call root entry points."""

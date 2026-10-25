@@ -613,6 +613,47 @@ end
 """Require nonempty Julia docstrings and Odin doc comments by default."""
 default_documentation_settings() = DocumentationSettings(r"\S", r"\S")
 
+"""Describe unrestricted horizontal whitespace or an exact ASCII-space count."""
+struct HorizontalSpacing
+    exact_spaces::Union{Nothing, Int}
+    function HorizontalSpacing(exact_spaces::Union{Nothing, Integer})
+        exact_spaces isa Bool && throw(ArgumentError(
+            "spacing count must be an integer count, not Bool"))
+        exact_spaces === nothing || exact_spaces >= 0 || throw(ArgumentError(
+            "spacing count cannot be negative"))
+        exact_spaces === nothing || exact_spaces <= typemax(Int) ||
+            throw(ArgumentError("spacing count exceeds the supported range"))
+        return new(exact_spaces === nothing ? nothing : Int(exact_spaces))
+    end
+end
+
+"""Reject spacing values other than nonnegative integer counts or `nothing`."""
+HorizontalSpacing(value) = throw(ArgumentError(
+    "spacing count must be a nonnegative integer or nothing"))
+
+"""Configure exact or unrestricted spacing independently on both sides."""
+struct SeparatorSpacing
+    before::HorizontalSpacing
+    after::HorizontalSpacing
+end
+
+"""Configure the four independent Odin separator-spacing policies."""
+struct OdinSpacingSettings
+    declaration_colon::SeparatorSpacing
+    equals::SeparatorSpacing
+    inferred_declaration::SeparatorSpacing
+    constant_declaration::SeparatorSpacing
+end
+
+"""Return Odin spacing policies with the repository's established binding style."""
+function default_odin_spacing_settings()
+    return OdinSpacingSettings(
+        SeparatorSpacing(HorizontalSpacing(0), HorizontalSpacing(1)),
+        SeparatorSpacing(HorizontalSpacing(1), HorizontalSpacing(1)),
+        SeparatorSpacing(HorizontalSpacing(1), HorizontalSpacing(1)),
+        SeparatorSpacing(HorizontalSpacing(1), HorizontalSpacing(1)))
+end
+
 struct AnalysisSettings
     profile::Symbol
     failure_threshold::FindingResponse
@@ -635,6 +676,7 @@ struct AnalysisSettings
     coverage::CoverageSettings
     documentation::DocumentationSettings
     call_roots::CallRootSettings
+    odin_spacing::OdinSpacingSettings
 end
 
 struct EffectiveSettings
@@ -661,6 +703,7 @@ struct EffectiveSettings
     coverage::CoverageSettings
     documentation::DocumentationSettings
     call_roots::CallRootSettings
+    odin_spacing::OdinSpacingSettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -744,6 +787,7 @@ struct CompatibilitySettingsTail
     security
     coverage
     documentation
+    spacing
 end
 
 struct CompatibilityMetricTail
@@ -827,7 +871,8 @@ function compatibility_settings_tail(trailing)
         analysis.resource_lifetime,
         analysis.security,
         analysis.coverage,
-        analysis.documentation)
+        analysis.documentation,
+        default_odin_spacing_settings())
 end
 
 """Construct settings from APIs predating build, tuple, or parameter policies."""
@@ -840,11 +885,14 @@ function AnalysisSettings(
     naming,
     jet,
     trailing...)
-    length(trailing) in 2:13 || throw(MethodError(
+    has_spacing = !isempty(trailing) && last(trailing) isa OdinSpacingSettings
+    spacing = has_spacing ? last(trailing) : default_odin_spacing_settings()
+    layout = has_spacing ? trailing[1:(end - 1)] : trailing
+    length(layout) in 2:14 || throw(MethodError(
         AnalysisSettings,
         (profile, failure_threshold, thresholds, profiles, rules, naming, jet,
             trailing...)))
-    tail = compatibility_settings_tail(trailing)
+    tail = compatibility_settings_tail(layout)
     return AnalysisSettings(
     profile,
     failure_threshold,
@@ -866,7 +914,8 @@ function AnalysisSettings(
     tail.security,
     tail.coverage,
     tail.documentation,
-    default_call_root_settings())
+    length(layout) == 14 ? layout[14] : default_call_root_settings(),
+    spacing)
 end
 
 """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -879,19 +928,23 @@ function EffectiveSettings(
     naming,
     jet,
     trailing...)
-    length(trailing) in 3:6 || length(trailing) in (10, 14, 15) || throw(MethodError(
+    has_spacing = !isempty(trailing) && last(trailing) isa OdinSpacingSettings
+    spacing = has_spacing ? last(trailing) : default_odin_spacing_settings()
+    layout = has_spacing ? trailing[1:(end - 1)] : trailing
+    length(layout) in 3:6 || length(layout) in (10, 14, 15, 16) ||
+        throw(MethodError(
         EffectiveSettings,
         (profile, failure_threshold, thresholds, enforcement_excludes, rules,
             naming, jet, trailing...)))
     prefix = (profile, failure_threshold, thresholds, enforcement_excludes,
         rules, naming, jet)
-    return length(trailing) <= 6 ?
-        legacy_effective_settings(prefix, trailing) :
-        extended_effective_settings(prefix, trailing)
+    return length(layout) <= 6 ?
+        legacy_effective_settings(prefix, layout, spacing) :
+        extended_effective_settings(prefix, layout, spacing)
 end
 
 """Construct effective settings from the shortest historical layouts."""
-function legacy_effective_settings(prefix, trailing)
+function legacy_effective_settings(prefix, trailing, spacing)
     odin_build = trailing[1]
     return_tuples = length(trailing) in (4, 6) ? trailing[2] :
         default_return_tuple_settings()
@@ -910,19 +963,25 @@ function legacy_effective_settings(prefix, trailing)
         default_security_settings(),
         default_coverage_settings(),
         default_documentation_settings(),
-        default_call_root_settings())
+        default_call_root_settings(),
+        spacing)
 end
 
 """Construct effective settings from later additive layouts."""
-function extended_effective_settings(prefix, trailing)
+function extended_effective_settings(prefix, trailing, spacing)
     defaults = length(trailing) == 10 ? (
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
         default_security_settings(),
         default_coverage_settings(),
         default_documentation_settings(),
-        default_call_root_settings()) : length(trailing) == 14 ? (
+        default_call_root_settings(),
+        spacing) : length(trailing) == 14 ? (
             default_documentation_settings(),
-            default_call_root_settings()) : (default_call_root_settings(),)
+            default_call_root_settings(),
+            spacing) : length(trailing) == 15 ? (
+                default_call_root_settings(),
+                spacing) : length(trailing) == 16 ? (spacing,) :
+                (default_call_root_settings(), spacing)
     return EffectiveSettings(prefix..., trailing..., defaults...)
 end

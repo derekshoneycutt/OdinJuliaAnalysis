@@ -54,6 +54,76 @@ odin_engine_test_control_bodies :: proc(t: ^testing.T) {
     testing.expect_value(t, count, 4)
 }
 
+// Verify declaration and expression ASTs classify spacing separators once.
+@(test)
+odin_engine_test_separator_evidence :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+    context.allocator = allocator
+    source := "package fixture\n" +
+        "typed: int = 1\n" +
+        "typed_constant: int : 2\n" +
+        "inferred := 3\n" +
+        "split_inferred : = 4\n" +
+        "CONSTANT :: 4\n" +
+        "SPLIT_CONSTANT : /* internal */ : 5\n" +
+        "Point :: struct { x: int, y: int }\n" +
+        "example :: proc(parameter: int = 1) {\n" +
+        "    value = parameter\n" +
+        "    consume(named = 2)\n" +
+        "    Point{x = 1}\n" +
+        "}\n"
+    fixture := write_analysis_test_fixture(t, source, allocator)
+    defer if fixture.directory != "" {
+        _ = os.remove_all(fixture.directory)
+    }
+    summary := analyze_file(fixture.path, allocator)
+    testing.expect(t, summary.parsed)
+    testing.expect_value(t, summary.syntax_errors, 0)
+    testing.expect_value(t, len(summary.separators), 17)
+    testing.expect_value(t, separator_evidence_counts(&summary), [4]int{5, 5, 2, 5})
+    testing.expect_value(
+        t, separator_adjacency_counts(&summary), [2]int{4, 2})
+}
+
+// Count parser-backed separators by the four configured syntax policies.
+separator_evidence_counts :: proc(summary: ^File_Summary) -> [4]int {
+    counts := [4]int{}
+    for item in summary.separators {
+        if item.kind == "colon" {
+            counts[0] += 1
+        } else if item.kind == "equals" {
+            counts[1] += 1
+        } else if item.kind == "inferred" {
+            counts[2] += 1
+        } else if item.kind == "constant" {
+            counts[3] += 1
+        }
+    }
+    return counts
+}
+
+// Count adjacent and split punctuation in logical declaration operators.
+separator_adjacency_counts :: proc(summary: ^File_Summary) -> [2]int {
+    counts := [2]int{}
+    for item in summary.separators {
+        if item.internal_required {
+            if item.internal_adjacent {
+                counts[0] += 1
+            } else {
+                counts[1] += 1
+            }
+        }
+    }
+    return counts
+}
+
 PROCEDURE_METRICS_FIXTURE :: `package fixture
 
 Sample_Type :: struct {

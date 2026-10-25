@@ -3,10 +3,10 @@ function settings_with_call_roots(entry_points)
     base = Base.include(
         Module(gensym(:CallRootFixtureSettings)),
         OdinJuliaAnalysis.DEFAULT_SETTINGS_PATH)
-    names = fieldnames(AnalysisSettings)
     replaced = AnalysisSettings(
-        (getfield(base, name) for name in names[1:(end - 1)])...,
-        CallRootSettings(entry_points))
+        (name == :call_roots ? CallRootSettings(entry_points) :
+            getfield(base, name)
+            for name in fieldnames(AnalysisSettings))...)
     return OdinJuliaAnalysis.validate_settings(replaced)
 end
 
@@ -612,4 +612,3 @@ end
         source_root, ["libs/julia/bindings"])
     @test excludes == [normpath("libs/julia/bindings")]
 end
-

@@ -61,10 +61,10 @@ static test reachability without making the analyzer responsible for running tes
 | Package version | `0.1.0` |
 | Analysis schema | `4.1.0` |
 | Extension API | `2.0.0` |
-| Native Odin schema | `3.12.0` |
-| Native Odin engine | `0.16.0` |
+| Native Odin schema | `3.13.0` |
+| Native Odin engine | `0.17.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 75 |
+| Built-in rules | 79 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -268,7 +268,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 75 built-in rules. Every configured rule has an enablement flag and
+The registry contains 79 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -276,7 +276,7 @@ one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
 | Cross-language analysis and policy | 10 | Architecture, call-graph uncertainty, security boundaries, and reviewed-policy drift |
 | Julia core and metrics | 24 | Syntax, behavior, duplicate code, reachability, naming, mutable globals, documentation, metrics, unused imports, and JET |
-| Odin core, metrics, builds, and allocations | 32 | Syntax, control bodies, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
+| Odin core, metrics, builds, and allocations | 36 | Syntax, control bodies, separator spacing, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
@@ -285,6 +285,7 @@ Representative rule IDs:
 | --- | --- | --- | --- |
 | Syntax | `JULIA-SYNTAX` | `ODIN-SYNTAX` | - |
 | Control body formatting | - | `ODIN-SINGLE-LINE-CONTROL-BODY`, `ODIN-DO-CONTROL-BODY` | - |
+| Separator spacing | - | `ODIN-DECLARATION-COLON-SPACING`, `ODIN-EQUALS-SPACING`, `ODIN-INFERRED-DECLARATION-SPACING`, `ODIN-CONSTANT-DECLARATION-SPACING` | - |
 | Naming | `JULIA-NAMING` | `ODIN-NAMING` | `NAMING-POLICY-DRIFT` |
 | Mutable globals | `JULIA-NONCONST-GLOBAL`, `JULIA-CONST-MUTABLE-REF` | `ODIN-NONCONST-GLOBAL` | - |
 | Behavior | `JULIA-EMPTY-CATCH`, `JULIA-BROAD-CATCH`, `JULIA-UNSIGNALED-ARGUMENT-MUTATION`, `JULIA-GLOBAL-WRITE` | - | `SECURITY-UNSAFE-BOUNDARY` |
@@ -323,6 +324,26 @@ compiler `-disallow-do` flag.
 
 The `*-REPORT`, `*-WARN`, and `*-FAIL` metric rules use exact, increasing thresholds.
 This preserves low-severity visibility without making every review signal block a build.
+
+### Odin Separator Spacing
+
+Four independent, parser-backed rules cover declaration colons, equals signs,
+inferred declarations (`:=`), and constant declarations (`::`). The first colon
+in a typed constant declaration follows the declaration-colon policy; its second,
+value-separating colon follows the constant-declaration policy.
+
+Each policy configures the before and after sides independently. A side accepts
+either an exact nonnegative count of ASCII spaces or unrestricted horizontal
+whitespace (`HorizontalSpacing(nothing)`). Defaults are zero spaces before and
+one after declaration colons, and one space on both sides for the other three
+policies. Composite `:=` and `::` punctuation must remain adjacent.
+
+Spacing evidence comes from Odin AST contexts and the native tokenizer. Newlines
+and comment boundaries are exempt on their respective side, so wrapped
+declarations and comments do not create artificial spacing findings. Multiple
+side violations for one separator are reported together. The baseline settings
+use `Report`; consuming repositories choose each rule's `Ignore`, `Report`,
+`Warn`, or `Fail` response through the ordinary rule registry.
 `JULIA-CONST-MUTABLE-REF` warns when a module-scope `const` binding constructs `Ref`,
 `Ref{T}`, or a standard qualified `Ref`/`RefValue`. The binding is constant, but its
 referenced storage remains mutable; the rule is `probable` because syntax alone cannot

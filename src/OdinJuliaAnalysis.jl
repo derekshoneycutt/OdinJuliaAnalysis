@@ -44,6 +44,8 @@ export default_resource_lifetime_settings
 export SecurityCallContract, SecuritySettings, default_security_settings
 export CoverageSettings, default_coverage_settings
 export DocumentationSettings, default_documentation_settings
+export HorizontalSpacing, SeparatorSpacing, OdinSpacingSettings
+export default_odin_spacing_settings
 
 using JSON
 using JuliaSyntax

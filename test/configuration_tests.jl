@@ -239,6 +239,59 @@ end
     @test configuration.parameter_counts == ParameterCountSettings(8, 5, 8)
     @test configuration.documentation.julia_template.pattern == raw"\S"
     @test configuration.documentation.odin_template.pattern == raw"\S"
+    @test configuration.odin_spacing == default_odin_spacing_settings()
+    for rule_id in (
+        "ODIN-DECLARATION-COLON-SPACING",
+        "ODIN-EQUALS-SPACING",
+        "ODIN-INFERRED-DECLARATION-SPACING",
+        "ODIN-CONSTANT-DECLARATION-SPACING")
+        @test configuration.rules[rule_id].enabled
+        @test configuration.rules[rule_id].response == Report
+    end
+    custom_spacing = OdinSpacingSettings(
+        SeparatorSpacing(HorizontalSpacing(nothing), HorizontalSpacing(0)),
+        SeparatorSpacing(HorizontalSpacing(2), HorizontalSpacing(nothing)),
+        SeparatorSpacing(HorizontalSpacing(0), HorizontalSpacing(3)),
+        SeparatorSpacing(HorizontalSpacing(4), HorizontalSpacing(1)))
+    custom_settings = AnalysisSettings(
+        configuration.profile,
+        configuration.failure_threshold,
+        configuration.thresholds,
+        [ScanProfile(
+            configuration.profile, configuration.enforcement_excludes)],
+        collect(values(configuration.rules)),
+        configuration.naming,
+        configuration.jet,
+        configuration.odin_build,
+        configuration.return_tuples,
+        configuration.parameter_counts,
+        configuration.function_metrics,
+        configuration.architecture,
+        configuration.allocations,
+        configuration.report,
+        configuration.extensions,
+        configuration.duplicate_code,
+        configuration.resource_lifetime,
+        configuration.security,
+        configuration.coverage,
+        configuration.documentation,
+        configuration.call_roots,
+        custom_spacing)
+    effective_spacing = OdinJuliaAnalysis.validate_settings(custom_settings)
+    @test effective_spacing.odin_spacing == custom_spacing
+    @test with_rules(effective_spacing, Dict()).odin_spacing == custom_spacing
+    historical_settings = AnalysisSettings(
+        (getfield(custom_settings, name) for name in
+            fieldnames(AnalysisSettings)[1:(end - 1)])...)
+    @test OdinJuliaAnalysis.validate_settings(
+        historical_settings).odin_spacing == default_odin_spacing_settings()
+    historical_effective = OdinJuliaAnalysis.EffectiveSettings(
+        (getfield(effective_spacing, name) for name in
+            fieldnames(OdinJuliaAnalysis.EffectiveSettings)[1:(end - 1)])...)
+    @test historical_effective.odin_spacing == default_odin_spacing_settings()
+    @test_throws ArgumentError HorizontalSpacing(-1)
+    @test_throws ArgumentError HorizontalSpacing(true)
+    @test_throws ArgumentError HorizontalSpacing(1.5)
     @test configuration.report.staging_maximum_response == Fail
     @test_throws ArgumentError OdinJuliaAnalysis.validate_documentation_settings(
         DocumentationSettings(r"", r"\S"))
@@ -299,6 +352,7 @@ end
         "analysis-test-metrics-arena",
         "analysis-test-allocation-arena",
         "analysis-test-syntax-arena",
+        "analysis-test-separator-arena",
         "analysis-arena-backing",
         "analysis-symbol-inventory-growth",
         "analysis-abi-type-growth",
@@ -309,6 +363,8 @@ end
         "analysis-procedure-inventory-growth",
         "analysis-body-token-storage",
         "analysis-body-token-growth",
+        "analysis-source-token-storage",
+        "analysis-source-token-growth",
         "analysis-documentation-finding-growth",
         "analysis-import-symbol-growth",
         "analysis-import-edge-growth",

@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.12.0"
-ENGINE_VERSION :: "0.16.0"
+SCHEMA_VERSION :: "3.13.0"
+ENGINE_VERSION :: "0.17.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -25,6 +25,23 @@ Finding :: struct {
     target: string,
     allocator_source: string,
     certainty: string,
+}
+
+// Carry AST-classified separator identity and measured gaps to Julia policy.
+Separator_Evidence :: struct {
+    kind: string,
+    separator_context: string,
+    line: int,
+    column: int,
+    offset: int,
+    before_eligible: bool,
+    before_spaces: int,
+    before_ascii_spaces: bool,
+    after_eligible: bool,
+    after_spaces: int,
+    after_ascii_spaces: bool,
+    internal_required: bool,
+    internal_adjacent: bool,
 }
 
 Procedure_Metric :: struct {
@@ -105,6 +122,7 @@ File_Summary :: struct {
     syntax_warnings: int,
     struct_count: int,
     findings: [dynamic]Finding,
+    separators: [dynamic]Separator_Evidence,
     procedures: [dynamic]Procedure_Metric,
     symbols: [dynamic]Declaration_Symbol,
     imports: [dynamic]Import_Edge,
@@ -141,6 +159,9 @@ Analysis_Visitor_Data :: struct {
     path: string,
     source: string,
     findings: ^[dynamic]Finding,
+    separators: ^[dynamic]Separator_Evidence,
+    separator_seen: []bool,
+    tokens: []tokenizer.Token,
     context_allocator_aliases: ^[dynamic]Context_Allocator_Alias,
     procedure_scopes: ^[dynamic]Procedure_Scope,
     procedures: ^[dynamic]Procedure_Metric,
@@ -153,11 +174,357 @@ Analysis_Visitor_Data :: struct {
     allocator: runtime.Allocator,
 }
 
+// Measure horizontal whitespace bytes between adjacent tokens.
+Separator_Gap :: struct {
+    horizontal_only: bool,
+    spaces: int,
+    ascii_spaces: bool,
+}
+
+// Store the measured spacing and eligibility for one separator side.
+Separator_Side_Evidence :: struct {
+    eligible: bool,
+    spaces: int,
+    ascii_spaces: bool,
+}
+
+// Describe the syntax policy and composite adjacency for one separator.
+Separator_Options :: struct {
+    kind: string,
+    separator_context: string,
+    internal_required: bool,
+}
+
+// Identify the punctuation tokens that form one logical separator.
+Token_Pair :: struct {
+    first: int,
+    last: int,
+    found: bool,
+}
+
 // Configure optional metadata for one allocation finding.
 Allocation_Finding_Options :: struct {
     allocator: ^ast.Expr,
     certainty: string,
     target: string,
+}
+
+// Tokenize one source file once for separator evidence and existing body analysis.
+tokenize_source :: proc(
+    source, path: string,
+    allocator: runtime.Allocator) -> [dynamic]tokenizer.Token {
+    tokens := make([dynamic]tokenizer.Token, 0, allocator)
+    scanner: tokenizer.Tokenizer
+    tokenizer.init(&scanner, source, path)
+    for {
+        token := tokenizer.scan(&scanner)
+        append(&tokens, token)
+        if token.kind == .EOF {
+            return tokens
+        }
+    }
+}
+
+// Find a token by source offset using the ordered per-file token stream.
+token_index_at :: proc(
+    tokens: []tokenizer.Token,
+    offset: int) -> int {
+    index := token_index_at_or_after(tokens, offset)
+    if index < len(tokens) && tokens[index].pos.offset == offset {
+        return index
+    }
+    return -1
+}
+
+// Find the first token at or after an AST boundary in the ordered token stream.
+token_index_at_or_after :: proc(
+    tokens: []tokenizer.Token,
+    offset: int) -> int {
+    low := 0
+    high := len(tokens)
+    for low < high {
+        middle := low + (high - low) / 2
+        if tokens[middle].pos.offset < offset {
+            low = middle + 1
+        } else {
+            high = middle
+        }
+    }
+    return low
+}
+
+// Count ASCII spaces and identify horizontal-only source bytes in one token gap.
+separator_gap :: proc(source: string, start, end: int) -> Separator_Gap {
+    gap := Separator_Gap{horizontal_only = true, ascii_spaces = true}
+    for index in max(start, 0)..<min(end, len(source)) {
+        character := source[index]
+        if character == ' ' {
+            gap.spaces += 1
+        } else {
+            gap.ascii_spaces = false
+            if character != '\t' && character != '\v' && character != '\f' {
+                gap.horizontal_only = false
+            }
+        }
+    }
+    return gap
+}
+
+// Skip comments and newline tokens while matching split logical punctuation.
+next_composite_token :: proc(
+    tokens: []tokenizer.Token,
+    start, end: int) -> int {
+    for index in start..<min(end, len(tokens)) {
+        token := tokens[index]
+        if token.kind == .Comment ||
+            (token.kind == .Semicolon && token.text == "\n") {
+            continue
+        }
+        return index
+    }
+    return -1
+}
+
+// Find a parser-anchored two-token Odin declaration operator in one AST span.
+find_composite_token :: proc(
+    data: ^Analysis_Visitor_Data,
+    start, end: int,
+    trailing_kind: tokenizer.Token_Kind) -> Token_Pair {
+    first := token_index_at_or_after(data.tokens, start)
+    for index := first; index < len(data.tokens) &&
+        data.tokens[index].pos.offset < end; index += 1 {
+        if data.tokens[index].kind != .Colon {
+            continue
+        }
+        second := next_composite_token(data.tokens, index + 1, len(data.tokens))
+        if second < 0 || data.tokens[second].pos.offset >= end {
+            continue
+        }
+        if data.tokens[second].kind == trailing_kind {
+            return Token_Pair{first = index, last = second, found = true}
+        }
+    }
+    return {}
+}
+
+// Find one syntax-classified token within a bounded AST source span.
+find_token_kind :: proc(
+    data: ^Analysis_Visitor_Data,
+    start, end: int,
+    kind: tokenizer.Token_Kind) -> int {
+    first := token_index_at_or_after(data.tokens, start)
+    for index := first; index < len(data.tokens) &&
+        data.tokens[index].pos.offset < end; index += 1 {
+        if data.tokens[index].kind == kind {
+            return index
+        }
+    }
+    return -1
+}
+
+// Measure eligible source spacing on one side of a syntax-classified separator.
+separator_side_evidence :: proc(
+    data: ^Analysis_Visitor_Data,
+    separator_index, neighbor_index: int,
+    before: bool) -> Separator_Side_Evidence {
+    if neighbor_index < 0 || neighbor_index >= len(data.tokens) {
+        return {}
+    }
+    separator := data.tokens[separator_index]
+    neighbor := data.tokens[neighbor_index]
+    gap: Separator_Gap
+    if before {
+        gap = separator_gap(
+            data.source, neighbor.pos.offset + len(neighbor.text),
+            separator.pos.offset)
+    } else {
+        gap = separator_gap(
+            data.source, separator.pos.offset + len(separator.text),
+            neighbor.pos.offset)
+    }
+    eligible := neighbor.kind != .Comment && neighbor.kind != .EOF &&
+        neighbor.pos.line == separator.pos.line && gap.horizontal_only
+    return Separator_Side_Evidence{
+        eligible = eligible,
+        spaces = gap.spaces,
+        ascii_spaces = gap.ascii_spaces,
+    }
+}
+
+// Append one logical separator only when its AST establishes the syntax role.
+append_separator_evidence :: proc(
+    data: ^Analysis_Visitor_Data,
+    pair: Token_Pair,
+    options: Separator_Options) {
+    first_index := pair.first
+    last_index := pair.last
+    if first_index < 0 || last_index < first_index || last_index >= len(data.tokens) {
+        return
+    }
+    first := data.tokens[first_index]
+    last := data.tokens[last_index]
+    if data.separator_seen[first_index] {
+        return
+    }
+    data.separator_seen[first_index] = true
+    before := separator_side_evidence(data, first_index, first_index - 1, true)
+    after := separator_side_evidence(data, last_index, last_index + 1, false)
+    append(&data.separators^, Separator_Evidence{
+        kind = options.kind,
+        separator_context = options.separator_context,
+        line = first.pos.line,
+        column = first.pos.column,
+        offset = first.pos.offset,
+        before_eligible = before.eligible,
+        before_spaces = before.spaces,
+        before_ascii_spaces = before.ascii_spaces,
+        after_eligible = after.eligible,
+        after_spaces = after.spaces,
+        after_ascii_spaces = after.ascii_spaces,
+        internal_required = options.internal_required,
+        internal_adjacent = !options.internal_required ||
+            first.pos.offset + len(first.text) == last.pos.offset,
+    })
+}
+
+// Collect parser-backed spacing facts for one declared value binding.
+collect_value_declaration_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    if len(declaration.names) == 0 {
+        return
+    }
+    if declaration.type != nil {
+        collect_typed_value_spacing(data, declaration)
+        return
+    }
+    if len(declaration.values) > 0 {
+        collect_inferred_value_spacing(data, declaration)
+    }
+}
+
+// Collect the separators in a typed Odin value declaration.
+collect_typed_value_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    last_name := declaration.names[len(declaration.names) - 1]
+    colon := find_token_kind(
+        data, last_name.end.offset, declaration.type.pos.offset, .Colon)
+    append_separator_evidence(
+        data,
+        Token_Pair{first = colon, last = colon, found = true},
+        Separator_Options{"colon", "typed declaration", false})
+    if len(declaration.values) == 0 {
+        return
+    }
+    value := declaration.values[0]
+    if declaration.is_mutable {
+        equal := find_token_kind(
+            data, declaration.type.end.offset, value.pos.offset, .Eq)
+        append_separator_evidence(
+            data,
+            Token_Pair{first = equal, last = equal, found = true},
+            Separator_Options{"equals", "typed initializer", false})
+    } else {
+        value_colon := find_token_kind(
+            data, declaration.type.end.offset, value.pos.offset, .Colon)
+        append_separator_evidence(
+            data,
+            Token_Pair{first = value_colon, last = value_colon, found = true},
+            Separator_Options{"constant", "typed constant value", false})
+    }
+}
+
+// Collect the composite separator in an inferred value declaration.
+collect_inferred_value_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    last_name := declaration.names[len(declaration.names) - 1]
+    value := declaration.values[0]
+    separator_kind: tokenizer.Token_Kind = .Colon
+    options := Separator_Options{"constant", "constant declaration", true}
+    if declaration.is_mutable {
+        separator_kind = .Eq
+        options = Separator_Options{"inferred", "inferred declaration", true}
+    }
+    pair := find_composite_token(
+        data, last_name.end.offset, value.pos.offset, separator_kind)
+    append_separator_evidence(data, pair, options)
+}
+
+// Collect declaration-colon and parameter-default separators for one field.
+collect_field_spacing :: proc(data: ^Analysis_Visitor_Data, field: ^ast.Field) {
+    if len(field.names) > 0 && field.type != nil {
+        last_name := field.names[len(field.names) - 1]
+        colon := find_token_kind(
+            data, last_name.end.offset, field.type.pos.offset, .Colon)
+        append_separator_evidence(
+            data,
+            Token_Pair{first = colon, last = colon, found = true},
+            Separator_Options{"colon", "field declaration", false})
+    }
+    if field.default_value != nil && len(field.names) > 0 {
+        start := field.names[len(field.names) - 1].end.offset
+        if field.type != nil {
+            start = field.type.end.offset
+        }
+        equal := find_token_kind(
+            data, start, field.default_value.pos.offset, .Eq)
+        append_separator_evidence(
+            data,
+            Token_Pair{first = equal, last = equal, found = true},
+            Separator_Options{"equals", "field default", false})
+    }
+}
+
+// Collect one parser-recorded equals separator for a named argument or literal field.
+collect_field_value_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    field_value: ^ast.Expr,
+    separator_context: string) {
+    value, is_field_value := field_value.derived.(^ast.Field_Value)
+    if !is_field_value {
+        return
+    }
+    separator := token_index_at(data.tokens, value.sep.offset)
+    if separator >= 0 && data.tokens[separator].kind == .Eq {
+        append_separator_evidence(
+            data,
+            Token_Pair{first = separator, last = separator, found = true},
+            Separator_Options{"equals", separator_context, false})
+    }
+}
+
+// Collect named call argument separators without scanning unrelated punctuation.
+collect_call_argument_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    call: ^ast.Call_Expr) {
+    for argument in call.args {
+        collect_field_value_spacing(data, argument, "named argument")
+    }
+}
+
+// Collect named compound-literal initializer separators.
+collect_compound_literal_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    compound: ^ast.Comp_Lit) {
+    for element in compound.elems {
+        collect_field_value_spacing(data, element, "compound-literal field")
+    }
+}
+
+// Collect plain assignment equals separators from parser-retained operators.
+collect_assignment_spacing :: proc(
+    data: ^Analysis_Visitor_Data,
+    assignment: ^ast.Assign_Stmt) {
+    if assignment.op.kind != .Eq {
+        return
+    }
+    index := token_index_at(data.tokens, assignment.op.pos.offset)
+    append_separator_evidence(
+        data,
+        Token_Pair{first = index, last = index, found = true},
+        Separator_Options{"equals", "assignment", false})
 }
 
 // Initialize Odin's global tokenizer table before parallel test workers run.
@@ -1221,6 +1588,7 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     check_control_bodies(data, node)
     if declaration, is_declaration := node.derived.(^ast.Value_Decl); is_declaration {
         register_procedure_scopes(data, declaration)
+        collect_value_declaration_spacing(data, declaration)
         if !is_test_source(data.path) {
             check_context_allocator_defaults(data, declaration)
             check_context_allocator_aliases(data, declaration)
@@ -1236,6 +1604,9 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
         append_import_edge(data, import_declaration)
         return visitor
     }
+    if field, is_field := node.derived.(^ast.Field); is_field {
+        collect_field_spacing(data, field)
+    }
     if identifier, is_identifier := node.derived.(^ast.Ident); is_identifier {
         append_reference(data, identifier)
         return visitor
@@ -1244,17 +1615,22 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     case ^ast.If_Stmt, ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Case_Clause:
         record_decision(data, node)
     case ^ast.Assign_Stmt:
-        if assignment, ok := node.derived.(^ast.Assign_Stmt);
-            ok && !is_test_source(data.path) {
-            check_context_allocator_assignments(data, assignment)
+        if assignment, ok := node.derived.(^ast.Assign_Stmt); ok {
+            collect_assignment_spacing(data, assignment)
+            if !is_test_source(data.path) {
+                check_context_allocator_assignments(data, assignment)
+            }
         }
     case ^ast.Comp_Lit:
-        if compound, ok := node.derived.(^ast.Comp_Lit);
-            ok && !is_test_source(data.path) {
-            check_context_allocator_compound(data, compound)
+        if compound, ok := node.derived.(^ast.Comp_Lit); ok {
+            collect_compound_literal_spacing(data, compound)
+            if !is_test_source(data.path) {
+                check_context_allocator_compound(data, compound)
+            }
         }
     }
     if call, is_call := node.derived.(^ast.Call_Expr); is_call {
+        collect_call_argument_spacing(data, call)
         append_call_edge(data, call)
         check_allocation_call(data, call)
         if !is_test_source(data.path) {
@@ -1277,6 +1653,8 @@ check_allocations :: proc(
         source = file.src,
         findings = &summary.findings,
         context_allocator_aliases = &context_allocator_aliases,
+        separators = &summary.separators,
+        tokens = tokenize_source(file.src, file.fullpath, allocator)[:],
         procedure_scopes = &procedure_scopes,
         procedures = &summary.procedures,
         symbols = &summary.symbols,
@@ -1287,6 +1665,7 @@ check_allocations :: proc(
         interop_signatures = &summary.interop_signatures,
         allocator = allocator,
     }
+    data.separator_seen = make([]bool, len(data.tokens), allocator)
     visitor := ast.Visitor {
         visit = visit_allocations,
         data = rawptr(&data),
@@ -1366,6 +1745,7 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
     summary := File_Summary {
         path = path,
         findings = make([dynamic]Finding, 0, allocator),
+        separators = make([dynamic]Separator_Evidence, 0, allocator),
         procedures = make([dynamic]Procedure_Metric, 0, allocator),
         symbols = make([dynamic]Declaration_Symbol, 0, allocator),
         imports = make([dynamic]Import_Edge, 0, allocator),
