@@ -5,11 +5,94 @@ import "base:runtime"
 import vmem "core:mem/virtual"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 
 Analysis_Test_Fixture :: struct {
     directory: string,
     path: string,
+}
+
+Case_Body_Test :: struct {
+    body: string,
+    positions: [] [2]int,
+}
+
+CASE_BODY_TESTS :: []Case_Body_Test{
+    {"switch value {\ncase 1: return\n}", {{2, 9}}},
+    {"switch value {\ncase: return\n}", {{2, 7}}},
+    {"switch value {\ncase 1: first(); second()\ncase: return\n}", {{2, 9}, {3, 7}}},
+    {"switch value {\ncase 1: { return }\n}", {{2, 11}}},
+    {"switch value {\ncase 1: { { return } }\n}", {{2, 13}}},
+    {"switch value {\ncase 1: {}; return\n}", {{2, 13}}},
+    {"switch value {\ncase 1: { {} }; return\n}", {{2, 17}}},
+    {"switch value {\ncase 1,\n    2: return\n}", {{3, 8}}},
+    {"switch value {\ncase\n    1: return\n}", {{3, 8}}},
+    {"switch value {\ncase 1: /* inline */ return\n}", {{2, 22}}},
+    {"switch value {\ncase 1: {\nreturn\n}\n}", {}},
+    {"switch value {\ncase 1: { {\nreturn\n} }\n}", {}},
+    {"switch value {\ncase 1: {}\ncase 2:\ncase:\n}", {}},
+    {"switch value {\ncase 1: { {} }\ncase: // return\n/* return */\n}", {}},
+    {"switch value {\ncase 1,\n    2:\nreturn\n}", {}},
+    {"switch value {\ncase 1:\nreturn\n}", {}},
+    {"#partial switch value {\ncase 1: return\ncase: return\n}", {{2, 9}, {3, 7}}},
+    {"switch item in value {\ncase int: return\ncase: return\n}", {{2, 11}, {3, 7}}},
+    {"#partial switch item in value {\ncase int: { return }\n}", {{2, 13}}},
+    {"switch value {\ncase 1: if true {\nreturn\n}\n}", {{2, 9}}},
+    {"switch value {\ncase 1:\nif true { return }\n}", {}},
+    {"switch value {\ncase 1:\nswitch other {\ncase: return\n}\n}", {{4, 7}}},
+    {"// switch value { case: return }\ntext := \"case 1: return\"\n" +
+        "raw := `case: { return }`\n/* switch value { case: return } */", {}},
+}
+
+// Verify case terminators and transparent blocks preserve physical source positions.
+@(test)
+odin_engine_test_case_bodies :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+    context.allocator = allocator
+    for fixture in CASE_BODY_TESTS {
+        source := strings.concatenate({
+            "package fixture\nsample :: proc() {\n", fixture.body, "\n}\n",
+        }, allocator)
+        for newline in ([]string{"\n", "\r\n"}) {
+            converted, _ := strings.replace_all(source, "\n", newline, allocator)
+            verify_case_body_positions(t, converted, fixture.positions, allocator)
+        }
+    }
+}
+
+// Check one parser fixture emits one finding at each expected inline statement.
+verify_case_body_positions :: proc(
+    t: ^testing.T,
+    source: string,
+    positions: [] [2]int,
+    allocator: runtime.Allocator) {
+    fixture := write_analysis_test_fixture(t, source, allocator)
+    defer if fixture.directory != "" {
+        _ = os.remove_all(fixture.directory)
+    }
+    summary := analyze_file(fixture.path, allocator)
+    testing.expect(t, summary.parsed)
+    testing.expect_value(t, summary.syntax_errors, 0)
+    count := 0
+    for finding in summary.findings {
+        if finding.rule_id != "ODIN-CASE-BODY-PLACEMENT" {
+            continue
+        }
+        if count < len(positions) {
+            testing.expect_value(t, finding.line - 2, positions[count][0])
+            testing.expect_value(t, finding.column, positions[count][1])
+        }
+        count += 1
+    }
+    testing.expect_value(t, count, len(positions))
 }
 
 // Verify native control findings use body tokens rather than header line spans.

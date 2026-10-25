@@ -11,7 +11,7 @@ import "core:os"
 import "core:strings"
 
 SCHEMA_VERSION :: "3.13.0"
-ENGINE_VERSION :: "0.17.0"
+ENGINE_VERSION :: "0.18.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -1572,7 +1572,45 @@ check_control_body :: proc(
     })
 }
 
-// Check conditional branches and every supported loop body without double visits.
+// Find inline case code through explicit blocks, without descending into statements.
+first_inline_case_statement :: proc(statements: []^ast.Stmt, line: int) -> ^ast.Stmt {
+    for statement in statements {
+        if statement == nil {
+            continue
+        }
+        #partial switch body in statement.derived {
+        case ^ast.Empty_Stmt:
+            continue
+        case ^ast.Block_Stmt:
+            if !body.uses_do {
+                if nested := first_inline_case_statement(body.stmts, line); nested != nil {
+                    return nested
+                }
+                continue
+            }
+        }
+        if statement.pos.line == line {
+            return statement
+        }
+    }
+    return nil
+}
+
+// Report only the first actual statement sharing the case terminator's line.
+check_case_body_placement :: proc(data: ^Analysis_Visitor_Data, clause: ^ast.Case_Clause) {
+    statement := first_inline_case_statement(clause.body, clause.terminator.pos.line)
+    if statement == nil {
+        return
+    }
+    append(data.findings, Finding {
+        rule_id = "ODIN-CASE-BODY-PLACEMENT",
+        line = statement.pos.line,
+        column = statement.pos.column,
+        message = "Case body code must start on a line after the case colon.",
+    })
+}
+
+// Check conditional branches, loops, and switch cases without double visits.
 check_control_bodies :: proc(data: ^Analysis_Visitor_Data, node: ^ast.Node) {
     #partial switch statement in node.derived {
     case ^ast.If_Stmt:
@@ -1582,6 +1620,8 @@ check_control_bodies :: proc(data: ^Analysis_Visitor_Data, node: ^ast.Node) {
         check_control_body(data, statement.body, statement.for_pos)
     case ^ast.Range_Stmt:
         check_control_body(data, statement.body, statement.for_pos)
+    case ^ast.Case_Clause:
+        check_case_body_placement(data, statement)
     }
 }
 

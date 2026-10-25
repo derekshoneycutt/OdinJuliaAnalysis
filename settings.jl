@@ -57,6 +57,7 @@ AnalysisSettings(
         RuleSetting("ODIN-CONSTANT-DECLARATION-SPACING", true, Report),
         RuleSetting("ODIN-SINGLE-LINE-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-DO-CONTROL-BODY", true, Report),
+        RuleSetting("ODIN-CASE-BODY-PLACEMENT", true, Report),
         RuleSetting("ODIN-NAMING", true, Warn),
         RuleSetting("ODIN-NONCONST-GLOBAL", true, Warn),
         RuleSetting("ODIN-UNUSED-IMPORT", true, Report),

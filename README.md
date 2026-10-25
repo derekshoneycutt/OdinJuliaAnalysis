@@ -62,9 +62,9 @@ static test reachability without making the analyzer responsible for running tes
 | Analysis schema | `4.1.0` |
 | Extension API | `2.0.0` |
 | Native Odin schema | `3.13.0` |
-| Native Odin engine | `0.17.0` |
+| Native Odin engine | `0.18.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 79 |
+| Built-in rules | 80 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -268,7 +268,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 79 built-in rules. Every configured rule has an enablement flag and
+The registry contains 80 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -276,7 +276,7 @@ one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 | Common source hygiene | 4 | Line tiers at 90, 100, and 120 columns; tab detection |
 | Cross-language analysis and policy | 10 | Architecture, call-graph uncertainty, security boundaries, and reviewed-policy drift |
 | Julia core and metrics | 24 | Syntax, behavior, duplicate code, reachability, naming, mutable globals, documentation, metrics, unused imports, and JET |
-| Odin core, metrics, builds, and allocations | 36 | Syntax, control bodies, separator spacing, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
+| Odin core, metrics, builds, and allocations | 37 | Syntax, control bodies, separator spacing, duplicate code, reachability, naming, globals, documentation, metrics, builds, and allocation evidence |
 | Markdown structure | 5 | Single H1, heading progression, fenced-code language tags, relative links, and image alt text |
 
 Representative rule IDs:
@@ -284,7 +284,7 @@ Representative rule IDs:
 | Concern | Julia | Odin | Shared or Markdown |
 | --- | --- | --- | --- |
 | Syntax | `JULIA-SYNTAX` | `ODIN-SYNTAX` | - |
-| Control body formatting | - | `ODIN-SINGLE-LINE-CONTROL-BODY`, `ODIN-DO-CONTROL-BODY` | - |
+| Control body formatting | - | `ODIN-SINGLE-LINE-CONTROL-BODY`, `ODIN-DO-CONTROL-BODY`, `ODIN-CASE-BODY-PLACEMENT` | - |
 | Separator spacing | - | `ODIN-DECLARATION-COLON-SPACING`, `ODIN-EQUALS-SPACING`, `ODIN-INFERRED-DECLARATION-SPACING`, `ODIN-CONSTANT-DECLARATION-SPACING` | - |
 | Naming | `JULIA-NAMING` | `ODIN-NAMING` | `NAMING-POLICY-DRIFT` |
 | Mutable globals | `JULIA-NONCONST-GLOBAL`, `JULIA-CONST-MUTABLE-REF` | `ODIN-NONCONST-GLOBAL` | - |
@@ -302,7 +302,7 @@ Representative rule IDs:
 
 ### Odin Control Body Formatting
 
-Two independent parser-backed rules default to `Report`:
+Three independent parser-backed rules default to `Report`:
 
 - `ODIN-SINGLE-LINE-CONTROL-BODY` reports `if`/`else` and all `for` bodies
   whose opening and closing braces share a physical source line, including
@@ -316,6 +316,17 @@ allowed. Findings point to the opening brace or `do` token. Comments and
 strings are not statements. `when`, `switch`, `defer`, standalone blocks, and
 procedure literals are not independent targets, but covered statements nested
 inside them are checked. Test files have no exemption.
+
+`ODIN-CASE-BODY-PLACEMENT` reports actual case body code sharing the physical
+line of the terminating colon in ordinary, type, and `#partial` switches,
+including default cases. Wrapped labels use the colon's line, not the `case`
+keyword's line. Explicit opening blocks on that line are allowed; only their
+actual inline contents are checked, recursively through block wrappers.
+For example, `case X: {` followed by code on the next line is allowed, as are
+empty cases and `case X: {}`; `case X: { return }` is reported. Comments are
+allowed. Each offending case receives one finding at its first inline actual
+statement. The rule does not enforce indentation or descend into non-block
+statements to inspect their contents. It applies equally to test source.
 
 Use ordinary `RuleSetting` entries to disable either rule or choose `Ignore`,
 `Report`, `Warn`, or `Fail`. `Ignore` retains ignored evidence. These checks do
