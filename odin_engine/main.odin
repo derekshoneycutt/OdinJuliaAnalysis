@@ -465,9 +465,15 @@ collect_field_spacing :: proc(data: ^Analysis_Visitor_Data, field: ^ast.Field) {
     }
     if field.default_value != nil && len(field.names) > 0 {
         start := field.names[len(field.names) - 1].end.offset
-        if field.type != nil {
-            start = field.type.end.offset
+        if field.type == nil {
+            pair := find_composite_token(
+                data, start, field.default_value.pos.offset, .Eq)
+            append_separator_evidence(
+                data, pair,
+                Separator_Options{"inferred", "inferred field default", true})
+            return
         }
+        start = field.type.end.offset
         equal := find_token_kind(
             data, start, field.default_value.pos.offset, .Eq)
         append_separator_evidence(
