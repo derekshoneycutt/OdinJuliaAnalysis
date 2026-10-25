@@ -26,7 +26,7 @@ function function_metric_diagnostics(functions, configuration)
             item,
             settings.lines,
             "$(settings.prefix)-FUNCTION-LINES",
-            item.executable_lines,
+            function_enforcement_lines(item, configuration.function_metrics),
             "executable lines",
             settings.noun)
         append_function_metric_diagnostic!(
@@ -42,6 +42,13 @@ function function_metric_diagnostics(functions, configuration)
     return diagnostics
 end
 
+"""Select function-line enforcement without changing ordinary source measurements."""
+function function_enforcement_lines(item, settings)
+    return item.language == "odin" &&
+        settings.odin_line_count_mode == :fancy_initializers ?
+        item.initializer_reduced_lines : item.executable_lines
+end
+
 """Append one configured finding for the highest exceeded metric threshold."""
 function append_function_metric_diagnostic!(
     diagnostics,
@@ -55,6 +62,10 @@ function append_function_metric_diagnostic!(
     tier, allowed = function_metric_tier(measured, thresholds)
     tier === nothing && return
     rule_id = "$rule_prefix-$tier"
+    measurement = rule_prefix == "ODIN-FUNCTION-LINES" &&
+        measured != item.executable_lines ?
+        "$(measured) enforcement lines ($(item.executable_lines) ordinary code lines)" :
+        "$(measured) $(metric_name)"
     diagnostic = Diagnostic(
         rule_id,
         Ignore,
@@ -62,7 +73,7 @@ function append_function_metric_diagnostic!(
         item.start_line,
         1,
         "$(uppercasefirst(item.language)) $(noun) `$(item.name)` has " *
-            "$(measured) $(metric_name); $(lowercase(tier)) maximum is $(allowed).",
+            "$(measurement); $(lowercase(tier)) maximum is $(allowed).",
         measured,
         allowed,
         "function-metrics",

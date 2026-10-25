@@ -59,12 +59,12 @@ static test reachability without making the analyzer responsible for running tes
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `4.1.0` |
+| Analysis schema | `4.2.0` |
 | Extension API | `2.0.0` |
-| Native Odin schema | `3.13.0` |
-| Native Odin engine | `0.18.0` |
+| Native Odin schema | `3.14.0` |
+| Native Odin engine | `0.19.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 80 |
+| Built-in rules | 81 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -208,7 +208,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 4.1.0]
+    Statistics --> Report[AnalysisReport schema 4.2.0]
     LocalStats --> StatsReport[SourceStatisticsReport schema 1.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
@@ -268,7 +268,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 80 built-in rules. Every configured rule has an enablement flag and
+The registry contains 81 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -427,6 +427,63 @@ The report retains the complete command, exit code, stdout, stderr, and artifact
 A failed build emits `ODIN-BUILD-FAILED` using its configured response.
 
 ## Configuration
+
+### Named Initializer Layout and Function Length
+
+`ODIN-NAMED-INITIALIZER-LAYOUT` checks nonempty Odin named-field compound literals,
+whether typed or inferred. It defaults to `Report` and supports all standard
+responses and disablement. Empty and positional literals are exempt.
+
+The opening brace must be followed by a physical newline before initializer code.
+Each field starts on a separate line, indented four spaces beyond the opening
+line's indentation, and ends in a comma. The closing brace starts at the opening
+line's indentation. Wrapped values may use deeper continuation indentation.
+Comments and blank lines are allowed; surrounding expressions are not restricted.
+
+`FunctionMetricSettings(...; odin_line_count_mode=:physical)` preserves ordinary
+code-bearing-line enforcement (not blank or comment-only lines).
+Choose `:fancy_initializers` to reduce correctly formatted initializers for
+function-line thresholds only. The layout rule's response does not control counting.
+
+An initializer of simple values costs one enforcement line. It costs two if
+substantive code occurs both before its opening brace and after its closing brace;
+wrapper delimiters and structural separators do not trigger that exception.
+Literals, signed numbers, identifiers, enum selectors, member references, and
+transparent parentheses are simple. Calls, casts, indexing, and other operators
+retain code-bearing RHS lines starting with the first token after `=`.
+Wrapping immediately after `=` therefore adds no line for the field label.
+Nested fancy initializers collapse recursively while retaining nested computation.
+Invalid layouts receive no reduction of their own.
+
+```odin
+calling_something(1, {
+    fu = bar,
+    fu2 = 123,
+    poo = another_call(),
+    blech =
+        (this || that) &&
+        (anotherthis || anotherthat),
+}, another_datum)
+```
+
+This statement has five enforcement lines and eight ordinary code lines.
+
+```odin
+mydata: My_Struct = {
+    x = 123123.234,
+    y = 548.234,
+    z = 3485.2394824,
+    meta = "something",
+}
+```
+
+This declaration has one enforcement line and six ordinary code lines.
+Ordinary function/file statistics, density, and source-statistics output remain
+unchanged. Function records retain `executable_lines` and add
+`initializer_reduced_lines`; `function_metrics.odin_line_count_mode` selects the
+threshold measurement. Markdown inventories show ordinary NLOC and selected
+enforcement counts separately. Reviewed `:executable_lines` policies still target
+line findings and report drift if a reduction makes their finding disappear.
 
 ### Settings Model
 
@@ -839,7 +896,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.1.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.2.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
 | Full Markdown | `--full-report=PATH` | Deep review and inventory audit | Comprehensive inventories and findings |
 
@@ -866,6 +923,9 @@ the innermost containing function, while file-scope evidence remains on its file
 Cross-function clone groups and interop pairs are stored once under a deterministic
 primary owner. Schema `4.1.0` adds `is_rodata` declaration metadata; existing declaration
 kind values remain unchanged.
+Schema `4.2.0` adds function `initializer_reduced_lines` and the Odin enforcement
+mode in function metric settings; ordinary executable-line fields retain their
+previous meanings.
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |

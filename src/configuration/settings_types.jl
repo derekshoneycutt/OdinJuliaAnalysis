@@ -319,16 +319,22 @@ struct FunctionMetricSettings
     julia_cyclomatic::ResponseThresholds
     odin_cyclomatic::ResponseThresholds
     reviewed::Vector{ReviewedComplexity}
+    odin_line_count_mode::Symbol
 end
 
-"""Construct function metric settings without reviewed policies."""
-FunctionMetricSettings(julia_lines, odin_lines, julia_cyclomatic, odin_cyclomatic) =
-    FunctionMetricSettings(
+"""Construct metric policy with ordinary or initializer-reduced Odin enforcement."""
+function FunctionMetricSettings(
+    julia_lines, odin_lines, julia_cyclomatic, odin_cyclomatic,
+    reviewed=ReviewedComplexity[];
+    odin_line_count_mode::Symbol=:physical)
+    return FunctionMetricSettings(
         julia_lines,
         odin_lines,
         julia_cyclomatic,
         odin_cyclomatic,
-        ReviewedComplexity[])
+        reviewed,
+        odin_line_count_mode)
+end
 
 """Return conservative function metric tiers with established review triggers."""
 function default_function_metric_settings()

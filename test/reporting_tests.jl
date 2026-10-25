@@ -177,7 +177,7 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_report(output, report, "json")
         encoded = String(take!(output))
-        @test occursin("\"schema_version\": \"4.1.0\"", encoded)
+        @test occursin("\"schema_version\": \"4.2.0\"", encoded)
         @test occursin("\"is_rodata\": false", encoded)
 
         settings_path = write_jet_settings(
@@ -485,5 +485,4 @@ end
             colored_text)
     end
 end
-
 

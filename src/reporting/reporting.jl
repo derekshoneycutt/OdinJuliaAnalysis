@@ -100,6 +100,8 @@ function write_text_report(io, report, color, warning_limit, report_limit)
     println(io, styled("OdinJuliaAnalysis $(report.tool_version)", "\e[1m", use_color))
     println(io, "Target:  $(report.root)")
     println(io, "Profile: $(report.profile)")
+    println(io, "Odin function-line enforcement: ",
+        report.function_metrics.odin_line_count_mode, " (ordinary statistics unchanged)")
     println(io, "Files:   $(report.files_analyzed) total " *
         "($(report.files_by_language["julia"]) Julia, " *
         "$(report.files_by_language["odin"]) Odin, " *

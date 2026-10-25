@@ -285,6 +285,7 @@ struct FunctionAnalysis
     test_coverage::Vector{TestCoverageEvidence}
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
+    initializer_reduced_lines::Int
 end
 
 """Construct function metrics before nested evidence has been assigned."""
@@ -298,7 +299,8 @@ function FunctionAnalysis(
     parameter_count,
     cyclomatic_complexity,
     cognitive_complexity,
-    documented)
+    documented,
+    initializer_reduced_lines=executable_lines)
     return FunctionAnalysis(
         path,
         language,
@@ -320,7 +322,19 @@ function FunctionAnalysis(
         SecurityBoundaryPath[],
         TestCoverageEvidence[],
         InteropSignature[],
-        InteropBridgePair[])
+        InteropBridgePair[],
+        initializer_reduced_lines)
+end
+
+"""Preserve positional construction before initializer reduction was introduced."""
+function FunctionAnalysis(
+    path, language, name, start_line, end_line, executable_lines, remaining...)
+    length(remaining) == 15 || throw(MethodError(
+        FunctionAnalysis,
+        (path, language, name, start_line, end_line, executable_lines, remaining...)))
+    return FunctionAnalysis(
+        path, language, name, start_line, end_line, executable_lines,
+        remaining..., executable_lines)
 end
 
 struct FileAnalysis

@@ -51,8 +51,8 @@ end
             diagnostics = filter(item -> item.rule_id in CONTROL_BODY_RULES,
                 analysis.diagnostics)
             @test [(item.line - 3, item.column,
-                findfirst(==(item.rule_id), CONTROL_BODY_RULES)) for item in diagnostics] ==
-                expected
+                findfirst(==(item.rule_id), CONTROL_BODY_RULES))
+                for item in diagnostics] == expected
             @test all(item -> item.response == Report, diagnostics)
         end
     end

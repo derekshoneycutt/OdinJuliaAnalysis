@@ -58,6 +58,7 @@ AnalysisSettings(
         RuleSetting("ODIN-SINGLE-LINE-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-DO-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-CASE-BODY-PLACEMENT", true, Report),
+        RuleSetting("ODIN-NAMED-INITIALIZER-LAYOUT", true, Report),
         RuleSetting("ODIN-NAMING", true, Warn),
         RuleSetting("ODIN-NONCONST-GLOBAL", true, Warn),
         RuleSetting("ODIN-UNUSED-IMPORT", true, Report),
@@ -413,8 +414,8 @@ AnalysisSettings(
                 allocator_source="allocator",
                 certainty=:definite,
                 response=Ignore,
-                minimum_matches=7,
-                maximum_matches=7),
+                minimum_matches=8,
+                maximum_matches=8),
             ReviewedAllocationPolicy(
                 "analysis-summary-storage",
                 "odin_engine/main.odin",

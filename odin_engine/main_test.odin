@@ -18,6 +18,12 @@ Case_Body_Test :: struct {
     positions: [] [2]int,
 }
 
+Initializer_Test :: struct {
+    body: string,
+    valid: bool,
+    count: int,
+}
+
 CASE_BODY_TESTS :: []Case_Body_Test{
     {"switch value {\ncase 1: return\n}", {{2, 9}}},
     {"switch value {\ncase: return\n}", {{2, 7}}},
@@ -43,6 +49,185 @@ CASE_BODY_TESTS :: []Case_Body_Test{
     {"switch value {\ncase 1:\nswitch other {\ncase: return\n}\n}", {{4, 7}}},
     {"// switch value { case: return }\ntext := \"case 1: return\"\n" +
         "raw := `case: { return }`\n/* switch value { case: return } */", {}},
+}
+
+
+PROCEDURE_METRICS_FIXTURE :: `package fixture
+
+Sample_Type :: struct {
+    sample_field: int,
+}
+
+Sample_Enum :: enum {
+    Sample_Value,
+}
+
+SAMPLE_CONSTANT :: 1
+Forwarded_Type :: external.Forwarded_Type
+FORWARDED_CONSTANT :: external.FORWARDED_CONSTANT
+PACKAGE_GLOBAL := 2
+@(rodata)
+RODATA_GLOBAL := [?]int{3, 4}
+@(rodata)
+RODATA_FIRST, RODATA_SECOND := 5, 6
+
+foreign import fixture_library "system:fixture.lib"
+
+foreign fixture_library {
+    Bad_Foreign :: proc(
+        Bad_A, Bad_B, Bad_C, Bad_D, Bad_E, Bad_F: int) ->
+        (first, second: int, flag: bool) ---
+}
+
+// Return the selected value.
+choose :: proc(a, b: int) -> int {
+    local_value := a
+    _ = b
+    if a > 0 {
+        return local_value
+    }
+    return b
+}
+
+// Return three values for result-count analysis.
+triple :: proc() -> (first, second: int, flag: bool) {
+    return 1, 2, true
+}
+
+undocumented :: proc() {}
+
+caller :: proc() {
+    choose(1, 2)
+}
+`
+
+ALLOCATION_CLASSIFICATION_FIXTURE :: `package fixture
+
+import vmem "core:mem/virtual"
+
+// Exercise representative allocation forms.
+allocate :: proc() {
+    static_arena: vmem.Arena
+    _ = vmem.arena_init_static(&static_arena)
+    growing_arena: vmem.Arena
+    _ = vmem.arena_init_growing(&growing_arena)
+    values := make([dynamic]int)
+    append(&values, 1)
+    _ = new(int, context.allocator)
+}
+`
+
+CONTEXT_ALLOCATOR_FIXTURE :: `package fixture
+
+use_ambient :: proc(value: int = context.allocator) -> bool {
+    return true
+}
+
+custom_owner :: proc() {
+    owner_allocator := heap_allocator()
+    external_allocator_api(owner_allocator)
+}
+
+context_restore :: proc() {
+    saved_allocator := context.allocator
+    context.allocator = nil_allocator()
+    context.allocator = saved_allocator
+}
+
+positional_call :: proc() {
+    external_allocator_api(context.allocator)
+}
+
+named_call :: proc() {
+    external_allocator_api(
+        allocator = context.allocator,
+    )
+}
+
+third_party_call :: proc() {
+    _, _ = filepath.join([]string{"one", "two"}, context.allocator)
+}
+
+unrestored :: proc() {
+    retained_allocator := context.allocator
+    external_allocator_api(retained_allocator)
+}
+
+invalid_fallback :: proc() {
+    selected_allocator := heap_allocator()
+    selected_allocator = context.allocator
+}
+
+field_storage :: proc() {
+    state := struct {
+        allocator: int,
+    }{
+        allocator = context.allocator,
+    }
+    state.allocator = context.allocator
+}
+
+indirect_alias :: proc() {
+    opaque := heap_allocator()
+    opaque = context.allocator
+    external_allocator_api(opaque)
+}
+`
+
+// Verify initializer evidence excludes positional literals and shares layout admission.
+@(test)
+odin_engine_test_initializers :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    allocator := vmem.arena_allocator(&arena)
+    context.allocator = allocator
+    cases := []Initializer_Test{
+        {"    value := Thing{\n        x = -1,\n        y = settings.width,\n    }", true, 1},
+        {"    value := Thing{ // comment\n\n        /* comment */ x = call(),\n    }", true, 1},
+        {"    value := Thing{x = 1}", false, 1},
+        {"    value := Thing{\n       x = 1,\n    }", false, 1},
+        {"    value := Thing{\n        x = 1,\n     }", false, 1},
+        {"    value := Thing{\n        x = 1, y = 2,\n    }", false, 1},
+        {"    value := Thing{}", true, 0},
+        {"    value := [2]int{\n        1,\n        2,\n    }", true, 0},
+    }
+    for fixture in cases {
+        source := strings.concatenate({
+            "package fixture\nsample :: proc() {\n", fixture.body, "\n}\n",
+        }, allocator)
+        verify_initializer_layout(t, source, fixture, allocator)
+    }
+}
+
+// Check neutral layout evidence agrees with its single diagnostic per literal.
+verify_initializer_layout :: proc(
+    t: ^testing.T,
+    source: string,
+    expected: Initializer_Test,
+    allocator: runtime.Allocator) {
+    fixture := write_analysis_test_fixture(t, source, allocator)
+    defer if fixture.directory != "" {
+        _ = os.remove_all(fixture.directory)
+    }
+    summary := analyze_file(fixture.path, allocator)
+    testing.expect(t, summary.parsed)
+    testing.expect_value(t, summary.syntax_errors, 0)
+    testing.expect_value(t, len(summary.initializers), expected.count)
+    findings := 0
+    for finding in summary.findings {
+        if finding.rule_id == "ODIN-NAMED-INITIALIZER-LAYOUT" {
+            findings += 1
+        }
+    }
+    testing.expect_value(t, findings, 0 if expected.valid else expected.count)
+    for initializer in summary.initializers {
+        testing.expect_value(t, initializer.valid, expected.valid)
+    }
 }
 
 // Verify case terminators and transparent blocks preserve physical source positions.
@@ -206,128 +391,6 @@ separator_adjacency_counts :: proc(summary: ^File_Summary) -> [2]int {
     }
     return counts
 }
-
-PROCEDURE_METRICS_FIXTURE :: `package fixture
-
-Sample_Type :: struct {
-    sample_field: int,
-}
-
-Sample_Enum :: enum {
-    Sample_Value,
-}
-
-SAMPLE_CONSTANT :: 1
-Forwarded_Type :: external.Forwarded_Type
-FORWARDED_CONSTANT :: external.FORWARDED_CONSTANT
-PACKAGE_GLOBAL := 2
-@(rodata)
-RODATA_GLOBAL := [?]int{3, 4}
-@(rodata)
-RODATA_FIRST, RODATA_SECOND := 5, 6
-
-foreign import fixture_library "system:fixture.lib"
-
-foreign fixture_library {
-    Bad_Foreign :: proc(
-        Bad_A, Bad_B, Bad_C, Bad_D, Bad_E, Bad_F: int) ->
-        (first, second: int, flag: bool) ---
-}
-
-// Return the selected value.
-choose :: proc(a, b: int) -> int {
-    local_value := a
-    _ = b
-    if a > 0 {
-        return local_value
-    }
-    return b
-}
-
-// Return three values for result-count analysis.
-triple :: proc() -> (first, second: int, flag: bool) {
-    return 1, 2, true
-}
-
-undocumented :: proc() {}
-
-caller :: proc() {
-    choose(1, 2)
-}
-`
-
-ALLOCATION_CLASSIFICATION_FIXTURE :: `package fixture
-
-import vmem "core:mem/virtual"
-
-// Exercise representative allocation forms.
-allocate :: proc() {
-    static_arena: vmem.Arena
-    _ = vmem.arena_init_static(&static_arena)
-    growing_arena: vmem.Arena
-    _ = vmem.arena_init_growing(&growing_arena)
-    values := make([dynamic]int)
-    append(&values, 1)
-    _ = new(int, context.allocator)
-}
-`
-
-CONTEXT_ALLOCATOR_FIXTURE :: `package fixture
-
-use_ambient :: proc(value: int = context.allocator) -> bool {
-    return true
-}
-
-custom_owner :: proc() {
-    owner_allocator := heap_allocator()
-    external_allocator_api(owner_allocator)
-}
-
-context_restore :: proc() {
-    saved_allocator := context.allocator
-    context.allocator = nil_allocator()
-    context.allocator = saved_allocator
-}
-
-positional_call :: proc() {
-    external_allocator_api(context.allocator)
-}
-
-named_call :: proc() {
-    external_allocator_api(
-        allocator = context.allocator,
-    )
-}
-
-third_party_call :: proc() {
-    _, _ = filepath.join([]string{"one", "two"}, context.allocator)
-}
-
-unrestored :: proc() {
-    retained_allocator := context.allocator
-    external_allocator_api(retained_allocator)
-}
-
-invalid_fallback :: proc() {
-    selected_allocator := heap_allocator()
-    selected_allocator = context.allocator
-}
-
-field_storage :: proc() {
-    state := struct {
-        allocator: int,
-    }{
-        allocator = context.allocator,
-    }
-    state.allocator = context.allocator
-}
-
-indirect_alias :: proc() {
-    opaque := heap_allocator()
-    opaque = context.allocator
-    external_allocator_api(opaque)
-}
-`
 
 // Write one temporary Odin source fixture using the supplied arena.
 write_analysis_test_fixture :: proc(

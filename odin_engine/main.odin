@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.13.0"
-ENGINE_VERSION :: "0.18.0"
+SCHEMA_VERSION :: "3.14.0"
+ENGINE_VERSION :: "0.19.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -55,6 +55,27 @@ Procedure_Metric :: struct {
     documentation: string,
     start_offset: int,
     end_offset: int,
+}
+
+// Preserve source spans and expression classification for initializer counting.
+Initializer_Field_Evidence :: struct {
+    start_offset: int,
+    end_offset: int,
+    simple: bool,
+    aggregate_offset: int,
+    code_lines: [dynamic]int,
+}
+
+// Share parser-backed layout admission between diagnostics and reduced counting.
+Initializer_Evidence :: struct {
+    start_offset: int,
+    open_offset: int,
+    end_offset: int,
+    start_line: int,
+    end_line: int,
+    valid: bool,
+    shell_lines: int,
+    fields: [dynamic]Initializer_Field_Evidence,
 }
 
 Declaration_Symbol :: struct {
@@ -123,6 +144,7 @@ File_Summary :: struct {
     struct_count: int,
     findings: [dynamic]Finding,
     separators: [dynamic]Separator_Evidence,
+    initializers: [dynamic]Initializer_Evidence,
     procedures: [dynamic]Procedure_Metric,
     symbols: [dynamic]Declaration_Symbol,
     imports: [dynamic]Import_Edge,
@@ -160,6 +182,7 @@ Analysis_Visitor_Data :: struct {
     source: string,
     findings: ^[dynamic]Finding,
     separators: ^[dynamic]Separator_Evidence,
+    initializers: ^[dynamic]Initializer_Evidence,
     separator_seen: []bool,
     tokens: []tokenizer.Token,
     context_allocator_aliases: ^[dynamic]Context_Allocator_Alias,
@@ -516,6 +539,225 @@ collect_compound_literal_spacing :: proc(
     compound: ^ast.Comp_Lit) {
     for element in compound.elems {
         collect_field_value_spacing(data, element, "compound-literal field")
+    }
+}
+
+// Measure leading ASCII spaces independently of a token's horizontal column.
+initializer_indentation :: proc(source: string, offset: int) -> int {
+    start := offset
+    for start > 0 && source[start - 1] != '\n' {
+        start -= 1
+    }
+    indentation := 0
+    for start < len(source) && source[start] == ' ' {
+        indentation += 1
+        start += 1
+    }
+    if start < len(source) && source[start] == '\t' {
+        return -1
+    }
+    return indentation
+}
+
+// Recognize value references and literals without treating computation as data.
+simple_initializer_value :: proc(expression: ^ast.Expr) -> bool {
+    unwrapped := ast.unparen_expr(expression)
+    #partial switch value in unwrapped.derived {
+    case ^ast.Basic_Lit, ^ast.Ident, ^ast.Implicit_Selector_Expr:
+        return true
+    case ^ast.Selector_Expr:
+        return simple_initializer_value(value.expr)
+    case ^ast.Unary_Expr:
+        if value.op.kind != .Add && value.op.kind != .Sub {
+            return false
+        }
+        literal, numeric := ast.unparen_expr(value.expr).derived.(^ast.Basic_Lit)
+        return numeric && literal.tok.kind in
+            bit_set[tokenizer.Token_Kind]{.Integer, .Float, .Imag}
+    }
+    return false
+}
+
+// Ignore comments and tokenizer-inserted newline separators in code evidence.
+initializer_code_token :: proc(token: tokenizer.Token) -> bool {
+    return token.kind != .Comment && token.kind != .EOF &&
+        !(token.kind == .Semicolon && token.text == "\n")
+}
+
+// Record physical lines touched by RHS tokens, including multiline strings.
+initializer_rhs_lines :: proc(
+    data: ^Analysis_Visitor_Data,
+    expression: ^ast.Expr) -> [dynamic]int {
+    lines := make([dynamic]int, 0, data.allocator)
+    start := token_index_at_or_after(data.tokens, expression.pos.offset)
+    for index := start; index < len(data.tokens) &&
+        data.tokens[index].pos.offset < expression.end.offset; index += 1 {
+        token := data.tokens[index]
+        if !initializer_code_token(token) {
+            continue
+        }
+        line := token.pos.line
+        if len(lines) == 0 || lines[len(lines) - 1] != line {
+            append(&lines, line)
+        }
+        for character in token.text {
+            if character == '\n' {
+                line += 1
+                append(&lines, line)
+            }
+        }
+    }
+    return lines
+}
+
+// Separate substantive surrounding expressions from wrappers and separators.
+initializer_substantive_token :: proc(token: tokenizer.Token) -> bool {
+    if !initializer_code_token(token) {
+        return false
+    }
+    return token.kind not_in bit_set[tokenizer.Token_Kind]{
+        .Open_Paren, .Close_Paren, .Open_Bracket, .Close_Bracket,
+        .Open_Brace, .Close_Brace, .Comma, .Semicolon,
+    }
+}
+
+// Detect substantive code on one physical side of an initializer brace.
+initializer_surrounding_code :: proc(
+    data: ^Analysis_Visitor_Data,
+    offset, line: int,
+    before: bool) -> bool {
+    index := token_index_at_or_after(data.tokens, offset)
+    if before {
+        index -= 1
+    }
+    for index >= 0 && index < len(data.tokens) {
+        token := data.tokens[index]
+        if token.pos.line != line {
+            break
+        }
+        if initializer_substantive_token(token) {
+            return true
+        }
+        index += -1 if before else 1
+    }
+    return false
+}
+
+// Require each named field's comma and indentation without inspecting comment text.
+initializer_field_layout :: proc(
+    data: ^Analysis_Visitor_Data,
+    field: ^ast.Field_Value,
+    indentation: int,
+    previous_line: int) -> bool {
+    if field.pos.line <= previous_line ||
+        initializer_indentation(data.source, field.pos.offset) != indentation + 4 {
+        return false
+    }
+    next := token_index_at_or_after(data.tokens, field.value.end.offset)
+    next = next_composite_token(data.tokens, next, len(data.tokens))
+    if next < 0 || data.tokens[next].kind != .Comma {
+        return false
+    }
+    return true
+}
+
+// Verify braces introduce and finish initializer code on separate physical lines.
+initializer_brace_layout :: proc(
+    data: ^Analysis_Visitor_Data,
+    compound: ^ast.Comp_Lit,
+    indentation: int) -> bool {
+    if indentation < 0 || compound.open.line == compound.close.line ||
+        initializer_indentation(data.source, compound.close.offset) != indentation {
+        return false
+    }
+    first := token_index_at_or_after(data.tokens, compound.open.offset + 1)
+    first = next_composite_token(data.tokens, first, len(data.tokens))
+    if first < 0 || data.tokens[first].pos.line <= compound.open.line {
+        return false
+    }
+    close := token_index_at(data.tokens, compound.close.offset)
+    for index := close - 1; index >= 0; index -= 1 {
+        token := data.tokens[index]
+        if initializer_code_token(token) {
+            return token.pos.line < compound.close.line
+        }
+    }
+    return false
+}
+
+// Copy neutral RHS evidence while retaining direct nested initializer identity.
+initializer_field_evidence :: proc(
+    data: ^Analysis_Visitor_Data,
+    field: ^ast.Field_Value) -> Initializer_Field_Evidence {
+    value := field.value
+    evidence := Initializer_Field_Evidence{
+        start_offset = value.pos.offset,
+        end_offset = value.end.offset,
+        simple = simple_initializer_value(value),
+        aggregate_offset = -1,
+        code_lines = initializer_rhs_lines(data, value),
+    }
+    if nested, ok := ast.unparen_expr(value).derived.(^ast.Comp_Lit); ok {
+        evidence.aggregate_offset = nested.pos.offset
+    }
+    return evidence
+}
+
+// Admit named literal layouts once for both style policy and counting clarification.
+collect_initializer_evidence :: proc(
+    data: ^Analysis_Visitor_Data,
+    compound: ^ast.Comp_Lit) {
+    if len(compound.elems) == 0 {
+        return
+    }
+    for element in compound.elems {
+        if _, named := element.derived.(^ast.Field_Value); !named {
+            return
+        }
+    }
+    indentation := initializer_indentation(data.source, compound.open.offset)
+    evidence := Initializer_Evidence{
+        start_offset = compound.pos.offset,
+        open_offset = compound.open.offset,
+        end_offset = compound.close.offset + 1,
+        start_line = compound.open.line,
+        end_line = compound.close.line,
+        valid = initializer_brace_layout(data, compound, indentation),
+        shell_lines = 1,
+        fields = make([dynamic]Initializer_Field_Evidence, 0, data.allocator),
+    }
+    previous_line := compound.open.line
+    for element in compound.elems {
+        field := element.derived.(^ast.Field_Value)
+        evidence.valid = initializer_field_layout(
+            data, field, indentation, previous_line) && evidence.valid
+        previous_line = field.value.end.line
+        append(&evidence.fields, initializer_field_evidence(data, field))
+    }
+    finish_initializer_evidence(data, compound, &evidence)
+}
+
+// Publish one neutral initializer record and at most one located layout finding.
+finish_initializer_evidence :: proc(
+    data: ^Analysis_Visitor_Data,
+    compound: ^ast.Comp_Lit,
+    evidence: ^Initializer_Evidence) {
+    if initializer_surrounding_code(
+        data, compound.open.offset, compound.open.line, true) &&
+        initializer_surrounding_code(
+            data, compound.close.offset + 1, compound.close.line, false) {
+        evidence.shell_lines = 2
+    }
+    append(data.initializers, evidence^)
+    if !evidence.valid {
+        append(data.findings, Finding{
+            rule_id = "ODIN-NAMED-INITIALIZER-LAYOUT",
+            line = compound.open.line,
+            column = compound.open.column,
+            message = "Named initializers require multiline braces, one field per line " +
+                "indented four spaces, trailing commas, and an aligned closing brace.",
+            certainty = "definite",
+        })
     }
 }
 
@@ -1583,7 +1825,8 @@ first_inline_case_statement :: proc(statements: []^ast.Stmt, line: int) -> ^ast.
             continue
         case ^ast.Block_Stmt:
             if !body.uses_do {
-                if nested := first_inline_case_statement(body.stmts, line); nested != nil {
+                if nested := first_inline_case_statement(body.stmts, line);
+                   nested != nil {
                     return nested
                 }
                 continue
@@ -1597,7 +1840,8 @@ first_inline_case_statement :: proc(statements: []^ast.Stmt, line: int) -> ^ast.
 }
 
 // Report only the first actual statement sharing the case terminator's line.
-check_case_body_placement :: proc(data: ^Analysis_Visitor_Data, clause: ^ast.Case_Clause) {
+check_case_body_placement :: proc(
+    data: ^Analysis_Visitor_Data, clause: ^ast.Case_Clause) {
     statement := first_inline_case_statement(clause.body, clause.terminator.pos.line)
     if statement == nil {
         return
@@ -1670,6 +1914,7 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     case ^ast.Comp_Lit:
         if compound, ok := node.derived.(^ast.Comp_Lit); ok {
             collect_compound_literal_spacing(data, compound)
+            collect_initializer_evidence(data, compound)
             if !is_test_source(data.path) {
                 check_context_allocator_compound(data, compound)
             }
@@ -1700,6 +1945,7 @@ check_allocations :: proc(
         findings = &summary.findings,
         context_allocator_aliases = &context_allocator_aliases,
         separators = &summary.separators,
+        initializers = &summary.initializers,
         tokens = tokenize_source(file.src, file.fullpath, allocator)[:],
         procedure_scopes = &procedure_scopes,
         procedures = &summary.procedures,
@@ -1792,6 +2038,7 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
         path = path,
         findings = make([dynamic]Finding, 0, allocator),
         separators = make([dynamic]Separator_Evidence, 0, allocator),
+        initializers = make([dynamic]Initializer_Evidence, 0, allocator),
         procedures = make([dynamic]Procedure_Metric, 0, allocator),
         symbols = make([dynamic]Declaration_Symbol, 0, allocator),
         imports = make([dynamic]Import_Edge, 0, allocator),

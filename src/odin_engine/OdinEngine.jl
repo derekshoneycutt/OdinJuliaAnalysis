@@ -21,6 +21,7 @@ using ..OdinJuliaAnalysis: ReferenceRecord
 using ..OdinJuliaAnalysis: configured_diagnostic
 using ..OdinJuliaAnalysis: diagnostic_with_response
 using ..OdinJuliaAnalysis: executable_source_lines
+using ..OdinJuliaAnalysis: source_comment_lines
 using ..OdinJuliaAnalysis: load_settings
 using ..OdinJuliaAnalysis: valid_identifier_name
 
@@ -32,7 +33,7 @@ const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(
     ANALYSIS_ROOT, ".build", Sys.iswindows() ? "odin-engine.exe" : "odin-engine")
-const SCHEMA_VERSION = "3.13.0"
+const SCHEMA_VERSION = "3.14.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -74,6 +75,25 @@ const OdinProcedureMetric = @NamedTuple begin
     documentation::String
     start_offset::Int
     end_offset::Int
+end
+
+const OdinInitializerField = @NamedTuple begin
+    start_offset::Int
+    end_offset::Int
+    simple::Bool
+    aggregate_offset::Int
+    code_lines::Vector{Int}
+end
+
+const OdinInitializer = @NamedTuple begin
+    start_offset::Int
+    open_offset::Int
+    end_offset::Int
+    start_line::Int
+    end_line::Int
+    valid::Bool
+    shell_lines::Int
+    fields::Vector{OdinInitializerField}
 end
 
 const OdinDeclarationSymbol = @NamedTuple begin
@@ -135,6 +155,7 @@ const OdinFileSummary = @NamedTuple begin
     struct_count::Int
     findings::Vector{OdinFinding}
     separators::Vector{OdinSeparatorEvidence}
+    initializers::Vector{OdinInitializer}
     procedures::Vector{OdinProcedureMetric}
     symbols::Vector{OdinDeclarationSymbol}
     imports::Vector{OdinImport}
@@ -669,6 +690,7 @@ end
 function backend_functions(root, summary)
     path = repository_path(String(summary.path), root)
     lines = split(read(String(summary.path), String), '\n'; keepempty=true)
+    reductions = initializer_reductions(summary.initializers)
     return [FunctionAnalysis(
         path,
         "odin",
@@ -677,10 +699,85 @@ function backend_functions(root, summary)
         end_line=Int(metric.end_line),
         executable_lines=procedure_executable_lines(
             path, lines, Int(metric.start_line), Int(metric.end_line)),
+        initializer_reduced_lines = procedure_initializer_lines(
+            path, lines, metric, reductions),
         parameter_count=Int(metric.parameter_count),
         cyclomatic_complexity=Int(metric.cyclomatic_complexity),
         cognitive_complexity=nothing,
         documented=Bool(metric.documented)) for metric in summary.procedures]
+end
+
+"""Retain computational RHS lines while absorbing nested declarative shells."""
+function initializer_computation_lines(initializer, reductions)
+    retained = BitSet()
+    for field in initializer.fields
+        field.simple && continue
+        aggregate = get(reductions, field.aggregate_offset, nothing)
+        if aggregate !== nothing
+            union!(retained, aggregate.computation)
+        else
+            union!(retained, reduce_initializer_span(
+                BitSet(field.code_lines),
+                field.start_offset, field.end_offset, reductions))
+        end
+    end
+    return retained
+end
+
+"""Build inside-out reductions independently of the selected rule responses."""
+function initializer_reductions(initializers)
+    reductions = Dict{Int, @NamedTuple{
+        initializer::OdinInitializer, retained::BitSet, computation::BitSet}}()
+    for initializer in sort(filter(item -> item.valid, initializers);
+            by=item -> item.end_offset - item.start_offset)
+        computation = initializer_computation_lines(initializer, reductions)
+        retained = copy(computation)
+        push!(retained, initializer.start_line)
+        initializer.shell_lines == 2 && push!(retained, initializer.end_line)
+        reductions[initializer.start_offset] = (; initializer, retained, computation)
+    end
+    return reductions
+end
+
+"""Find outermost eligible literals wholly contained in one expression span."""
+function outer_initializer_reductions(start_offset, end_offset, reductions)
+    candidates = sort([item for item in values(reductions)
+        if start_offset <= item.initializer.start_offset &&
+            item.initializer.end_offset <= end_offset];
+        by=item -> (item.initializer.start_offset, -item.initializer.end_offset))
+    outer = eltype(candidates)[]
+    boundary = -1
+    for item in candidates
+        item.initializer.start_offset < boundary && continue
+        push!(outer, item)
+        boundary = item.initializer.end_offset
+    end
+    return outer
+end
+
+"""Replace eligible literal spans without erasing shared-line contributions."""
+function reduce_initializer_span(retained, start_offset, end_offset, reductions)
+    outer = outer_initializer_reductions(start_offset, end_offset, reductions)
+    for item in outer
+        literal = item.initializer
+        setdiff!(retained, literal.start_line:literal.end_line)
+    end
+    for item in outer
+        union!(retained, item.retained)
+    end
+    return retained
+end
+
+"""Count reduced procedure lines while preserving the ordinary body boundaries."""
+function procedure_initializer_lines(path, lines, metric, reductions)
+    metric.start_line == metric.end_line && return 1
+    comments = source_comment_lines(path, lines)
+    retained = BitSet(line for line in (metric.start_line + 1):(metric.end_line - 1)
+        if !isempty(strip(lines[line])) && line ∉ comments)
+    original = copy(retained)
+    reduce_initializer_span(retained, metric.start_offset, metric.end_offset, reductions)
+    intersect!(retained, original)
+    return length(retained)
 end
 
 """Count executable lines inside an Odin procedure body."""

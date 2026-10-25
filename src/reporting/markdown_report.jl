@@ -477,6 +477,9 @@ function write_markdown_thresholds(
         io, "Odin cyclomatic complexity", function_metrics.odin_cyclomatic)
     println(io, "| Julia cognitive complexity | - | - | ",
         "$(thresholds.cognitive_maximum) |")
+    println(io)
+    println(io, "Odin function-line enforcement mode: ",
+        "`$(function_metrics.odin_line_count_mode)`. Ordinary NLOC statistics are unchanged.")
 end
 
 """Write one report/warn/fail threshold row."""
@@ -512,9 +515,9 @@ function write_markdown_functions(io, report)
     println(io, "## Function And Procedure Inventory")
     println(io)
     println(io,
-        "| File | Function | Lines | NLOC | Params | Cyclomatic | Cognitive | ",
+        "| File | Function | Lines | NLOC | Enforcement | Params | Cyclomatic | Cognitive | ",
         "Docs | Status |")
-    println(io, "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |")
+    println(io, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |")
     for item in sort(analysis_functions(report.files); by=function_sort_key)
         span = "$(item.start_line)-$(item.end_line)"
         documented = item.documented ? "yes" : "no"
@@ -525,7 +528,9 @@ function write_markdown_functions(io, report)
             report.function_metrics)
         cognitive = something(item.cognitive_complexity, "-")
         println(io, "| `$(markdown_cell(item.path))` | `$(markdown_cell(item.name))` | ",
-            "$span | $(item.executable_lines) | $(item.parameter_count) | ",
+            "$span | $(item.executable_lines) | ",
+            "$(function_enforcement_lines(item, report.function_metrics)) | ",
+            "$(item.parameter_count) | ",
             "$(item.cyclomatic_complexity) | $cognitive | $documented | $status |")
     end
 end
@@ -542,10 +547,12 @@ function function_status(item, thresholds, parameter_counts, function_metrics)
     metric_settings = item.language == "julia" ?
         (
             lines=function_metrics.julia_lines,
-            cyclomatic=function_metrics.julia_cyclomatic) :
+            cyclomatic=function_metrics.julia_cyclomatic,
+            enforcement_lines=function_enforcement_lines(item, function_metrics)) :
         (
             lines=function_metrics.odin_lines,
-            cyclomatic=function_metrics.odin_cyclomatic)
+            cyclomatic=function_metrics.odin_cyclomatic,
+            enforcement_lines=function_enforcement_lines(item, function_metrics))
     exceeds_function_maximum(
         item, thresholds, parameter_maximum, metric_settings) &&
         return "exceeds maximum"
@@ -555,7 +562,7 @@ end
 
 """Return whether one function exceeds a configured maximum."""
 function exceeds_function_maximum(item, thresholds, parameter_maximum, metrics)
-    return item.executable_lines > metrics.lines.fail ||
+    return metrics.enforcement_lines > metrics.lines.fail ||
         item.parameter_count > parameter_maximum ||
         item.cyclomatic_complexity > metrics.cyclomatic.fail ||
         something(item.cognitive_complexity, 0) > thresholds.cognitive_maximum
@@ -563,7 +570,7 @@ end
 
 """Return whether one function exceeds a configured report threshold."""
 function requires_function_review(item, parameter_counts, metrics)
-    return item.executable_lines > metrics.lines.report ||
+    return metrics.enforcement_lines > metrics.lines.report ||
         item.language == "odin" && item.parameter_count > parameter_counts.odin_warning ||
         item.cyclomatic_complexity > metrics.cyclomatic.report
 end

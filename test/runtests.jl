@@ -419,6 +419,7 @@ end
     include("odin_engine_tests.jl")
     include("odin_control_body_tests.jl")
     include("odin_case_body_tests.jl")
+    include("odin_initializer_tests.jl")
     include("advanced_analysis_tests.jl")
     include("verification_tool_tests.jl")
 end

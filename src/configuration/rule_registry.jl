@@ -1,4 +1,8 @@
 const RULE_REGISTRY = Dict(
+    "ODIN-NAMED-INITIALIZER-LAYOUT" => RuleDefinition(
+        "ODIN-NAMED-INITIALIZER-LAYOUT", "odin",
+        "Odin Rules > Formatting > Named Initializers",
+        "mature", "definite", "report", false),
     "ODIN-DECLARATION-COLON-SPACING" => RuleDefinition(
         "ODIN-DECLARATION-COLON-SPACING", "odin",
         "Odin Rules > Formatting > Binding Spacing",

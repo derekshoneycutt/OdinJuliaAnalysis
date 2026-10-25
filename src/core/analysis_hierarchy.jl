@@ -198,7 +198,8 @@ function nested_function(item, evidence)
         evidence.security_paths,
         evidence.test_coverage,
         evidence.interop_signatures,
-        evidence.interop_pairs)
+        evidence.interop_pairs,
+        item.initializer_reduced_lines)
 end
 
 """Attach nested functions and unowned evidence to one file metric record."""
