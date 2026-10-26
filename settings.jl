@@ -59,6 +59,7 @@ AnalysisSettings(
         RuleSetting("ODIN-DO-CONTROL-BODY", true, Report),
         RuleSetting("ODIN-CASE-BODY-PLACEMENT", true, Report),
         RuleSetting("ODIN-NAMED-INITIALIZER-LAYOUT", true, Report),
+        RuleSetting("ODIN-COMPOUND-LITERAL-DECLARATION", true, Report),
         RuleSetting("ODIN-NAMING", true, Warn),
         RuleSetting("ODIN-NONCONST-GLOBAL", true, Warn),
         RuleSetting("ODIN-UNUSED-IMPORT", true, Report),

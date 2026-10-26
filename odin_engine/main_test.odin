@@ -174,6 +174,77 @@ indirect_alias :: proc() {
 }
 `
 
+// Verify direct literal declarations retain precise locations and inference exceptions.
+@(test)
+odin_engine_test_compound_declarations :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    context.allocator = vmem.arena_allocator(&arena)
+    cases: []string = {
+        "value := Thing{}", "value := Thing{1}", "value := pkg.Thing{x = 1}",
+        "value := (Thing{})", "value := ((Box(int){}))",
+        "value := [2]int{1, 2}", "value := []int{}", "value := matrix[2, 2]f32{}",
+        "value := [dynamic]int{}", "value := map[int]int{}",
+        "value := bit_set[Choice]{.A}", "value := struct {x: int}{1}",
+        "value := Thing{values = [?]int{1, 2}}",
+        "value := [len([?]int{1, 2})]int{1, 2}",
+        "value := Thing{\n    x = 1,\n}", "value := /* comment */ Thing{}",
+    }
+    for body in cases {
+        verify_compound_declaration(t, body, 1)
+    }
+    exemptions: []string = {
+        "value: Thing = {}", "value: Thing", "VALUE :: Thing{}",
+        "a, b := Thing{}, Thing{}", "value := [?]int{1, 2}",
+        "value := [2][?]int{}", "value := []([?]int){}",
+        "value := call()", "value := existing", "value := 1",
+        "value := convert(Thing{})", "value := Thing{}.field",
+        "value := &Thing{}", "value := []int{1}[0]", "value := 1 + len([]int{})",
+        "call(Thing{})", "return Thing{}", "value = Thing{}",
+        "value := (Thing{}).field", "// value := Thing{}\nvalue := `Thing{}`",
+    }
+    for body in exemptions {
+        verify_compound_declaration(t, body, 0)
+    }
+}
+
+// Analyze one test-source declaration with LF and CRLF without duplicate findings.
+verify_compound_declaration :: proc(t: ^testing.T, body: string, expected: int) {
+    source := strings.concatenate({
+        "package fixture\n// Exercise declaration policy.\nsample :: proc() {\n    ",
+        body, "\n}\n",
+    }, context.allocator)
+    defer delete(source, context.allocator)
+    newlines: []string = {"\n", "\r\n"}
+    for newline in newlines {
+        converted, _ := strings.replace_all(
+            source, "\n", newline, context.allocator)
+        defer delete(converted, context.allocator)
+        fixture := write_analysis_test_fixture(t, converted, context.allocator)
+        defer if fixture.directory != "" {
+            _ = os.remove_all(fixture.directory)
+        }
+        summary := analyze_file(fixture.path, context.allocator)
+        testing.expect(t, summary.parsed)
+        testing.expect_value(t, summary.syntax_errors, 0)
+        count := 0
+        for finding in summary.findings {
+            if finding.rule_id == "ODIN-COMPOUND-LITERAL-DECLARATION" {
+                count += 1
+                testing.expect_value(t, finding.line, 4)
+                testing.expect_value(t, finding.column, 5)
+                testing.expect_value(t, finding.certainty, "definite")
+            }
+        }
+        testing.expect_value(t, count, expected)
+    }
+}
+
 // Verify aggregate evidence admits positional values without named-layout findings.
 @(test)
 odin_engine_test_initializers :: proc(t: ^testing.T) {
@@ -186,7 +257,7 @@ odin_engine_test_initializers :: proc(t: ^testing.T) {
     defer vmem.arena_destroy(&arena)
     allocator := vmem.arena_allocator(&arena)
     context.allocator = allocator
-    cases := []Initializer_Test{
+    cases: []Initializer_Test = {
         {"    value := Thing{\n        x = -1,\n        y = settings.width,\n    }", true, 1},
         {"    value := Thing{ // comment\n\n        /* comment */ x = call(),\n    }", true, 1},
         {"    value := Thing{x = 1}", false, 1},
@@ -307,8 +378,8 @@ odin_engine_test_control_bodies :: proc(t: ^testing.T) {
     summary := analyze_file(fixture.path, allocator)
     testing.expect(t, summary.parsed)
     testing.expect_value(t, summary.syntax_errors, 0)
-    expected_lines := [4]int{3, 3, 4, 5}
-    expected_columns := [4]int{13, 21, 9, 25}
+    expected_lines: [4]int = {3, 3, 4, 5}
+    expected_columns: [4]int = {13, 21, 9, 25}
     count := 0
     for finding in summary.findings {
         if finding.rule_id == "ODIN-SINGLE-LINE-CONTROL-BODY" ||
@@ -363,7 +434,7 @@ odin_engine_test_separator_evidence :: proc(t: ^testing.T) {
 
 // Count parser-backed separators by the four configured syntax policies.
 separator_evidence_counts :: proc(summary: ^File_Summary) -> [4]int {
-    counts := [4]int{}
+    counts: [4]int = {}
     for item in summary.separators {
         if item.kind == "colon" {
             counts[0] += 1
@@ -380,7 +451,7 @@ separator_evidence_counts :: proc(summary: ^File_Summary) -> [4]int {
 
 // Count adjacent and split punctuation in logical declaration operators.
 separator_adjacency_counts :: proc(summary: ^File_Summary) -> [2]int {
-    counts := [2]int{}
+    counts: [2]int = {}
     for item in summary.separators {
         if item.internal_required {
             if item.internal_adjacent {

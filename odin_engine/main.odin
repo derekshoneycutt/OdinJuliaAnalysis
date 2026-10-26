@@ -11,7 +11,7 @@ import "core:os"
 import "core:strings"
 
 SCHEMA_VERSION :: "3.14.0"
-ENGINE_VERSION :: "0.20.0"
+ENGINE_VERSION :: "0.21.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -278,7 +278,7 @@ token_index_at_or_after :: proc(
 
 // Count ASCII spaces and identify horizontal-only source bytes in one token gap.
 separator_gap :: proc(source: string, start, end: int) -> Separator_Gap {
-    gap := Separator_Gap{horizontal_only = true, ascii_spaces = true}
+    gap: Separator_Gap = {horizontal_only = true, ascii_spaces = true}
     for index in max(start, 0)..<min(end, len(source)) {
         character := source[index]
         if character == ' ' {
@@ -410,6 +410,60 @@ append_separator_evidence :: proc(
     })
 }
 
+// Find initializer-dependent array types without inspecting self-contained value literals.
+visit_initializer_dependent_type :: proc(
+    visitor: ^ast.Visitor,
+    node: ^ast.Node) -> ^ast.Visitor {
+    if node == nil {
+        return visitor
+    }
+    #partial switch value in node.derived {
+    case ^ast.Comp_Lit:
+        return nil
+    case ^ast.Array_Type:
+        if value.len != nil {
+            if count, ok := ast.unparen_expr(value.len).derived.(^ast.Unary_Expr);
+               ok && count.op.kind == .Question && count.expr == nil {
+                (^bool)(visitor.data)^ = true
+                return nil
+            }
+        }
+    }
+    return visitor
+}
+
+// Prefer declaration-side types only for direct, independently typed mutable literals.
+check_compound_literal_declaration :: proc(
+    data: ^Analysis_Visitor_Data,
+    declaration: ^ast.Value_Decl) {
+    if !declaration.is_mutable || declaration.type != nil ||
+        len(declaration.names) != 1 || len(declaration.values) != 1 {
+        return
+    }
+    compound, ok := ast.unparen_expr(declaration.values[0]).derived.(^ast.Comp_Lit)
+    if !ok || compound.type == nil {
+        return
+    }
+    dependent := false
+    visitor: ast.Visitor = {
+        visit = visit_initializer_dependent_type,
+        data = &dependent,
+    }
+    ast.walk(&visitor, compound.type)
+    if dependent {
+        return
+    }
+    position := declaration.names[0].pos
+    append(data.findings, Finding{
+        rule_id = "ODIN-COMPOUND-LITERAL-DECLARATION",
+        line = position.line,
+        column = position.column,
+        message = "Put the compound literal's type on the declaration: " +
+            "use `name: Type = {...}` instead of `name := Type{...}`.",
+        certainty = "definite",
+    })
+}
+
 // Collect parser-backed spacing facts for one declared value binding.
 collect_value_declaration_spacing :: proc(
     data: ^Analysis_Visitor_Data,
@@ -465,7 +519,7 @@ collect_inferred_value_spacing :: proc(
     last_name := declaration.names[len(declaration.names) - 1]
     value := declaration.values[0]
     separator_kind: tokenizer.Token_Kind = .Colon
-    options := Separator_Options{"constant", "constant declaration", true}
+    options: Separator_Options = {"constant", "constant declaration", true}
     if declaration.is_mutable {
         separator_kind = .Eq
         options = Separator_Options{"inferred", "inferred declaration", true}
@@ -689,7 +743,7 @@ initializer_brace_layout :: proc(
 initializer_field_evidence :: proc(
     data: ^Analysis_Visitor_Data,
     value: ^ast.Expr) -> Initializer_Field_Evidence {
-    evidence := Initializer_Field_Evidence{
+    evidence: Initializer_Field_Evidence = {
         start_offset = value.pos.offset,
         end_offset = value.end.offset,
         simple = simple_initializer_value(value),
@@ -710,7 +764,7 @@ collect_initializer_evidence :: proc(
         return
     }
     indentation := initializer_indentation(data.source, compound.open.offset)
-    evidence := Initializer_Evidence{
+    evidence: Initializer_Evidence = {
         start_offset = compound.pos.offset,
         open_offset = compound.open.offset,
         end_offset = compound.close.offset + 1,
@@ -843,7 +897,7 @@ append_value_declaration_symbols :: proc(
     data: ^Analysis_Visitor_Data,
     declaration: ^ast.Value_Decl) {
     is_rodata := has_attribute(declaration, "rodata")
-    options := Declaration_Symbol_Options{is_rodata = is_rodata}
+    options: Declaration_Symbol_Options = {is_rodata = is_rodata}
     for name, index in declaration.names {
         if index >= len(declaration.values) {
             kind := "constant" if !declaration.is_mutable else "variable"
@@ -1881,6 +1935,7 @@ visit_allocations :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visito
     if declaration, is_declaration := node.derived.(^ast.Value_Decl); is_declaration {
         register_procedure_scopes(data, declaration)
         collect_value_declaration_spacing(data, declaration)
+        check_compound_literal_declaration(data, declaration)
         if !is_test_source(data.path) {
             check_context_allocator_defaults(data, declaration)
             check_context_allocator_aliases(data, declaration)
@@ -1941,7 +1996,7 @@ check_allocations :: proc(
     procedure_scopes := make([dynamic]Procedure_Scope, 0, allocator)
     context_allocator_aliases := make(
         [dynamic]Context_Allocator_Alias, 0, allocator)
-    data := Analysis_Visitor_Data {
+    data: Analysis_Visitor_Data = {
         path = file.fullpath,
         source = file.src,
         findings = &summary.findings,
@@ -1960,7 +2015,7 @@ check_allocations :: proc(
         allocator = allocator,
     }
     data.separator_seen = make([]bool, len(data.tokens), allocator)
-    visitor := ast.Visitor {
+    visitor: ast.Visitor = {
         visit = visit_allocations,
         data = rawptr(&data),
     }
@@ -2036,7 +2091,7 @@ check_closing_parentheses :: proc(
 
 // Parse and analyze one Odin source file.
 analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary {
-    summary := File_Summary {
+    summary: File_Summary = {
         path = path,
         findings = make([dynamic]Finding, 0, allocator),
         separators = make([dynamic]Separator_Evidence, 0, allocator),
@@ -2054,7 +2109,7 @@ analyze_file :: proc(path: string, allocator: runtime.Allocator) -> File_Summary
     }
     check_closing_parentheses(string(source), path, &summary.findings, allocator)
 
-    no_position := tokenizer.Pos{}
+    no_position: tokenizer.Pos = {}
     file := ast.new(ast.File, no_position, no_position)
     file.fullpath = path
     file.src = string(source)
@@ -2095,7 +2150,7 @@ main :: proc() {
         summaries[index] = analyze_file(path, analysis_allocator)
     }
 
-    response := Engine_Response{
+    response: Engine_Response = {
         schema_version = SCHEMA_VERSION,
         engine_version = ENGINE_VERSION,
         files = summaries,

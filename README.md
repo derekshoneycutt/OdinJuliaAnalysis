@@ -62,9 +62,9 @@ static test reachability without making the analyzer responsible for running tes
 | Analysis schema | `4.2.0` |
 | Extension API | `2.0.0` |
 | Native Odin schema | `3.14.0` |
-| Native Odin engine | `0.20.0` |
+| Native Odin engine | `0.21.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 81 |
+| Built-in rules | 82 |
 | Source types | `.jl`, `.odin`, `.md` |
 | License | The Unlicense |
 
@@ -268,7 +268,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 81 built-in rules. Every configured rule has an enablement flag and
+The registry contains 82 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -427,6 +427,46 @@ The report retains the complete command, exit code, stdout, stderr, and artifact
 A failed build emits `ODIN-BUILD-FAILED` using its configured response.
 
 ## Configuration
+
+### Compound Literal Declarations
+
+`ODIN-COMPOUND-LITERAL-DECLARATION` prefers `value: Type = {...}` over
+`value := Type{...}` for direct typed compound-literal initializers. It defaults to
+enabled `Report`, supports all standard responses and disablement, and applies to
+single mutable bindings in production and test source, including package scope.
+Empty, positional, and named literals are covered. Transparent parentheses around
+the initializer do not exempt it.
+
+This is type placement, not a ban on inference. Calls, conversions, references,
+scalar values, operators, address-taking, indexing, and member selection are not
+direct compound literals. Constants, multiple bindings, assignments, arguments,
+returns, and field defaults are outside the rule. Nested literals do not create
+additional declaration findings.
+
+Structs (including aliases, distinct types, imported types, anonymous types, and
+polymorphic instantiations), explicit-length arrays, slices, matrices, bit sets,
+maps, and dynamic arrays follow the rule. The latter two still require Odin's
+`dynamic-literals` feature where required by the compiler; this policy does not
+authorize implicit allocations.
+
+Inferred array lengths such as `[?]int{1, 2}` must remain attached to the literal
+and are exempt. Nested inferred array types are also exempt from this style
+finding; compiler errors for invalid nested types remain compiler errors. A
+self-contained literal inside a type computation, such as
+`[len([?]int{1, 2})]int{1, 2}`, does not prevent moving the enclosing type.
+Neither does an inferred-length array used as a field value exempt its enclosing
+struct declaration.
+
+```odin
+point: Point = {1, 2}
+values: [2]int = {1, 2}
+items: []Item = {}
+inferred := [?]int{1, 2}
+result := calculate()
+```
+
+Findings point to the binding name. This rule does not alter named-initializer
+layout admission or physical/aggregate function-line metrics.
 
 ### Named Initializer Layout and Function Length
 

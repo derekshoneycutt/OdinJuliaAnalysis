@@ -1,4 +1,8 @@
 const RULE_REGISTRY = Dict(
+    "ODIN-COMPOUND-LITERAL-DECLARATION" => RuleDefinition(
+        "ODIN-COMPOUND-LITERAL-DECLARATION", "odin",
+        "Odin Rules > Formatting > Compound Literal Declarations",
+        "mature", "definite", "report", false),
     "ODIN-NAMED-INITIALIZER-LAYOUT" => RuleDefinition(
         "ODIN-NAMED-INITIALIZER-LAYOUT", "odin",
         "Odin Rules > Formatting > Named Initializers",
