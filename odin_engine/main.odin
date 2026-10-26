@@ -11,7 +11,7 @@ import "core:os"
 import "core:strings"
 
 SCHEMA_VERSION :: "3.14.0"
-ENGINE_VERSION :: "0.19.0"
+ENGINE_VERSION :: "0.20.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -688,8 +688,7 @@ initializer_brace_layout :: proc(
 // Copy neutral RHS evidence while retaining direct nested initializer identity.
 initializer_field_evidence :: proc(
     data: ^Analysis_Visitor_Data,
-    field: ^ast.Field_Value) -> Initializer_Field_Evidence {
-    value := field.value
+    value: ^ast.Expr) -> Initializer_Field_Evidence {
     evidence := Initializer_Field_Evidence{
         start_offset = value.pos.offset,
         end_offset = value.end.offset,
@@ -703,17 +702,12 @@ initializer_field_evidence :: proc(
     return evidence
 }
 
-// Admit named literal layouts once for both style policy and counting clarification.
+// Collect aggregate values while keeping named-field layout admission independent.
 collect_initializer_evidence :: proc(
     data: ^Analysis_Visitor_Data,
     compound: ^ast.Comp_Lit) {
     if len(compound.elems) == 0 {
         return
-    }
-    for element in compound.elems {
-        if _, named := element.derived.(^ast.Field_Value); !named {
-            return
-        }
     }
     indentation := initializer_indentation(data.source, compound.open.offset)
     evidence := Initializer_Evidence{
@@ -727,21 +721,29 @@ collect_initializer_evidence :: proc(
         fields = make([dynamic]Initializer_Field_Evidence, 0, data.allocator),
     }
     previous_line := compound.open.line
+    named := true
     for element in compound.elems {
-        field := element.derived.(^ast.Field_Value)
-        evidence.valid = initializer_field_layout(
-            data, field, indentation, previous_line) && evidence.valid
-        previous_line = field.value.end.line
-        append(&evidence.fields, initializer_field_evidence(data, field))
+        value := element
+        if field, ok := element.derived.(^ast.Field_Value); ok {
+            evidence.valid = initializer_field_layout(
+                data, field, indentation, previous_line) && evidence.valid
+            value = field.value
+        } else {
+            named = false
+        }
+        previous_line = value.end.line
+        append(&evidence.fields, initializer_field_evidence(data, value))
     }
-    finish_initializer_evidence(data, compound, &evidence)
+    evidence.valid = !named || evidence.valid
+    finish_initializer_evidence(data, compound, &evidence, named)
 }
 
 // Publish one neutral initializer record and at most one located layout finding.
 finish_initializer_evidence :: proc(
     data: ^Analysis_Visitor_Data,
     compound: ^ast.Comp_Lit,
-    evidence: ^Initializer_Evidence) {
+    evidence: ^Initializer_Evidence,
+    named: bool) {
     if initializer_surrounding_code(
         data, compound.open.offset, compound.open.line, true) &&
         initializer_surrounding_code(
@@ -749,7 +751,7 @@ finish_initializer_evidence :: proc(
         evidence.shell_lines = 2
     }
     append(data.initializers, evidence^)
-    if !evidence.valid {
+    if named && !evidence.valid {
         append(data.findings, Finding{
             rule_id = "ODIN-NAMED-INITIALIZER-LAYOUT",
             line = compound.open.line,

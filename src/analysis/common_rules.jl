@@ -45,7 +45,7 @@ end
 """Select function-line enforcement without changing ordinary source measurements."""
 function function_enforcement_lines(item, settings)
     return item.language == "odin" &&
-        settings.odin_line_count_mode == :fancy_initializers ?
+        settings.odin_line_count_mode in (:fancy_initializers, :aggregate_initializers) ?
         item.initializer_reduced_lines : item.executable_lines
 end
 

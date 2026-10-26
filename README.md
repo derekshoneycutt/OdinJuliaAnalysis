@@ -62,7 +62,7 @@ static test reachability without making the analyzer responsible for running tes
 | Analysis schema | `4.2.0` |
 | Extension API | `2.0.0` |
 | Native Odin schema | `3.14.0` |
-| Native Odin engine | `0.19.0` |
+| Native Odin engine | `0.20.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 81 |
 | Source types | `.jl`, `.odin`, `.md` |
@@ -442,8 +442,10 @@ Comments and blank lines are allowed; surrounding expressions are not restricted
 
 `FunctionMetricSettings(...; odin_line_count_mode=:physical)` preserves ordinary
 code-bearing-line enforcement (not blank or comment-only lines).
-Choose `:fancy_initializers` to reduce correctly formatted initializers for
-function-line thresholds only. The layout rule's response does not control counting.
+Choose `:aggregate_initializers` to reduce declarative aggregate initializers for
+function-line thresholds only. The older `:fancy_initializers` spelling remains
+an alias with the same expanded behavior. The layout rule's response does not
+control counting.
 
 An initializer of simple values costs one enforcement line. It costs two if
 substantive code occurs both before its opening brace and after its closing brace;
@@ -452,8 +454,32 @@ Literals, signed numbers, identifiers, enum selectors, member references, and
 transparent parentheses are simple. Calls, casts, indexing, and other operators
 retain code-bearing RHS lines starting with the first token after `=`.
 Wrapping immediately after `=` therefore adds no line for the field label.
-Nested fancy initializers collapse recursively while retaining nested computation.
-Invalid layouts receive no reduction of their own.
+Nested initializers collapse recursively while retaining nested computation.
+Named-field initializers must satisfy the fancy layout to receive a reduction of
+their own. Positional struct, array, and slice initializers also reduce, without
+requiring one element per line or named-field indentation. Inline nested rows are
+allowed. Positional computation lines start at the element's first token.
+
+```odin
+matrix := [3][3]f64{
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1},
+}
+```
+
+This matrix has one enforcement line and five ordinary code lines.
+
+```odin
+values := []f64{
+    1,
+    calculate_value(),
+    (left + right) *
+        scale,
+}
+```
+
+This slice has four enforcement lines and six ordinary code lines.
 
 ```odin
 calling_something(1, {

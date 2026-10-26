@@ -51,7 +51,20 @@ end
         ("call(Thing{\n    x = 1,\n}, Thing{\n    y = 2,\n})", 5, 2),
         ("value := Thing{x = 1}", 1, 1),
         ("value := Thing{}", 1, 1),
-        ("value := [2]int{\n    1,\n    2,\n}", 4, 4),
+        ("value := [2]int{\n    1,\n    2,\n}", 4, 1),
+        ("value := []f64{\n    -1,\n    (.Ready),\n    settings.width,\n}", 5, 1),
+        ("value := []f64{\n    1,\n    calculate_value(),\n" *
+            "    (left + right) *\n        scale,\n}", 6, 4),
+        ("value := Thing{\n    1,\n    call(),\n}", 4, 2),
+        ("value := [3][3]f64{\n    {1, 0, 0},\n    {0, 1, 0},\n" *
+            "    {0, 0, 1},\n}", 5, 1),
+        ("value := []Point{\n    {\n        x = 1,\n        y = 2,\n    },\n" *
+            "    {\n        x = 3,\n        y = compute_y(),\n    },\n}", 10, 2),
+        ("value := Thing{\n    values = []int{\n        1,\n        call(),\n    },\n}",
+            6, 2),
+        ("call([]int{\n    1,\n    2,\n}, other)", 4, 2),
+        ("value := []int{\n    build(Inner{\n        x = 1,\n    }),\n}", 5, 2),
+        ("value := []int{\n    values[0],\n    int(1),\n    a + b,\n}", 5, 4),
         ("value := Thing{\n    // field comment\n\n    x = 1, // trailing\n" *
             "    /* block comment */\n}", 3, 1),
         ("value := Thing{\n    x =\n        // RHS comment\n        call(),\n}", 4, 2),
@@ -112,6 +125,9 @@ end
             "value := Thing{\n    x = call(),\n    y = 1,\n    z = 2,\n}")
         physical = initializer_metrics(:physical)
         reduced = initializer_metrics(:fancy_initializers)
+        aggregate = initializer_metrics(:aggregate_initializers)
+        OdinJuliaAnalysis.validate_function_metric_settings(aggregate)
+        @test OdinJuliaAnalysis.function_enforcement_lines(fixture.item, aggregate) == 2
         @test fixture.item.executable_lines == 5
         @test fixture.item.initializer_reduced_lines == 2
         diagnostics = OdinJuliaAnalysis.function_metric_diagnostics(
@@ -179,7 +195,7 @@ end
             configuration=with_function_metrics(base, initializer_metrics(:physical)))
         reduced = OdinJuliaAnalysis.check_repository(root;
             configuration=with_function_metrics(
-                base, initializer_metrics(:fancy_initializers)))
+                base, initializer_metrics(:aggregate_initializers)))
         @test physical.statistics.code.code_lines == reduced.statistics.code.code_lines
         @test physical.statistics.code.complexity_per_code_line ==
             reduced.statistics.code.complexity_per_code_line
@@ -192,16 +208,34 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_markdown_report(output, reduced; comprehensive=true)
         markdown = String(take!(output))
-        @test occursin("`fancy_initializers`", markdown)
+        @test occursin("`aggregate_initializers`", markdown)
         @test occursin("| NLOC | Enforcement |", markdown)
         @test occursin("| 5 | 1 | 0 | 1 | - | yes | within thresholds |", markdown)
         @test occursin("| Functions within thresholds | 1 |", markdown)
         OdinJuliaAnalysis.write_report(output, reduced, "text"; color=:never)
-        @test occursin("enforcement: fancy_initializers", String(take!(output)))
+        @test occursin("enforcement: aggregate_initializers", String(take!(output)))
         OdinJuliaAnalysis.write_report(output, reduced, "json")
         encoded = JSON.parse(String(take!(output)))
-        @test encoded.function_metrics.odin_line_count_mode == "fancy_initializers"
+        @test encoded.function_metrics.odin_line_count_mode == "aggregate_initializers"
         @test encoded.files[1].functions[1].executable_lines == 5
         @test encoded.files[1].functions[1].initializer_reduced_lines == 1
+    end
+
+    @testset "Odin aggregate mode threshold selection" begin
+        base = OdinJuliaAnalysis.load_settings()
+        mktempdir() do root
+            fixture = initializer_fixture(root, "value := []int{\n    1,\n    2,\n}")
+            @test fixture.item.executable_lines == 4
+            for mode in (:aggregate_initializers, :fancy_initializers)
+                configuration = with_function_metrics(base, initializer_metrics(mode))
+                @test isempty(OdinJuliaAnalysis.function_metric_diagnostics(
+                    [fixture.item], configuration))
+            end
+            configuration = with_function_metrics(base, initializer_metrics(:physical))
+            diagnostics = OdinJuliaAnalysis.function_metric_diagnostics(
+                [fixture.item], configuration)
+            @test only(diagnostics).measured == 4
+            @test only(diagnostics).rule_id == "ODIN-FUNCTION-LINES-WARN"
+        end
     end
 end

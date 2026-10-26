@@ -174,7 +174,7 @@ indirect_alias :: proc() {
 }
 `
 
-// Verify initializer evidence excludes positional literals and shares layout admission.
+// Verify aggregate evidence admits positional values without named-layout findings.
 @(test)
 odin_engine_test_initializers :: proc(t: ^testing.T) {
     arena: vmem.Arena
@@ -194,7 +194,8 @@ odin_engine_test_initializers :: proc(t: ^testing.T) {
         {"    value := Thing{\n        x = 1,\n     }", false, 1},
         {"    value := Thing{\n        x = 1, y = 2,\n    }", false, 1},
         {"    value := Thing{}", true, 0},
-        {"    value := [2]int{\n        1,\n        2,\n    }", true, 0},
+        {"    value := [2]int{\n        1,\n        2,\n    }", true, 1},
+        {"    value := [2]int{1, 2}", true, 1},
     }
     for fixture in cases {
         source := strings.concatenate({

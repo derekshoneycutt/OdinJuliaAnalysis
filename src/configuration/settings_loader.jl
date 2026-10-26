@@ -416,9 +416,11 @@ end
 
 """Validate every function metric's strictly increasing response thresholds."""
 function validate_function_metric_settings(settings::FunctionMetricSettings)
-    settings.odin_line_count_mode in (:physical, :fancy_initializers) ||
+    settings.odin_line_count_mode in (
+        :physical, :fancy_initializers, :aggregate_initializers) ||
         throw(ArgumentError(
-            "Odin line count mode must be :physical or :fancy_initializers"))
+            "Odin line count mode must be :physical, :fancy_initializers, " *
+            "or :aggregate_initializers"))
     for (name, thresholds) in (
         "Julia function lines" => settings.julia_lines,
         "Odin procedure lines" => settings.odin_lines,
