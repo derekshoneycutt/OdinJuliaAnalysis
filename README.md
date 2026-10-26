@@ -59,10 +59,10 @@ static test reachability without making the analyzer responsible for running tes
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `4.2.0` |
+| Analysis schema | `4.3.0` |
 | Extension API | `2.0.0` |
-| Native Odin schema | `3.14.0` |
-| Native Odin engine | `0.21.0` |
+| Native Odin schema | `3.15.0` |
+| Native Odin engine | `0.22.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 82 |
 | Source types | `.jl`, `.odin`, `.md` |
@@ -208,7 +208,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 4.2.0]
+    Statistics --> Report[AnalysisReport schema 4.3.0]
     LocalStats --> StatsReport[SourceStatisticsReport schema 1.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
@@ -550,6 +550,61 @@ unchanged. Function records retain `executable_lines` and add
 threshold measurement. Markdown inventories show ordinary NLOC and selected
 enforcement counts separately. Reviewed `:executable_lines` policies still target
 line findings and report drift if a reduction makes their finding disappear.
+
+### Odin Flat-Switch Metric Exemption
+
+`FunctionMetricSettings` accepts `odin_flat_switch_enabled` (default `false`) and
+`odin_flat_switch_max_outside_lines` (default `6`, must be nonnegative). The sample
+settings enable the policy. It is independent of `odin_line_count_mode`.
+
+The native AST classifies procedures with exactly one top-level ordinary or type
+switch, including `#partial` variants. Each case, including the default, must have
+zero or one actual simple statement: a return, assignment, declaration, or call.
+Explicit case blocks are transparent; empty statements/blocks do not count.
+The switch header, labels, case statements, and surrounding code must contain no
+nested control flow, fallthrough, conditional expression, or short-circuit boolean
+operation. Called procedures and procedure-literal bodies are separate scopes.
+Unrecognized syntax is conservatively ineligible.
+
+Outside-switch code is limited by executable source lines, excluding the procedure
+header, comments, blanks, and structural-only lines, regardless of initializer
+reduction mode. Case statement counts are structural, so a multiline aggregate
+return qualifies; two calls inside a case do not. Adding another case statement,
+branch, or excessive setup automatically restores ordinary NLOC/CC enforcement.
+
+For example, this shape may qualify even with many more cases:
+
+```odin
+// Map a code to its stable display name.
+display_name :: proc(code: int) -> string {
+    switch code {
+    case 1:
+        return "first"
+    case 2:
+        return "second"
+    case:
+        return "unknown"
+    }
+}
+```
+
+A case containing `log(code)` followed by `return "first"`, an `if`, or a
+short-circuit expression does not qualify. Formatting remains independently
+enforced; writing a return on the case-label line still produces a placement
+finding.
+
+Only function-line and cyclomatic threshold findings are suppressed. Parameters,
+allocations, documentation, formatting, and all other rules remain active.
+Raw `executable_lines`, CC, initializer-reduced counts, and aggregate statistics
+are unchanged. Canonical function records expose `flat_switch_candidate` and
+`flat_switch_outside_lines` (a count); active exemption evidence is reported in
+top-level JSON `function_metric_exemptions`, text output, and comprehensive
+Markdown function inventories. Each exemption identifies its procedure, reason,
+outside-line count, and configured limit. Standalone source statistics remain
+policy-neutral and do not claim an active exemption.
+
+Reviewed metric waivers still report drift when the policy removes their finding;
+remove genuinely redundant waivers explicitly rather than hiding stale matches.
 
 ### Settings Model
 
@@ -962,7 +1017,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.2.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.3.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
 | Full Markdown | `--full-report=PATH` | Deep review and inventory audit | Comprehensive inventories and findings |
 
@@ -992,6 +1047,10 @@ kind values remain unchanged.
 Schema `4.2.0` adds function `initializer_reduced_lines` and the Odin enforcement
 mode in function metric settings; ordinary executable-line fields retain their
 previous meanings.
+Schema `4.3.0` adds flat-switch candidate/outside-line evidence to functions,
+the opt-in policy fields to metric settings, and active `function_metric_exemptions`
+to JSON reports. Native Odin engine schema `3.15.0` supplies structural candidacy
+and outside executable source-line evidence. Raw metric meanings are unchanged.
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |

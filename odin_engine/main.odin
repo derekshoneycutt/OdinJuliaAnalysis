@@ -10,8 +10,8 @@ import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
-SCHEMA_VERSION :: "3.14.0"
-ENGINE_VERSION :: "0.21.0"
+SCHEMA_VERSION :: "3.15.0"
+ENGINE_VERSION :: "0.22.0"
 CLOSING_PAREN_MESSAGE :: "Closing `)` must share the final argument or parameter line."
 
 Finding :: struct {
@@ -55,6 +55,8 @@ Procedure_Metric :: struct {
     documentation: string,
     start_offset: int,
     end_offset: int,
+    flat_switch_candidate: bool,
+    flat_switch_outside_lines: [dynamic]int,
 }
 
 // Preserve source spans and expression classification for initializer counting.
@@ -1540,6 +1542,7 @@ procedure_metric :: proc(
     value: ^ast.Expr,
     procedure: ^ast.Proc_Lit,
     name: string) -> Procedure_Metric {
+    candidate, outside_lines := flat_switch_evidence(data, procedure)
     return Procedure_Metric {
         name = name,
         start_line = value.pos.line,
@@ -1551,6 +1554,8 @@ procedure_metric :: proc(
         documentation = comment_group_source(data.source, declaration.docs),
         start_offset = value.pos.offset,
         end_offset = value.end.offset,
+        flat_switch_candidate = candidate,
+        flat_switch_outside_lines = outside_lines,
     }
 }
 

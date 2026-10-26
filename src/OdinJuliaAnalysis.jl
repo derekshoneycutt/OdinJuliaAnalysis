@@ -571,7 +571,7 @@ end
 function canonical_analysis_report(state)
     nested_files = canonical_analysis_files(state)
     return AnalysisReport(
-        "4.2.0",
+        "4.3.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),

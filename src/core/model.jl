@@ -286,6 +286,8 @@ struct FunctionAnalysis
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
     initializer_reduced_lines::Int
+    flat_switch_candidate::Bool
+    flat_switch_outside_lines::Int
 end
 
 """Construct function metrics before nested evidence has been assigned."""
@@ -300,7 +302,9 @@ function FunctionAnalysis(
     cyclomatic_complexity,
     cognitive_complexity,
     documented,
-    initializer_reduced_lines=executable_lines)
+    initializer_reduced_lines=executable_lines,
+    flat_switch_candidate=false,
+    flat_switch_outside_lines=0)
     return FunctionAnalysis(
         path,
         language,
@@ -323,18 +327,21 @@ function FunctionAnalysis(
         TestCoverageEvidence[],
         InteropSignature[],
         InteropBridgePair[],
-        initializer_reduced_lines)
+        initializer_reduced_lines,
+        flat_switch_candidate,
+        flat_switch_outside_lines)
 end
 
 """Preserve positional construction before initializer reduction was introduced."""
 function FunctionAnalysis(
     path, language, name, start_line, end_line, executable_lines, remaining...)
-    length(remaining) == 15 || throw(MethodError(
+    length(remaining) in (15, 16) || throw(MethodError(
         FunctionAnalysis,
         (path, language, name, start_line, end_line, executable_lines, remaining...)))
     return FunctionAnalysis(
         path, language, name, start_line, end_line, executable_lines,
-        remaining..., executable_lines)
+        remaining...,
+        (length(remaining) == 15 ? (executable_lines, false, 0) : (false, 0))...)
 end
 
 struct FileAnalysis
@@ -525,6 +532,13 @@ struct AnalysisReport
     extensions::Vector{ExtensionResult}
     rules::Vector{RuleRunSummary}
     exit_code::Int
+end
+
+"""Expose active structural exemptions alongside policy-neutral function evidence."""
+function JSON.lower(report::AnalysisReport)
+    fields = NamedTuple{fieldnames(AnalysisReport)}(
+        Tuple(getfield(report, name) for name in fieldnames(AnalysisReport)))
+    return merge(fields, (; function_metric_exemptions=flat_switch_exemptions(report)))
 end
 
 """Lower a diagnostic into its stable serialized representation."""

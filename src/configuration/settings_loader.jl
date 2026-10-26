@@ -416,6 +416,8 @@ end
 
 """Validate every function metric's strictly increasing response thresholds."""
 function validate_function_metric_settings(settings::FunctionMetricSettings)
+    settings.odin_flat_switch_max_outside_lines >= 0 ||
+        throw(ArgumentError("Odin flat-switch outside-line limit must be nonnegative"))
     settings.odin_line_count_mode in (
         :physical, :fancy_initializers, :aggregate_initializers) ||
         throw(ArgumentError(

@@ -320,21 +320,33 @@ struct FunctionMetricSettings
     odin_cyclomatic::ResponseThresholds
     reviewed::Vector{ReviewedComplexity}
     odin_line_count_mode::Symbol
+    odin_flat_switch_enabled::Bool
+    odin_flat_switch_max_outside_lines::Int
 end
 
 """Construct metric policy with ordinary or initializer-reduced Odin enforcement."""
 function FunctionMetricSettings(
     julia_lines, odin_lines, julia_cyclomatic, odin_cyclomatic,
     reviewed=ReviewedComplexity[];
-    odin_line_count_mode::Symbol=:physical)
+    odin_line_count_mode::Symbol=:physical,
+    odin_flat_switch_enabled::Bool=false,
+    odin_flat_switch_max_outside_lines::Int=6)
     return FunctionMetricSettings(
         julia_lines,
         odin_lines,
         julia_cyclomatic,
         odin_cyclomatic,
         reviewed,
-        odin_line_count_mode)
+        odin_line_count_mode,
+        odin_flat_switch_enabled,
+        odin_flat_switch_max_outside_lines)
 end
+
+"""Preserve positional settings construction before flat-switch policy existed."""
+FunctionMetricSettings(julia_lines, odin_lines, julia_cyclomatic, odin_cyclomatic,
+    reviewed, odin_line_count_mode::Symbol) = FunctionMetricSettings(
+        julia_lines, odin_lines, julia_cyclomatic, odin_cyclomatic, reviewed;
+        odin_line_count_mode)
 
 """Return conservative function metric tiers with established review triggers."""
 function default_function_metric_settings()

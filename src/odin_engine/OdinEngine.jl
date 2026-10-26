@@ -33,7 +33,7 @@ const ANALYSIS_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 const ENGINE_SOURCE = joinpath(ANALYSIS_ROOT, "odin_engine")
 const ENGINE_BUILD = joinpath(
     ANALYSIS_ROOT, ".build", Sys.iswindows() ? "odin-engine.exe" : "odin-engine")
-const SCHEMA_VERSION = "3.14.0"
+const SCHEMA_VERSION = "3.15.0"
 
 const OdinFinding = @NamedTuple begin
     rule_id::String
@@ -75,6 +75,8 @@ const OdinProcedureMetric = @NamedTuple begin
     documentation::String
     start_offset::Int
     end_offset::Int
+    flat_switch_candidate::Bool
+    flat_switch_outside_lines::Vector{Int}
 end
 
 const OdinInitializerField = @NamedTuple begin
@@ -704,7 +706,10 @@ function backend_functions(root, summary)
         parameter_count=Int(metric.parameter_count),
         cyclomatic_complexity=Int(metric.cyclomatic_complexity),
         cognitive_complexity=nothing,
-        documented=Bool(metric.documented)) for metric in summary.procedures]
+        documented=Bool(metric.documented),
+        flat_switch_candidate=metric.flat_switch_candidate,
+        flat_switch_outside_lines=length(metric.flat_switch_outside_lines))
+        for metric in summary.procedures]
 end
 
 """Retain computational RHS lines while absorbing nested declarative shells."""

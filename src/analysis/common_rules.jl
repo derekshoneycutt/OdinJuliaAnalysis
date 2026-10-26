@@ -9,6 +9,7 @@ end
 function function_metric_diagnostics(functions, configuration)
     diagnostics = Diagnostic[]
     for item in functions
+        flat_switch_exempt(item, configuration.function_metrics) && continue
         settings = item.language == "julia" ?
             (
                 lines=configuration.function_metrics.julia_lines,
@@ -40,6 +41,26 @@ function function_metric_diagnostics(functions, configuration)
             settings.noun)
     end
     return diagnostics
+end
+
+"""Apply the opt-in exemption only to structurally eligible Odin procedures."""
+function flat_switch_exempt(item, settings)
+    return item.language == "odin" && settings.odin_flat_switch_enabled &&
+        item.flat_switch_candidate &&
+        item.flat_switch_outside_lines <= settings.odin_flat_switch_max_outside_lines
+end
+
+"""Explain an active exemption without changing the underlying measurements."""
+function flat_switch_exemptions(report)
+    return [(;
+        path=item.path,
+        name=item.name,
+        start_line=item.start_line,
+        reason="Flat-switch policy exempts NLOC and CC thresholds.",
+        outside_lines=item.flat_switch_outside_lines,
+        maximum_outside_lines=report.function_metrics.odin_flat_switch_max_outside_lines)
+        for item in analysis_functions(report.files)
+        if flat_switch_exempt(item, report.function_metrics)]
 end
 
 """Select function-line enforcement without changing ordinary source measurements."""

@@ -102,6 +102,14 @@ function write_text_report(io, report, color, warning_limit, report_limit)
     println(io, "Profile: $(report.profile)")
     println(io, "Odin function-line enforcement: ",
         report.function_metrics.odin_line_count_mode, " (ordinary statistics unchanged)")
+    println(io, "Odin flat-switch NLOC/CC exemption: ",
+        report.function_metrics.odin_flat_switch_enabled ? "enabled" : "disabled",
+        " (outside-line limit: ",
+        report.function_metrics.odin_flat_switch_max_outside_lines, ")")
+    for item in flat_switch_exemptions(report)
+        println(io, "  ", item.path, ":", item.start_line, " ", item.name,
+            ": ", item.reason, " Outside lines: ", item.outside_lines, ".")
+    end
     println(io, "Files:   $(report.files_analyzed) total " *
         "($(report.files_by_language["julia"]) Julia, " *
         "$(report.files_by_language["odin"]) Odin, " *

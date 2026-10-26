@@ -31,7 +31,13 @@ AnalysisSettings(
     ]),
     default_return_tuple_settings(),
     default_parameter_count_settings(),
-    default_function_metric_settings(),
+    FunctionMetricSettings(
+        BASE_SETTINGS.function_metrics.julia_lines,
+        BASE_SETTINGS.function_metrics.odin_lines,
+        BASE_SETTINGS.function_metrics.julia_cyclomatic,
+        BASE_SETTINGS.function_metrics.odin_cyclomatic;
+        odin_flat_switch_enabled=true,
+        odin_flat_switch_max_outside_lines=6),
     default_architecture_settings(),
     AllocationSettings(
         KnownAllocatingProcedure[],

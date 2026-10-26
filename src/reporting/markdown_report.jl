@@ -8,6 +8,7 @@ function write_markdown_report(io::IO, report::AnalysisReport; comprehensive::Bo
     write_markdown_statistics(io, report.statistics)
     write_markdown_thresholds(
         io, report.thresholds, report.parameter_counts, report.function_metrics)
+    write_markdown_flat_switch_exemptions(io, report)
     write_markdown_test_coverage(io, report)
     write_markdown_odin_builds(io, report)
     write_markdown_allocations(io, report)
@@ -32,6 +33,24 @@ function write_markdown_report(io::IO, report::AnalysisReport; comprehensive::Bo
     write_markdown_interop(io, report)
     write_markdown_functions(io, report)
     write_markdown_ignored(io, report)
+end
+
+"""Identify active structural exemptions without hiding other procedure findings."""
+function write_markdown_flat_switch_exemptions(io, report)
+    exemptions = flat_switch_exemptions(report)
+    isempty(exemptions) && return
+    println(io)
+    println(io, "## Odin Flat-Switch Metric Exemptions")
+    println(io)
+    println(io, "Only NLOC/CC thresholds are exempt; raw measurements are unchanged.")
+    println(io)
+    println(io, "| File | Procedure | Outside lines | Limit | Reason |")
+    println(io, "| --- | --- | ---: | ---: | --- |")
+    for item in exemptions
+        println(io, "| `$(markdown_cell(item.path)):$(item.start_line)` | ",
+            "`$(markdown_cell(item.name))` | $(item.outside_lines) | ",
+            "$(item.maximum_outside_lines) | $(item.reason) |")
+    end
 end
 
 """Write static/runtime test evidence and risk-ranked declaration gaps."""
@@ -480,6 +499,12 @@ function write_markdown_thresholds(
     println(io)
     println(io, "Odin function-line enforcement mode: ",
         "`$(function_metrics.odin_line_count_mode)`. Ordinary NLOC statistics are unchanged.")
+    println(io)
+    println(io, "Odin flat-switch NLOC/CC exemption: ",
+        function_metrics.odin_flat_switch_enabled ? "enabled" : "disabled",
+        "; outside-switch limit: ",
+        function_metrics.odin_flat_switch_max_outside_lines,
+        " executable lines. Raw NLOC and CC are unchanged.")
 end
 
 """Write one report/warn/fail threshold row."""
@@ -526,6 +551,10 @@ function write_markdown_functions(io, report)
             report.thresholds,
             report.parameter_counts,
             report.function_metrics)
+        if flat_switch_exempt(item, report.function_metrics)
+            status *= "; flat-switch NLOC/CC exempt ($(item.flat_switch_outside_lines) " *
+                "outside lines)"
+        end
         cognitive = something(item.cognitive_complexity, "-")
         println(io, "| `$(markdown_cell(item.path))` | `$(markdown_cell(item.name))` | ",
             "$span | $(item.executable_lines) | ",
@@ -554,25 +583,27 @@ function function_status(item, thresholds, parameter_counts, function_metrics)
             cyclomatic=function_metrics.odin_cyclomatic,
             enforcement_lines=function_enforcement_lines(item, function_metrics))
     exceeds_function_maximum(
-        item, thresholds, parameter_maximum, metric_settings) &&
+        item, thresholds, parameter_maximum, metric_settings;
+        exempt=flat_switch_exempt(item, function_metrics)) &&
         return "exceeds maximum"
-    requires_function_review(item, parameter_counts, metric_settings) && return "review"
+    requires_function_review(item, parameter_counts, metric_settings;
+        exempt=flat_switch_exempt(item, function_metrics)) && return "review"
     return "within thresholds"
 end
 
 """Return whether one function exceeds a configured maximum."""
-function exceeds_function_maximum(item, thresholds, parameter_maximum, metrics)
-    return metrics.enforcement_lines > metrics.lines.fail ||
+function exceeds_function_maximum(item, thresholds, parameter_maximum, metrics; exempt=false)
+    return !exempt && metrics.enforcement_lines > metrics.lines.fail ||
         item.parameter_count > parameter_maximum ||
-        item.cyclomatic_complexity > metrics.cyclomatic.fail ||
+        !exempt && item.cyclomatic_complexity > metrics.cyclomatic.fail ||
         something(item.cognitive_complexity, 0) > thresholds.cognitive_maximum
 end
 
 """Return whether one function exceeds a configured report threshold."""
-function requires_function_review(item, parameter_counts, metrics)
-    return metrics.enforcement_lines > metrics.lines.report ||
+function requires_function_review(item, parameter_counts, metrics; exempt=false)
+    return !exempt && metrics.enforcement_lines > metrics.lines.report ||
         item.language == "odin" && item.parameter_count > parameter_counts.odin_warning ||
-        item.cyclomatic_complexity > metrics.cyclomatic.report
+        !exempt && item.cyclomatic_complexity > metrics.cyclomatic.report
 end
 
 """Write every visible diagnostic grouped by source file."""
