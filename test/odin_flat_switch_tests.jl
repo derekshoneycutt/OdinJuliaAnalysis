@@ -125,7 +125,7 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_report(output, exempt, "json")
         encoded = JSON.parse(String(take!(output)))
-        @test encoded.schema_version == "4.3.0"
+        @test encoded.schema_version == "4.7.0"
         @test encoded.files[1].functions[1].flat_switch_candidate
         @test encoded.files[1].functions[1].executable_lines == raw.executable_lines
         @test only(encoded.function_metric_exemptions).name == "choose"

@@ -97,12 +97,18 @@ requires the analyzed project to contain both Julia and Odin source files and pu
 the discovered language list as a generic report artifact. It demonstrates stable
 extension identity, explicit API `2.0.0` compatibility, declared rule ownership,
 lifecycle selection, diagnostics, and JSON-serializable artifacts. Extensions inspect
-the same nested `context.files` hierarchy serialized by report schema `4.3.0`: each file
+the same nested `context.files` hierarchy serialized by report schema `4.7.0`: each file
 owns its functions and file-scope evidence, and each function owns its source-scoped
 evidence. Core remains responsible for sorting, response mapping, report rendering, and
 exit semantics.
 
 ## Using an External Checkout
+
+SQLite runtime validation is deliberately disabled in this generic sample.
+The sample has no dependency on Euclid's provider, runner or first-party case
+manifest. Consumers adding `.sql` sources receive standalone structural checks
+and source statistics; native validation and required coverage require an
+explicitly configured compatible runner and typed `SQLiteValidationSettings`.
 
 While the sample is nested in this repository, it discovers the analyzer one directory
 above itself. An external consumer should set the package checkout explicitly:

@@ -61,7 +61,7 @@
             root; configuration=duplicate_code_configuration(enabled))
     end
     clone_groups = OdinJuliaAnalysis.analysis_clone_groups(report.files)
-    @test report.schema_version == "4.3.0"
+    @test report.schema_version == "4.7.0"
     @test [group.language for group in clone_groups] == ["julia", "odin"]
     @test all(group -> length(group.occurrences) == 2, clone_groups)
     @test all(group -> group.token_count > 0, clone_groups)
@@ -340,7 +340,7 @@ end
             root; configuration=security_configuration(security))
     end
     security_paths = OdinJuliaAnalysis.analysis_security_paths(report.files)
-    @test report.schema_version == "4.3.0"
+    @test report.schema_version == "4.7.0"
     @test length(security_paths) == 2
     @test Set(path.language for path in security_paths) == Set(("julia", "odin"))
     julia_path = only(filter(path -> path.language == "julia", security_paths))
@@ -528,7 +528,7 @@ end
         OdinJuliaAnalysis.check_repository(
             root; configuration=coverage_configuration(coverage))
     end
-    @test report.schema_version == "4.3.0"
+    @test report.schema_version == "4.7.0"
     @test report.test_coverage_statistics !== nothing
     @test report.test_coverage_statistics.overall.declarations == 6
     @test report.test_coverage_statistics.overall.corroborated == 2
@@ -584,8 +584,9 @@ end
         engine -> engine.status == "complete" ||
             (engine.name in (
                 "architecture", "duplicate-code", "resource-lifetime",
-                "security", "test-coverage") &&
-                engine.status == "not-applicable"),
+                "security", "test-coverage", "sql", "sql-lexer", "sqlite-validation") &&
+                engine.status == "not-applicable") ||
+            (startswith(engine.name, "sql-rule:") && engine.status == "not-applicable"),
         report.engines)
     @test report.files_analyzed > 0
 end

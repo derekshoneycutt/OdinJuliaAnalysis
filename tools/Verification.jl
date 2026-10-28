@@ -31,6 +31,69 @@ struct PhaseResult
     metadata::Dict{String, Any}
 end
 
+mutable struct PhaseProgress
+    io::IO
+    label::String
+    started::UInt64
+    frame::Int
+    active::Bool
+    lock::ReentrantLock
+end
+
+"""Animate only real terminals with cursor controls, never redirected or dumb streams."""
+terminal_progress_enabled(io) =
+    io isa Base.TTY && get(ENV, "TERM", "") != "dumb"
+terminal_progress_enabled(io::IOContext) = terminal_progress_enabled(io.io)
+
+"""Format monotonic elapsed time without claiming a completion percentage."""
+function progress_elapsed(elapsed_ns::UInt64)
+    seconds = elapsed_ns ÷ 1_000_000_000
+    return lpad(string(seconds ÷ 60), 2, '0') * ":" *
+        lpad(string(seconds % 60), 2, '0')
+end
+
+"""Replace the active line while serializing animation with streamed diagnostics."""
+function draw_progress(progress::PhaseProgress)
+    lock(progress.lock) do
+        progress.active || return
+        frames = ("|", "/", "-", "\\")
+        frame = frames[mod1(progress.frame, length(frames))]
+        print(progress.io, "\r\e[2K", progress.label, "  ", frame, "  ",
+            progress_elapsed(UInt64(time_ns() - progress.started)))
+        flush(progress.io)
+        progress.frame += 1
+    end
+end
+
+"""Clear the spinner before a real output line, then resume below that output."""
+function write_progress_message(progress::PhaseProgress, message::AbstractString)
+    lock(progress.lock) do
+        print(progress.io, "\r\e[2K", message)
+        endswith(message, '\n') || println(progress.io)
+        draw_progress(progress)
+    end
+end
+
+"""Drain a child's stderr through the active display without mixing it with stdout."""
+function capture_progress_command(command::Cmd, output::IO, progress::PhaseProgress)
+    errors = Pipe()
+    try
+        process = run(pipeline(
+            ignorestatus(command), stdin=devnull, stdout=output, stderr=errors);
+            wait=false)
+        close(errors.in)
+        @sync begin
+            @async for line in eachline(errors; keep=true)
+                write_progress_message(progress, line)
+            end
+            wait(process)
+        end
+        return process
+    finally
+        close(errors)
+    end
+end
+
 """Run a command while retaining combined output and elapsed time."""
 function capture_command(command::Cmd)
     output = IOBuffer()
@@ -48,8 +111,13 @@ function capture_command_streams(command::Cmd; stream_errors::Bool=false)
     output = IOBuffer()
     errors = stream_errors ? stderr : IOBuffer()
     started = time_ns()
-    process = run(pipeline(
-        ignorestatus(command), stdin=devnull, stdout=output, stderr=errors))
+    progress = get(task_local_storage(), :verification_phase_progress, nothing)
+    process = if stream_errors && progress !== nothing
+        capture_progress_command(command, output, progress)
+    else
+        run(pipeline(
+            ignorestatus(command), stdin=devnull, stdout=output, stderr=errors))
+    end
     return (
         exit_code=process.exitcode,
         elapsed_ns=UInt64(time_ns() - started),
@@ -72,8 +140,11 @@ function run_phases(phases; heading::String="Run verification", progress_io=stde
         operation) for (index, (name, operation)) in enumerate(phases)]
 end
 
-"""Run one phase while writing immediate progress to the selected stream."""
-function run_progress_phase(progress_io, index, total, name, operation)
+"""Run one phase with interactive feedback or unchanged static progress in logs."""
+function run_progress_phase(
+    progress_io, index, total, name, operation;
+    animate::Bool=terminal_progress_enabled(progress_io))
+    animate && return run_animated_phase(progress_io, index, total, name, operation)
     progress_io === nothing || begin
         println(progress_io, "  [$index/$total] $name")
         flush(progress_io)
@@ -84,6 +155,32 @@ function run_progress_phase(progress_io, index, total, name, operation)
             "($(format_duration(result.elapsed_ns)))")
         flush(progress_io)
     end
+    return result
+end
+
+"""Own and join the refresh task even when a phase fails, throws, or is interrupted."""
+function run_animated_phase(progress_io, index, total, name, operation)
+    progress = PhaseProgress(
+        progress_io, "  [$index/$total] $name", time_ns(), 1, true, ReentrantLock())
+    draw_progress(progress)
+    refresher = @async while progress.active
+        sleep(0.1)
+        draw_progress(progress)
+    end
+    result = try
+        task_local_storage(operation, :verification_phase_progress, progress)
+    finally
+        progress.active = false
+        try
+            wait(refresher)
+        finally
+            print(progress_io, "\r\e[2K")
+            flush(progress_io)
+        end
+    end
+    println(progress_io, progress.label, "  ", result.status, "  ", result.detail,
+        " (", format_duration(result.elapsed_ns), ")")
+    flush(progress_io)
     return result
 end
 
@@ -195,6 +292,10 @@ function write_code_statistics(io::IO, report, use_color::Bool)
         code_statistics_row("Julia", statistics.code_by_language.julia),
         code_statistics_row("Total", statistics.code),
     ]
+    if hasproperty(statistics.code_by_language, :sql)
+        insert!(rows, 3, code_statistics_row("SQLite", statistics.code_by_language.sql))
+        rows[end][1] = "Procedural total"
+    end
     println(io)
     println(io, styled("CODE STATISTICS", ANSI_BOLD, use_color))
     println(io)
@@ -202,9 +303,48 @@ function write_code_statistics(io::IO, report, use_color::Bool)
     write_estimates(io, statistics)
 end
 
+"""Show failed or incomplete native validation without adding success-path output."""
+function write_sqlite_runtime_summary(io, report)
+    hasproperty(report, :sqlite_validation) || return
+    validation = report.sqlite_validation
+    validation.status in ("failed", "incomplete") || return
+    println(io, "SQLite runtime validation: ", validation.status)
+    validation.message === nothing || println(io, "  ", validation.message)
+    for case in validation.cases
+        println(io, "  ", case.id, ": ", case.status)
+        case.provider === nothing || println(io, "    Provider: ",
+            case.provider.identity, " ", case.provider.version)
+        case.message === nothing || println(io, "    ", case.message)
+        write_sqlite_failure_summary(io, case.failure)
+        for step in case.steps
+            step.failure === nothing && continue
+            println(io, "    ", step.id, " [", step.source_id, "] (", step.mode, ")")
+            write_sqlite_failure_summary(io, step.failure)
+        end
+        isempty(case.stderr) || println(io, "    Runner stderr: ", case.stderr)
+    end
+    println(io, "SQLite validated source coverage: ",
+        count(item -> item.validated, validation.coverage), "/", length(validation.coverage))
+    for item in validation.coverage
+        item.validated && continue
+        println(io, "  Uncovered: ", item.path, "; declared=", item.declared,
+            ", attempted=", item.attempted, ", prepared=", item.prepared,
+            ", executed=", item.executed)
+    end
+end
+
+"""Surface native SQL failures even when ordinary policy diagnostics are empty."""
+function write_sqlite_failure_summary(io, failure)
+    failure === nothing && return
+    println(io, "    Failure [", failure.phase, "] SQLite ", failure.primary_code,
+        "/", failure.extended_code, " at byte ", something(failure.offset, "\u2014"),
+        ": ", failure.message)
+end
+
 """Write canonical analyzer warning and failure diagnostics."""
 function write_analysis_diagnostics(io::IO, report, use_color::Bool)
     report === nothing && return
+    write_sqlite_runtime_summary(io, report)
     visible = filter(item -> lowercase(String(item.response)) in ("warn", "fail"),
         report.diagnostics)
     isempty(visible) && return
@@ -268,21 +408,29 @@ function code_statistics_row(language, code)
     return Any[
         language,
         Int(code.files),
-        Int(code.functions),
-        Int(code.structs),
+        metric_display(code.functions),
+        metric_display(code.structs),
         Int(code.lines),
         Int(code.blank_lines),
         Int(code.comment_lines),
         Int(code.code_lines),
-        Int(code.complexity),
-        round(code.complexity_per_code_line; digits=3),
+        metric_display(code.complexity),
+        code.complexity_per_code_line === nothing ? "\u2014" :
+            round(code.complexity_per_code_line; digits=3),
     ]
 end
+
+"""Render unavailable metrics separately from zero in verification tables."""
+metric_display(value) = value === nothing ? "\u2014" : Int(value)
 
 """Write compact COCOMO and LOCOMO estimate summaries."""
 function write_estimates(io::IO, statistics)
     cocomo = statistics.cocomo
     locomo = statistics.locomo
+    if cocomo === nothing || locomo === nothing
+        println(io, "COCOMO/LOCOMO: \u2014 (not applicable; no Odin/Julia source).")
+        return
+    end
     println(io, "COCOMO ($(cocomo.model)): \$", round(Int, cocomo.estimated_cost),
         ", ", round(cocomo.effort_person_months; digits=2), " person-months, ",
         round(cocomo.schedule_months; digits=2), " months, ",

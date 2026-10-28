@@ -22,6 +22,7 @@ export IncludeEdge
 export ReferenceRecord
 export InteropSignature, InteropBridgePair
 export FileStatistics, FunctionStatistics, StatisticsSelection, SourceStatisticsReport
+export SourceTotals, MetricScope, SQLStatistics, SQLStatementStatistics
 export analyze_source_statistics
 export ArchitectureLayer, ArchitectureDependency, ArchitectureSettings
 export extension_id, extension_api_version, extension_rules
@@ -46,14 +47,33 @@ export CoverageSettings, default_coverage_settings
 export DocumentationSettings, default_documentation_settings
 export HorizontalSpacing, SeparatorSpacing, OdinSpacingSettings
 export default_odin_spacing_settings
+export SQLiteValue, SQLiteNull, SQLiteInteger, SQLiteReal, SQLiteText, SQLiteBlob
+export SQLiteBind, SQLiteValidationStep, SQLiteFileStep, SQLiteFixtureStep
+export SQLiteValidationCase, SQLiteRunnerSettings, SQLiteValidationSettings
+export default_sqlite_validation_settings
+export SQLSourceSpan, SQLToken, SQLLexicalIssue, SQLCapabilities, SQLSourceEvidence
+export SQLStructure, SQLStatementRecord, SQLQueryRecord, SQLDeclarationRecord
+export SQLProjectionRecord, SQLAliasRecord, SQLJoinRecord, SQLCTERecord
+export SQLBindRecord, SQLCapabilityGap
+export SQLiteValidationFailure, SQLiteProviderEvidence, SQLiteStepEvidence
+export SQLiteCaseEvidence, SQLiteSourceCoverage, SQLiteValidationEvidence
 
 using JSON
 using JuliaSyntax
+using SHA
 
+include("configuration/sqlite_settings.jl")
 include("configuration/settings_types.jl")
+include("sql_engine/model.jl")
+include("sql_validation/model.jl")
 include("core/model.jl")
 include("core/analysis_hierarchy.jl")
 include("core/statistics.jl")
+include("core/sql_statistics.jl")
+include("sql_validation/request.jl")
+include("sql_validation/process.jl")
+include("sql_validation/result.jl")
+include("sql_validation/validation.jl")
 include("configuration/rule_registry.jl")
 include("core/extension_api.jl")
 include("configuration/settings_loader.jl")
@@ -71,11 +91,13 @@ include("analysis/reviewed_diagnostics.jl")
 include("core/discovery.jl")
 include("analysis/common_rules.jl")
 include("markdown_engine/MarkdownEngine.jl")
+include("sql_engine/SQLEngine.jl")
 include("julia_engine/JuliaEngine.jl")
 include("jet_engine/JetEngine.jl")
 include("odin_engine/OdinEngine.jl")
 include("odin_engine/OdinBuildEngine.jl")
 include("reporting/reporting.jl")
+include("reporting/sql_reporting.jl")
 include("reporting/markdown_report.jl")
 
 const VERSION = v"0.1.0"
@@ -110,7 +132,7 @@ function usage(io::IO)
     println(io)
     println(io, "Commands:")
     println(io, "    check [PATH]              Verify a repository (default PATH: current directory)")
-    println(io, "    stats FILE                Measure one Julia or Odin source file")
+    println(io, "    stats FILE                Measure one Julia, Odin or SQL source file")
     println(io)
     println(io, "Check options:")
     println(io, "    --format=text|json         Select human or machine output")
@@ -123,8 +145,8 @@ function usage(io::IO)
     println(io, "    -h, --help                 Show this help")
     println(io)
     println(io, "Stats options:")
-    println(io, "    --function=NAME           Select every exact function-name match")
-    println(io, "    --line=LINE               Select the innermost function at LINE")
+    println(io, "    --function=NAME           Select exact functions (not applicable to SQL)")
+    println(io, "    --line=LINE               Select the innermost function or SQL statement")
     println(io, "    --format=text|json        Select human or machine output")
     println(io, "    -h, --help                 Show this help")
     println(io)
@@ -184,7 +206,8 @@ function run_stats_command(arguments)
         return 2
     end
     write_statistics_report(stdout, report, options.format)
-    return 0
+    return report.sql !== nothing &&
+        report.sql.structural_status == "incomplete" ? 2 : 0
 end
 
 """Parse stats-command options and require exactly one source path."""
@@ -414,7 +437,54 @@ function analyze_source_files!(
                     source,
                     configuration;
                     filesystem_path=path))
+        elseif endswith(path, ".sql")
+            evidence = SQLEngine.analyze(source)
+            state.sql_sources[relative_path] = evidence
+            append!(state.diagnostics, SQLEngine.check(relative_path, evidence, configuration))
         end
+    end
+    record_sql_engine_status!(state)
+    validation = analyze_sqlite_validation(
+        root, state.sql_sources, configuration.sqlite_validation)
+    state.sqlite_validation[] = validation
+    push!(state.engines, EngineStatus("sqlite-validation", validation.status,
+        sqlite_validation_message(validation)))
+end
+
+"""Expose lexical and structural completion independently, including per-rule coverage."""
+function record_sql_engine_status!(state)
+    if isempty(state.sql_sources)
+        push!(state.engines, EngineStatus("sql-lexer", "not-applicable", nothing))
+        push!(state.engines, EngineStatus("sql", "not-applicable", nothing))
+        record_sql_rule_status!(state)
+        return
+    end
+    failed = sort!([path for (path, evidence) in state.sql_sources
+        if !isempty(evidence.issues)])
+    message = isempty(failed) ? nothing : join([
+        "$path: $(first(state.sql_sources[path].issues).message)" for path in failed], "\n")
+    push!(state.engines, EngineStatus(
+        "sql-lexer", isempty(failed) ? "complete" : "incomplete", message))
+    gaps = String[]
+    for (path, evidence) in state.sql_sources, gap in evidence.structure.gaps
+        line, column = SQLEngine.source_location(evidence, gap.span)
+        push!(gaps, "$path:$line:$column: $(gap.message)")
+    end
+    complete = isempty(failed) && isempty(gaps)
+    push!(state.engines, EngineStatus("sql", complete ? "complete" : "incomplete",
+        complete ? nothing : join(vcat(message === nothing ? String[] : [message],
+            sort!(gaps)), "\n")))
+    record_sql_rule_status!(state)
+end
+
+"""Keep a completed lexical rule evaluated when deeper query structure is unsupported."""
+function record_sql_rule_status!(state)
+    for rule in SQLEngine.SQL_RULE_IDS
+        status = isempty(state.sql_sources) ? "not-applicable" :
+            all(evidence -> get(evidence.structure.rules, rule, :incomplete) == :evaluated,
+                values(state.sql_sources)) ? "complete" : "incomplete"
+        push!(state.engines, EngineStatus("sql-rule:$rule", status,
+            status == "incomplete" ? "Required SQL evidence is incomplete." : nothing))
     end
 end
 
@@ -511,7 +581,7 @@ function assemble_analysis_report(
     apply_reviewed_naming_policies!(state.diagnostics, root, files, configuration)
     cap_staging_responses!(state.diagnostics, configuration.report)
     files_analysis = analyze_files(
-        root, files, state.struct_counts, state.diagnostics)
+        root, files, state.struct_counts, state.diagnostics, state.sql_sources)
     statistics = calculate_repository_statistics(files_analysis, state.functions)
     run_repository_extension_phase!(
         state, root, files, configuration, files_analysis, statistics)
@@ -571,7 +641,7 @@ end
 function canonical_analysis_report(state)
     nested_files = canonical_analysis_files(state)
     return AnalysisReport(
-        "4.3.0",
+        "4.7.0",
         string(VERSION),
         state.root,
         string(state.configuration.profile),
@@ -592,7 +662,8 @@ function canonical_analysis_report(state)
         state.odin_builds,
         state.extension_results,
         state.rule_summaries,
-        state.exit_code)
+        state.exit_code,
+        state.sqlite_validation[])
 end
 
 """Nest all source-owned evidence for the canonical report."""
@@ -655,6 +726,8 @@ function repository_analysis_state()
         interop_signatures=InteropSignature[],
         interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
+        sql_sources=Dict{String, SQLSourceEvidence}(),
+        sqlite_validation=Ref(empty_sqlite_validation()),
         extension_results=ExtensionResult[],
         odin_builds=OdinBuildAnalysis[],
         engines=EngineStatus[
@@ -683,7 +756,7 @@ function run_language_analysis!(state, root, files, configuration, progress)
     run_security_analysis!(state, configuration)
     run_test_coverage_analysis!(state, root, configuration)
     language_files = analyze_files(
-        root, files, state.struct_counts, state.diagnostics)
+        root, files, state.struct_counts, state.diagnostics, state.sql_sources)
     language_statistics = calculate_repository_statistics(
         language_files, state.functions)
     run_language_extension_phase!(
@@ -810,21 +883,39 @@ function check_repository(
 end
 
 """Return line, function, and struct totals for every discovered source file."""
-function analyze_files(root, files, struct_counts, diagnostics)
+function analyze_files(
+    root, files, struct_counts, diagnostics, sql_sources=Dict{String, SQLSourceEvidence}())
     return map(files) do path
         source = read(path, String)
         relative_path = replace(relpath(path, root), '\\' => '/')
         language = source_language(path)
+        sql = language == "sql" ?
+            get!(sql_sources, relative_path) do
+                SQLEngine.analyze(source)
+            end : nothing
         parsed = source_parsed(relative_path, language, diagnostics)
         struct_count = language == "julia" && parsed ?
             JuliaEngine.struct_count(source) : get(struct_counts, relative_path, 0)
         analyze_file(
-            relative_path, path, source, language, parsed, struct_count)
+            relative_path, path, source, language, parsed, struct_count; sql)
     end
 end
 
 """Return line and declaration totals for one source file."""
-function analyze_file(path, filesystem_path, source, language, parsed, struct_count)
+function analyze_file(
+    path, filesystem_path, source, language, parsed, struct_count;
+    sql::Union{Nothing, SQLSourceEvidence}=nothing)
+    if language == "sql"
+        evidence = sql === nothing ? SQLEngine.analyze(source) : sql
+        return FileAnalysis(path, language;
+            physical_lines=length(evidence.line_kinds),
+            source_lines=count(!=(:blank), evidence.line_kinds),
+            code_lines=count(==(:code), evidence.line_kinds),
+            comment_lines=count(==(:comment), evidence.line_kinds),
+            blank_lines=count(==(:blank), evidence.line_kinds),
+            struct_count=nothing,
+            parsed=evidence.capabilities.query_structure == :complete, sql=evidence)
+    end
     lines = split(source, '\n'; keepempty=true)
     physical_lines = isempty(source) ? 0 :
         length(lines) - (isempty(last(lines)) ? 1 : 0)
@@ -848,11 +939,13 @@ end
 function source_language(path)
     endswith(path, ".jl") && return "julia"
     endswith(path, ".odin") && return "odin"
+    endswith(path, ".sql") && return "sql"
     return "markdown"
 end
 
 """Return whether one source file has no syntax diagnostic."""
 function source_parsed(path, language, diagnostics)
+    language == "sql" && return false
     syntax_rule = language == "julia" ? "JULIA-SYNTAX" :
         language == "odin" ? "ODIN-SYNTAX" : nothing
     syntax_rule === nothing && return true
@@ -892,10 +985,9 @@ end
 
 """Count discovered source files by supported language."""
 function count_files_by_language(files::Vector{String})
-    counts = Dict("julia" => 0, "odin" => 0, "markdown" => 0)
+    counts = Dict("julia" => 0, "odin" => 0, "markdown" => 0, "sql" => 0)
     for path in files
-        language = endswith(path, ".jl") ? "julia" :
-            endswith(path, ".odin") ? "odin" : "markdown"
+        language = source_language(path)
         counts[language] += 1
     end
     return counts
@@ -973,6 +1065,7 @@ end
 """Return the engine responsible for evaluating one rule."""
 function rule_engine_name(rule_id, definition, extension_owner)
     extension_owner !== nothing && return "extension:$extension_owner"
+    definition.language == "sql" && return "sql-rule:$rule_id"
     startswith(rule_id, "ARCHITECTURE-") && return "architecture"
     rule_id in ("CALL-GRAPH-UNRESOLVED-EDGE",
         "JULIA-UNREACHABLE-FUNCTION", "ODIN-UNREACHABLE-PROCEDURE") &&

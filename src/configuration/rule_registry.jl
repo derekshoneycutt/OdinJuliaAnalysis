@@ -1,4 +1,22 @@
 const RULE_REGISTRY = Dict(
+    "SQL-KEYWORD-CASING" => RuleDefinition(
+        "SQL-KEYWORD-CASING", "sql", "SQLite > Keyword Casing",
+        "experimental", "definite", "report", false),
+    "SQL-SEMICOLON" => RuleDefinition(
+        "SQL-SEMICOLON", "sql", "SQLite > Statement Termination",
+        "experimental", "definite", "report", false),
+    "SQL-NUMBERED-BINDS" => RuleDefinition(
+        "SQL-NUMBERED-BINDS", "sql", "SQLite > Numbered Bind Slots",
+        "experimental", "definite", "report", false),
+    "SQL-EXPLICIT-AS" => RuleDefinition(
+        "SQL-EXPLICIT-AS", "sql", "SQLite > Explicit Aliases",
+        "experimental", "definite", "report", false),
+    "SQL-PROJECTION-WILDCARD" => RuleDefinition(
+        "SQL-PROJECTION-WILDCARD", "sql", "SQLite > Result Interfaces",
+        "experimental", "definite", "report", false),
+    "SQL-COMMA-JOIN" => RuleDefinition(
+        "SQL-COMMA-JOIN", "sql", "SQLite > Explicit Joins",
+        "experimental", "definite", "report", false),
     "ODIN-COMPOUND-LITERAL-DECLARATION" => RuleDefinition(
         "ODIN-COMPOUND-LITERAL-DECLARATION", "odin",
         "Odin Rules > Formatting > Compound Literal Declarations",

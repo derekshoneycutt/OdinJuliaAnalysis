@@ -177,7 +177,7 @@ end
         output = IOBuffer()
         OdinJuliaAnalysis.write_report(output, report, "json")
         encoded = String(take!(output))
-        @test occursin("\"schema_version\": \"4.3.0\"", encoded)
+        @test occursin("\"schema_version\": \"4.7.0\"", encoded)
         @test occursin("\"is_rodata\": false", encoded)
 
         settings_path = write_jet_settings(
@@ -192,7 +192,7 @@ end
         @test occursin("## Repository Statistics", report_text)
         @test occursin("| Odin |", report_text)
         @test occursin("| Julia |", report_text)
-        @test occursin("| Total |", report_text)
+        @test occursin("| Procedural total |", report_text)
         @test occursin("### COCOMO Development Estimate", report_text)
         @test occursin("### LOCOMO Regeneration Estimate", report_text)
         @test !occursin("## Function And Procedure Inventory", report_text)
@@ -240,7 +240,7 @@ end
         json_output = IOBuffer()
         OdinJuliaAnalysis.write_statistics_report(json_output, selected, "json")
         stats_json = JSON.parse(String(take!(json_output)))
-        @test stats_json.schema_version == "1.0.0"
+        @test stats_json.schema_version == "2.0.0"
         @test stats_json.selection.matches == 2
         @test OdinJuliaAnalysis.main([
             "stats", stats_path, "--function=documented"]) == 0

@@ -6,6 +6,7 @@ function write_markdown_report(io::IO, report::AnalysisReport; comprehensive::Bo
     write_markdown_metadata(io, report)
     write_markdown_summary(io, report)
     write_markdown_statistics(io, report.statistics)
+    write_markdown_sqlite_validation(io, report.sqlite_validation)
     write_markdown_thresholds(
         io, report.thresholds, report.parameter_counts, report.function_metrics)
     write_markdown_flat_switch_exemptions(io, report)
@@ -23,6 +24,7 @@ function write_markdown_report(io::IO, report::AnalysisReport; comprehensive::Bo
     # so the compact report excludes them and the comprehensive report includes them.
     comprehensive || return
     write_markdown_files(io, report)
+    write_markdown_sql_files(io, report.files)
     write_markdown_dependencies(io, report)
     write_markdown_declarations(io, report)
     write_markdown_import_bindings(io, report)
@@ -347,13 +349,18 @@ function write_markdown_statistics(io, statistics)
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     write_markdown_code_statistics_row(io, "Odin", statistics.code_by_language["odin"])
     write_markdown_code_statistics_row(io, "Julia", statistics.code_by_language["julia"])
-    write_markdown_code_statistics_row(io, "Total", statistics.code)
+    write_markdown_code_statistics_row(io, "SQLite", statistics.code_by_language["sql"])
+    write_markdown_code_statistics_row(io, "Procedural total", statistics.code)
     println(io)
-    println(io, "Line totals cover analyzed Julia and Odin files; Markdown is excluded.")
+    println(io, "Procedural totals and estimates cover Odin/Julia only; SQL and Markdown are excluded.")
+    println(io, "Shared source totals below include every discovered language.")
     println(io, "Functions includes parser-backed Julia functions and Odin procedures.")
     println(io, "Structs includes parser-backed named struct declarations.")
     println(io, "Complexity is the sum of parser-derived cyclomatic complexity for Julia")
     println(io, "functions and Odin procedures.")
+    write_metric_scope(io, statistics.metric_scope)
+    write_markdown_source_totals(io, statistics)
+    write_markdown_sql_statistics(io, statistics.sql)
     write_markdown_cocomo_statistics(io, statistics.cocomo)
     write_markdown_locomo_statistics(io, statistics.locomo)
 end
@@ -362,6 +369,8 @@ end
 function write_markdown_cocomo_statistics(io, cocomo)
     println(io)
     println(io, "### COCOMO Development Estimate")
+    cocomo === nothing && return println(io,
+        "\n\u2014 (not applicable: no Odin/Julia source; SQL and Markdown excluded).")
     println(io)
     println(io, "| Measure | Estimate |")
     println(io, "| --- | ---: |")
@@ -382,6 +391,8 @@ end
 function write_markdown_locomo_statistics(io, locomo)
     println(io)
     println(io, "### LOCOMO Regeneration Estimate")
+    locomo === nothing && return println(io,
+        "\n\u2014 (not applicable: no Odin/Julia source; SQL and Markdown excluded).")
     println(io)
     println(io, "| Measure | Estimate |")
     println(io, "| --- | ---: |")
@@ -407,10 +418,11 @@ end
 """Write one language row in the Markdown code-statistics table."""
 function write_markdown_code_statistics_row(io, language, code)
     println(io,
-        "| $language | $(code.files) | $(code.functions) | $(code.structs) | ",
+        "| $language | $(code.files) | $(statistic_value(code.functions)) | ",
+        "$(statistic_value(code.structs)) | ",
         "$(code.lines) | $(code.blank_lines) | $(code.comment_lines) | ",
-        "$(code.code_lines) | $(code.complexity) | ",
-        "$(round(code.complexity_per_code_line; digits=4)) |")
+        "$(code.code_lines) | $(statistic_value(code.complexity)) | ",
+        "$(statistic_decimal(code.complexity_per_code_line)) |")
 end
 
 """Write analyzer identity and scan metadata."""

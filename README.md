@@ -49,6 +49,7 @@ static test reachability without making the analyzer responsible for running tes
 | Julia analysis | JuliaSyntax, CodeComplexity, and JET | Syntax, declarations, metrics, naming, and inference findings |
 | Odin analysis | Native Odin AST helper | Syntax, declarations, metrics, naming, and allocation evidence |
 | Markdown analysis | MarkdownAST-backed Julia engine | Structure, links, and image accessibility policy |
+| SQLite analysis | Standalone Julia lexer and structural parser | Statements, query/declaration interfaces, six configurable conventions, explicit capability gaps |
 | Cross-language policy | Canonical repository model and extensions | One rule registry, response model, report, and exit code |
 | Build validation | Configured analytical Odin builds | Compiler commands, streams, artifacts, and failure diagnostics |
 | Policy exceptions | Exact reviewed policies | Reasoned exceptions with bounded drift enforcement |
@@ -59,13 +60,14 @@ static test reachability without making the analyzer responsible for running tes
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |
 | Package version | `0.1.0` |
-| Analysis schema | `4.3.0` |
+| Analysis schema | `4.7.0` |
+| Source statistics schema | `2.0.0` |
 | Extension API | `2.0.0` |
 | Native Odin schema | `3.15.0` |
 | Native Odin engine | `0.22.0` |
 | Julia compatibility | `1.12` |
-| Built-in rules | 82 |
-| Source types | `.jl`, `.odin`, `.md` |
+| Built-in rules | 88 |
+| Source types | `.jl`, `.odin`, `.md`, `.sql` |
 | License | The Unlicense |
 
 ## Requirements
@@ -154,13 +156,14 @@ julia analyze.jl stats FILE [OPTIONS]
 
 | Option | Values | Default | Purpose |
 | --- | --- | --- | --- |
-| `--function` | Exact function name | None | Return every exact name match |
-| `--line` | Positive source line | None | Return the innermost function containing the line |
+| `--function` | Exact function name | None | Return every exact name match; rejected for SQL |
+| `--line` | Positive source line | None | Return the innermost function or executable SQL statement |
 | `--format` | `text`, `json` | `text` | Select human or versioned machine output |
 | `-h`, `--help` | - | - | Show command help |
 
 `--function` and `--line` are mutually exclusive. Without either selector, `stats`
-returns file measurements and every measured function or procedure in source order.
+returns file measurements and every measured function, procedure or SQL statement in
+source order. SQL CTEs are query organization, not standalone executable statements.
 
 Progress always uses stderr. Text or JSON report data always uses stdout, so machine
 consumers can safely redirect stdout while retaining live progress.
@@ -208,7 +211,7 @@ flowchart LR
 
     Model --> Policy[Response remapping and reviewed policies]
     Policy --> Statistics[Repository statistics]
-    Statistics --> Report[AnalysisReport schema 4.3.0]
+    Statistics --> Report[AnalysisReport schema 4.7.0]
     LocalStats --> StatsReport[SourceStatisticsReport schema 1.0.0]
     Report --> Text[Text report]
     Report --> JSON[JSON report]
@@ -268,7 +271,7 @@ flowchart TD
 
 ### Rule Families
 
-The registry contains 82 built-in rules. Every configured rule has an enablement flag and
+The registry contains 88 built-in rules. Every configured rule has an enablement flag and
 one response: `Ignore`, `Report`, `Warn`, or `Fail`.
 
 | Family | Rules | Evidence and intent |
@@ -366,22 +369,35 @@ The report includes parser-backed totals rather than filename-only estimates.
 
 | Statistic | Scope |
 | --- | --- |
-| Files | Julia and Odin source counts by language |
+| Files | Shared Julia, Odin, SQL and Markdown source counts by language |
 | Functions | Julia functions and Odin procedures |
 | Structs | Julia and Odin struct declarations |
-| Lines | Physical, blank, comment, and code lines |
-| Complexity | Aggregate cyclomatic complexity and complexity per code line |
+| Lines | Shared physical, source, blank, comment, and code lines |
+| SQL inventories | Statements, tables, views, indexes, triggers, virtual tables, queries, CTEs, binds and projections |
+| Complexity | Odin/Julia cyclomatic complexity divided by covered Odin/Julia code lines |
 | COCOMO | Organic-model effort, schedule, staffing, and cost estimate |
 | LOCOMO | Token, generation-cycle, generation-time, review-time, and cost estimate |
 
-Markdown files are analyzed for policy but excluded from programming-language code totals.
+`statistics.sources` and `sources_by_language` reconcile all discovered languages.
+`statistics.code` remains the historical Odin/Julia aggregate; `code_by_language.sql`
+contains SQL source sizes with null functions, structs, CC and density. `statistics.sql`
+reports authored inventories, not live database objects. Top-level statements exclude
+trigger-body statements; the full statement count includes them. Structural counts
+are null if their required evidence is incomplete, while independently complete lexical
+bind evidence remains available. A measured absence (for example no triggers) is zero.
+
+`metric_scope` explicitly records CC coverage and unchanged estimate NLOC inputs.
+SQL and Markdown never dilute procedural CC or enter COCOMO/LOCOMO. A SQL-only or
+empty scope has null procedural metrics and estimates, shown as an em dash in human
+output. Incomplete SQL measurements include status and located reasons.
 Bodyless Odin foreign procedures declared with `---` remain in interop signature evidence
 but are excluded from function statistics and user-defined procedure rules.
 
 ### Targeted Source Statistics
 
-The `stats` command measures exactly one `.jl` or `.odin` file. It reuses JuliaSyntax,
-CodeComplexity, the native Odin AST helper, and the same line classifier used by the
+The `stats` command measures exactly one `.jl`, `.odin` or `.sql` file. It reuses
+JuliaSyntax, CodeComplexity, the native Odin AST helper or SQL source evidence,
+and the same line classifier used by the
 repository report, but it does not run discovery, JET, configured Odin builds,
 extensions, coverage ingestion, call-graph analysis, or policy rules.
 
@@ -394,6 +410,13 @@ complexity when available, and documentation state.
 Exact name selection returns all overloads or repeated names rather than choosing one
 silently. Line selection returns the innermost measured function containing that line,
 which supports cursor-oriented inspection of nested functions.
+For SQL, `--line` selects the innermost executable statement, including recognized
+trigger-body operations; a CTE line selects its enclosing statement. `--function`
+is explicitly rejected. Unsupported structural syntax still returns trustworthy
+lexical sizes and bind counts, with null structural counts and exit code 2.
+Selecting a statement with incomplete structure, or a line outside a statement,
+is an explicit error. Source-statistics schema `2.0.0` adds `sql`, `statements` and
+`metric_scope`; SQL file procedural metrics are null, not fabricated zeros.
 
 File code lines and function executable lines are intentionally different measurements.
 Function lines do not necessarily sum to file code lines because files can contain
@@ -1017,7 +1040,7 @@ of the same analysis state.
 | Output | Invocation | Intended consumer | Completeness |
 | --- | --- | --- | --- |
 | Text | Default or `--format=text` | Developer terminal | Curated findings with configured limits |
-| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.3.0 |
+| JSON | `--format=json` | CI, automation, and downstream tools | Complete `AnalysisReport` schema 4.7.0 |
 | Markdown | `--report=PATH` | Review, archival, and audit | Compact statistics and visible findings |
 | Full Markdown | `--full-report=PATH` | Deep review and inventory audit | Comprehensive inventories and findings |
 
@@ -1051,6 +1074,16 @@ Schema `4.3.0` adds flat-switch candidate/outside-line evidence to functions,
 the opt-in policy fields to metric settings, and active `function_metric_exemptions`
 to JSON reports. Native Odin engine schema `3.15.0` supplies structural candidacy
 and outside executable source-line evidence. Raw metric meanings are unchanged.
+Schema `4.4.0` adds the nullable `sql` lexical evidence field to files and the
+`sql` discovery count. Existing procedural metrics retain their previous scope.
+Schema `4.5.0` adds `sql.structure` inventories and per-rule capability states.
+The existing byte coordinate convention and procedural metric scope are unchanged.
+Schema `4.6.0` adds shared source totals, capability-aware SQL statistics and explicit
+procedural coverage. SQL file struct counts and inapplicable aggregate metrics and
+estimates are nullable. Existing Odin/Julia estimate inputs and formulas are unchanged.
+Schema `4.7.0` adds `sqlite_validation`: reconciled case/provider/step evidence and
+dedicated-source declared, attempted, prepared, executed and validated coverage.
+Structural capabilities and runtime validation remain independent.
 
 | Generated path | Owner | Contents |
 | --- | --- | --- |
@@ -1060,6 +1093,194 @@ and outside executable source-line evidence. Raw metric meanings are unchanged.
 | User-selected `--full-report` path | Caller | Comprehensive Markdown audit report |
 
 Generated `.build` directories are excluded from source discovery.
+
+### SQLite Structural And Lexical Evidence
+
+Dedicated `.sql` files participate in discovery and the canonical file hierarchy.
+Each SQL file owns a `sql` evidence record containing the exact source snapshot,
+tokens, physical-line classifications, matching-parenthesis links, lexical issues
+and independent capability states. Non-SQL files have `sql = nothing`. SQL does
+not produce function or struct declarations.
+
+Spans are half-open, one-based UTF-8 byte offsets, not display columns. Physical
+line starts use the same coordinates; a final LF does not create an extra physical
+line. Mixed code/comment lines are code, including blank-looking or comment-looking
+lines inside multiline literals. SQLite block comments may extend to EOF.
+Parenthesis links use token indices, with zero for unmatched/non-delimiter tokens.
+Nesting is limited to 256 open parentheses; exceeding that limit leaves delimiter
+analysis incomplete without recursion or unbounded parser-stack growth.
+
+`SQLEngine.lex` supplies lexical-only evidence. `SQLEngine.analyze` additionally
+parses statement, schema and query structure; it does not validate SQLite name/type
+resolution or database acceptance. Grammar-selected keyword spans remain separate
+from `word` tokens, so contextual identifiers such as `strict`, `temp` and `key`
+are not capitalized merely because their spellings occur in SQLite grammar.
+TRUE/FALSE can resolve to identifiers and are not assumed to be keywords.
+
+The `structure` record contains flat typed inventories of statements, query blocks,
+declarations, projections, aliases, joins, CTEs and bind occurrences, plus keyword
+spans, capability gaps and rule evaluation states. Query and parent-statement
+indices are one-based; trigger body operations are statements owned by their
+trigger statement, while CTEs/compound operands are query organization, not
+fabricated executable statements or functions. Declaration records retain written
+schema/TEMP, STRICT/WITHOUT ROWID, virtual module arguments and partial-index
+predicates. Virtual module arguments are opaque: their commas, words and
+parameter-looking tokens do not become SQL joins, keywords or bind occurrences.
+
+Supported structural families include SELECT/VALUES, WITH/recursive CTEs,
+compound queries, INSERT/REPLACE/UPSERT, UPDATE FROM, DELETE, RETURNING, CREATE
+tables/views/indexes/triggers/virtual tables, DROP, PRAGMA and transaction controls.
+Expressions recognize grouping, operators, function calls, CAST, CASE, subqueries,
+EXISTS and aggregate FILTER/ORDER BY. This is a bounded structural grammar, not
+a complete SQLite parser. Named windows/window specifications, ALTER and other
+unsupported forms produce located capability gaps rather than SQL syntax errors.
+Combined statement/query/expression/group recursion is limited to 64 levels,
+independently of the lexer's 256-parenthesis limit.
+
+| Rule | Default | Evidence and exceptions |
+| --- | --- | --- |
+| `SQL-KEYWORD-CASING` | Report | Uppercase grammar-selected keywords, not contextual identifiers or function names |
+| `SQL-SEMICOLON` | Report | Authored statement terminators, with trigger/CASE boundaries recognized |
+| `SQL-NUMBERED-BINDS` | Report | Positive explicit numbered slots; sparse and repeated slots are preserved |
+| `SQL-EXPLICIT-AS` | Report | Result/source/target aliases, not CTE or declaration names or CAST type names |
+| `SQL-PROJECTION-WILDCARD` | Report | Exposed wildcards; allows COUNT(*), multiplication and wildcard-only EXISTS operands |
+| `SQL-COMMA-JOIN` | Report | FROM-source commas, not expression, VALUES, module or LIMIT commas |
+
+These six rules use ordinary enablement, response, reviewed policy and diagnostic
+reporting. The `sql-lexer` and `sql` engines report completion independently;
+`sql-rule:RULE-ID` engine states feed capability-aware rule summaries.
+Unsupported structure makes the structural rules incomplete (summarized as
+`failed` under the existing rule-run contract), never clean; trustworthy lexical
+bind evaluation remains available. A capability gap makes overall analysis exit
+with code 2 regardless of rule enablement or database acceptance. SQL file `parsed`
+indicates completed structural recognition only, never native SQLite acceptance.
+The source-owned inventories describe authored structure, not live database
+objects or procedural metrics. SQL source statistics and statement selectors use
+this same evidence; runtime validation is independent and explicitly configured.
+Existing procedural statistics and estimate inputs retain their original scope.
+
+`AnalysisSettings.sqlite_validation` and `EffectiveSettings.sqlite_validation`
+carry project-neutral typed validation declarations. Historical positional settings
+constructors retain disabled defaults. `SQLiteValidationSettings()` configures no
+runner, no cases and no coverage requirement. Consumers may declare runner argument
+vectors, ordered file/setup fixture steps and explicit NULL, Int64, finite real,
+text and blob bindings. Sparse slots are permitted; duplicate supplied slots are
+not. Relative runner paths are defined against the consuming project root, never
+the analyzer's incidental working directory. Requiring coverage or declaring cases
+without a runner is a configuration error.
+
+The analyzer invokes only the configured executable; it never discovers/builds a
+consumer's runner or loads SQLite itself. Without
+a runner, runtime validation is not applicable. The analyzer has no Euclid imports,
+provider selection, build hooks or host-SQLite fallback.
+
+### SQLite Runner Protocol Version 1
+
+The runner is trusted consumer tooling. The analyzer owns this process contract;
+the consumer owns its implementation and exact provider. One disposable process
+handles one case. stdin/stdout contain one UTF-8 JSON object each; stderr is
+operational diagnostics only. A successful process exit is necessary but never
+sufficient evidence. Relative executable and working-directory paths resolve
+against the analyzed repository root; arguments are passed literally, not through
+a shell. Use an absolute executable path for tools outside that root.
+
+Requests are limited to 8 MiB, 256 steps and 1 MiB per SQL source. The analyzer
+retains at most 2 MiB stdout and 64 KiB stderr while draining both pipes concurrently.
+Either overflow invalidates the case. The finite positive case timeout (default
+30 seconds, optionally overridden per case) includes pipe completion; the analyzer
+terminates and reaps only its owned child on timeout. Independent cases continue.
+Unavailable executables, crashes, timeouts, missing/truncated/malformed results and
+protocol contradictions are `incomplete`, never partial validation success.
+
+| Request field | Contract |
+| --- | --- |
+| `protocol_version` | Integer `1` |
+| `case_id` | Exact configured case identity |
+| `requirements` | Explicit consumer-defined compiled-in capability names |
+| `steps` | Ordered source/fixture records, not parser-split statements |
+| Step `id`, `role`, `mode` | Stable identity; `setup`/`operation`; `prepare`/`execute` |
+| Step `source_id` | Normalized discovered SQL path or `fixture:CASE:STEP` |
+| Step `source`, `digest` | Exact owned snapshot and lowercase SHA-256 of its UTF-8 bytes |
+| Step `binds` | Explicit slot, type and value records |
+| Step `bind_tokens` | Lexical bind spellings with `first_byte`, `after_last_byte`, `text` |
+
+File sources must already exist in discovered SQL snapshots; stale/nonexistent or
+excluded references are configuration errors reported as incomplete cases. Source
+text is never reread after structural analysis. Fixtures can establish connection
+context but never count as dedicated-file coverage. Bind tokens come from the
+context-neutral lexer even when deeper structure is unsupported. Native metadata
+and native prepare-tail ranges determine which tokens are actual parameters;
+opaque virtual-module arguments are not automatically parameter slots.
+
+Bindings use a positive integer `slot`, a `type` and a `value`:
+
+| Type | JSON value |
+| --- | --- |
+| `null` | `null` |
+| `integer` | Signed Int64 decimal **string**, preserving both extremes losslessly |
+| `real` | Finite JSON number |
+| `text` | UTF-8 string, including empty text and escaped NUL |
+| `blob` | Lowercase hexadecimal string, including empty blob |
+
+All coordinates are one-based half-open UTF-8 byte coordinates, not character
+columns. A successful full-source `processed_bytes=N` represents `[1,N+1)`,
+including comment-only tails. A native error `offset` is one-based source-relative,
+or null when SQLite cannot locate the error.
+
+| Result field | Contract |
+| --- | --- |
+| `protocol_version`, `case_id` | Exact request match |
+| `provider` | Nonempty `identity`, `version`, unique string `capabilities` |
+| `status`, `completed` | `passed`/`failed` and `true` for a completed protocol result |
+| `transaction_complete` | No undeclared open transaction hidden by connection close |
+| `cleanup` | Explicit Boolean `finalized` and `closed` outcomes |
+| `steps` | Exactly one result per requested step, in the same order |
+| Step identities | Exact `id`, `source_id`, `digest`, `mode` match |
+| Step outcome | `status`, `attempted`, `prepared`, `executed` |
+| Step progress | `processed_bytes`, `statement_count`, nullable `failure` |
+| Case `failure` | Nullable case-level capability/transaction/cleanup diagnostic |
+
+A failure has `phase`, `primary_code`, `extended_code`, nullable `offset` and copied
+`message`. Supported phases are `prepare`, `bind`, `step`, `capability`,
+`transaction`, `finalize`, `close`. Native code low bytes must agree with the
+primary code. Capability failures can use zero codes with a diagnostic.
+
+A passed step must be attempted/prepared, process all source bytes, have no failure,
+and set `executed` exactly when mode is `execute`. Execution means every statement
+was drained to DONE, not merely prepared or stepped to the first row. Failed steps
+retain partial byte/count evidence but do not claim full preparation/execution.
+After a failure, later steps are skipped with false evidence flags and zero progress.
+Successful empty/comment-only sources can have zero statements. Cases pass only
+with all steps passed, required capabilities available, completed transaction state
+and successful cleanup. Native SQL failures are `failed` evidence; they do not
+become protocol incompleteness or disappear because another case passes.
+
+Coverage records retain declared/attempted/prepared/executed/validated separately.
+Validated coverage requires a reconciled whole-source success at every mode declared
+for that file, with completed transaction state and successful native cleanup.
+Merely naming a file, skipping after setup failure or preparing only
+its first statement never grants coverage. An empty case set supplies no coverage.
+`require_coverage` makes uncovered discovered SQL fail validation; it is opt-in,
+not imposed on other consumers. Runtime failures and incomplete cases are visible
+through the `sqlite-validation` engine and make the overall analysis exit 2.
+Native success never repairs a structural capability gap or proves intended query
+results. The runner must prohibit external database/file access and arbitrary
+extensions, keep one fresh in-memory connection per case, and check transaction,
+statement and connection cleanup explicitly.
+An explicit native capability/provider failure is a completed protocol response
+but incomplete runtime analysis; its copied provider and failure details are retained.
+
+Generic analyzer tests use protocol fixtures and require no SQLite or Euclid.
+Consumer integration tests must independently prove their native runner implements
+this contract against the provider that consumer actually ships.
+Human reports retain native failure phases/codes/byte offsets, case cleanup and
+dedicated-source coverage flags. Verification summaries also expose native failures
+and uncovered sources even when ordinary convention diagnostics are empty.
+
+The generic sample intentionally stays structural-only; it does not inherit the
+parent repository's runner, provider or required-coverage policy. Consumers can
+explicitly opt in using `SQLiteValidationSettings`, but must prepare their own
+configured executable before invoking the analyzer.
 
 ## Using the Sample
 
@@ -1116,6 +1337,10 @@ progress and summary tables, and optionally writes the canonical Markdown report
 
 The include-based [`tools/Verification.jl`](tools/Verification.jl) module owns the common
 phase result, progress, color, table, JSON-envelope, and analyzer-statistics formatting.
+Interactive terminals show an active-phase spinner and elapsed `MM:SS`, clearing
+the line around streamed child diagnostics. Completion, exceptions and interruption
+stop the refresh task. Redirected output and dumb terminals retain static progress;
+final summaries and JSON output remain unchanged.
 Repository drivers remain responsible for defining commands, phases, CLI policy, and
 optional report-section callbacks.
 

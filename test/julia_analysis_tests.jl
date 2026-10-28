@@ -792,9 +792,9 @@ end
 
     empty_statistics = OdinJuliaAnalysis.calculate_repository_statistics(
         OdinJuliaAnalysis.FileAnalysis[], OdinJuliaAnalysis.FunctionAnalysis[])
-    @test empty_statistics.code.complexity_per_code_line == 0.0
-    @test empty_statistics.cocomo.people == 0.0
-    @test empty_statistics.locomo.estimated_cost == 0.0
+    @test empty_statistics.code.complexity_per_code_line === nothing
+    @test empty_statistics.cocomo === nothing
+    @test empty_statistics.locomo === nothing
 end
 
 @testset "JET static inference" begin
@@ -836,4 +836,3 @@ end
         @test occursin("fixture failure", wrapped_diagnostic.message)
     end
 end
-

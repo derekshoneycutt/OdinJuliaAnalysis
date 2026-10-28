@@ -352,7 +352,7 @@ struct FileAnalysis
     code_lines::Int
     comment_lines::Int
     blank_lines::Int
-    struct_count::Int
+    struct_count::Union{Nothing, Int}
     parsed::Bool
     functions::Vector{FunctionAnalysis}
     declarations::Vector{DeclarationRecord}
@@ -366,6 +366,14 @@ struct FileAnalysis
     test_coverage::Vector{TestCoverageEvidence}
     interop_signatures::Vector{InteropSignature}
     interop_pairs::Vector{InteropBridgePair}
+    sql::Union{Nothing, SQLSourceEvidence}
+end
+
+"""Preserve file constructors from before dedicated SQL evidence was available."""
+function FileAnalysis(
+    path, language, metrics...)
+    length(metrics) == 19 || throw(MethodError(FileAnalysis, (path, language, metrics...)))
+    return FileAnalysis(path, language, metrics..., nothing)
 end
 
 """Construct file metrics before nested evidence has been assigned."""
@@ -378,7 +386,8 @@ function FileAnalysis(
     comment_lines,
     blank_lines,
     struct_count,
-    parsed)
+    parsed,
+    sql::Union{Nothing, SQLSourceEvidence}=nothing)
     return FileAnalysis(
         path,
         language,
@@ -400,19 +409,69 @@ function FileAnalysis(
         SecurityBoundaryPath[],
         TestCoverageEvidence[],
         InteropSignature[],
-        InteropBridgePair[])
+        InteropBridgePair[],
+        sql)
 end
 
 struct CodeStatistics
     files::Int
-    functions::Int
-    structs::Int
+    functions::Union{Nothing, Int}
+    structs::Union{Nothing, Int}
     lines::Int
     blank_lines::Int
     comment_lines::Int
     code_lines::Int
-    complexity::Int
-    complexity_per_code_line::Float64
+    complexity::Union{Nothing, Int}
+    complexity_per_code_line::Union{Nothing, Float64}
+end
+
+struct SourceTotals
+    files::Int
+    physical_lines::Int
+    source_lines::Int
+    code_lines::Int
+    comment_lines::Int
+    blank_lines::Int
+end
+
+"""Procedural metrics and estimates exclude SQL and documentation explicitly."""
+struct MetricScope
+    status::String
+    languages::Vector{String}
+    excluded_languages::Vector{String}
+    complexity_files::Int
+    complexity_code_lines::Int
+    estimate_code_lines::Int
+    reason::Union{Nothing, String}
+end
+
+"""SQL measurements distinguish a real zero from absent or incomplete evidence."""
+struct SQLStatistics
+    files::Int
+    lexical_status::String
+    structural_status::String
+    reason::Union{Nothing, String}
+    statements::Union{Nothing, Int}
+    top_level_statements::Union{Nothing, Int}
+    tables::Union{Nothing, Int}
+    views::Union{Nothing, Int}
+    indexes::Union{Nothing, Int}
+    triggers::Union{Nothing, Int}
+    virtual_tables::Union{Nothing, Int}
+    query_blocks::Union{Nothing, Int}
+    ctes::Union{Nothing, Int}
+    binds::Union{Nothing, Int}
+    projections::Union{Nothing, Int}
+end
+
+struct SQLStatementStatistics
+    kind::String
+    first_byte::Int
+    after_last_byte::Int
+    start_line::Int
+    end_line::Int
+    parent::Union{Nothing, Int}
+    terminated::Bool
 end
 
 struct FunctionStatistics
@@ -435,14 +494,14 @@ struct FileStatistics
     code_lines::Int
     comment_lines::Int
     blank_lines::Int
-    function_count::Int
-    struct_count::Int
-    total_cyclomatic_complexity::Int
-    complexity_per_code_line::Float64
-    average_function_complexity::Float64
-    maximum_function_complexity::Int
-    average_executable_lines::Float64
-    maximum_executable_lines::Int
+    function_count::Union{Nothing, Int}
+    struct_count::Union{Nothing, Int}
+    total_cyclomatic_complexity::Union{Nothing, Int}
+    complexity_per_code_line::Union{Nothing, Float64}
+    average_function_complexity::Union{Nothing, Float64}
+    maximum_function_complexity::Union{Nothing, Int}
+    average_executable_lines::Union{Nothing, Float64}
+    maximum_executable_lines::Union{Nothing, Int}
 end
 
 struct StatisticsSelection
@@ -459,6 +518,18 @@ struct SourceStatisticsReport
     file::FileStatistics
     functions::Vector{FunctionStatistics}
     selection::Union{Nothing, StatisticsSelection}
+    sql::Union{Nothing, SQLStatistics}
+    statements::Vector{SQLStatementStatistics}
+    metric_scope::MetricScope
+end
+
+"""Preserve construction of procedural targeted reports with explicit scope defaults."""
+function SourceStatisticsReport(
+    schema, version, path, language, file, functions, selection)
+    scope = MetricScope("applicable", ["julia", "odin"], ["sql", "markdown"],
+        1, file.code_lines, file.code_lines, nothing)
+    return SourceStatisticsReport(schema, version, path, language, file,
+        functions, selection, nothing, SQLStatementStatistics[], scope)
 end
 
 struct CocomoEstimate
@@ -484,8 +555,12 @@ end
 struct RepositoryStatistics
     code::CodeStatistics
     code_by_language::Dict{String, CodeStatistics}
-    cocomo::CocomoEstimate
-    locomo::LocomoEstimate
+    cocomo::Union{Nothing, CocomoEstimate}
+    locomo::Union{Nothing, LocomoEstimate}
+    sources::SourceTotals
+    sources_by_language::Dict{String, SourceTotals}
+    sql::SQLStatistics
+    metric_scope::MetricScope
 end
 
 struct AnalysisContext
@@ -532,6 +607,14 @@ struct AnalysisReport
     extensions::Vector{ExtensionResult}
     rules::Vector{RuleRunSummary}
     exit_code::Int
+    sqlite_validation::SQLiteValidationEvidence
+end
+
+"""Retain historical report construction with runtime validation explicitly not applicable."""
+function AnalysisReport(arguments...)
+    length(arguments) == fieldcount(AnalysisReport) - 1 ||
+        throw(MethodError(AnalysisReport, arguments))
+    return AnalysisReport(arguments..., empty_sqlite_validation())
 end
 
 """Expose active structural exemptions alongside policy-neutral function evidence."""

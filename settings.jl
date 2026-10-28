@@ -10,6 +10,12 @@ AnalysisSettings(
         ScanProfile(:aspirational, String[]),
     ],
     [
+        RuleSetting("SQL-KEYWORD-CASING", true, Report),
+        RuleSetting("SQL-SEMICOLON", true, Report),
+        RuleSetting("SQL-NUMBERED-BINDS", true, Report),
+        RuleSetting("SQL-EXPLICIT-AS", true, Report),
+        RuleSetting("SQL-PROJECTION-WILDCARD", true, Report),
+        RuleSetting("SQL-COMMA-JOIN", true, Report),
         RuleSetting("DUPLICATE-CODE-POLICY-DRIFT", true, Fail),
         RuleSetting("FUNCTION-METRIC-POLICY-DRIFT", true, Fail),
         RuleSetting("NAMING-POLICY-DRIFT", true, Fail),

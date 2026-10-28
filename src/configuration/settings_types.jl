@@ -695,6 +695,7 @@ struct AnalysisSettings
     documentation::DocumentationSettings
     call_roots::CallRootSettings
     odin_spacing::OdinSpacingSettings
+    sqlite_validation::SQLiteValidationSettings
 end
 
 struct EffectiveSettings
@@ -722,6 +723,7 @@ struct EffectiveSettings
     documentation::DocumentationSettings
     call_roots::CallRootSettings
     odin_spacing::OdinSpacingSettings
+    sqlite_validation::SQLiteValidationSettings
 end
 
 """Construct settings from the pre-naming API using package naming defaults."""
@@ -903,6 +905,9 @@ function AnalysisSettings(
     naming,
     jet,
     trailing...)
+    has_sqlite = !isempty(trailing) && last(trailing) isa SQLiteValidationSettings
+    sqlite = has_sqlite ? last(trailing) : default_sqlite_validation_settings()
+    trailing = has_sqlite ? trailing[1:(end - 1)] : trailing
     has_spacing = !isempty(trailing) && last(trailing) isa OdinSpacingSettings
     spacing = has_spacing ? last(trailing) : default_odin_spacing_settings()
     layout = has_spacing ? trailing[1:(end - 1)] : trailing
@@ -933,7 +938,8 @@ function AnalysisSettings(
     tail.coverage,
     tail.documentation,
     length(layout) == 14 ? layout[14] : default_call_root_settings(),
-    spacing)
+    spacing,
+    sqlite)
 end
 
 """Construct effective settings from APIs predating tuple or parameter policies."""
@@ -946,6 +952,9 @@ function EffectiveSettings(
     naming,
     jet,
     trailing...)
+    has_sqlite = !isempty(trailing) && last(trailing) isa SQLiteValidationSettings
+    sqlite = has_sqlite ? last(trailing) : default_sqlite_validation_settings()
+    trailing = has_sqlite ? trailing[1:(end - 1)] : trailing
     has_spacing = !isempty(trailing) && last(trailing) isa OdinSpacingSettings
     spacing = has_spacing ? last(trailing) : default_odin_spacing_settings()
     layout = has_spacing ? trailing[1:(end - 1)] : trailing
@@ -957,12 +966,12 @@ function EffectiveSettings(
     prefix = (profile, failure_threshold, thresholds, enforcement_excludes,
         rules, naming, jet)
     return length(layout) <= 6 ?
-        legacy_effective_settings(prefix, layout, spacing) :
-        extended_effective_settings(prefix, layout, spacing)
+        legacy_effective_settings(prefix, layout, spacing, sqlite) :
+        extended_effective_settings(prefix, layout, spacing, sqlite)
 end
 
 """Construct effective settings from the shortest historical layouts."""
-function legacy_effective_settings(prefix, trailing, spacing)
+function legacy_effective_settings(prefix, trailing, spacing, sqlite)
     odin_build = trailing[1]
     return_tuples = length(trailing) in (4, 6) ? trailing[2] :
         default_return_tuple_settings()
@@ -982,11 +991,12 @@ function legacy_effective_settings(prefix, trailing, spacing)
         default_coverage_settings(),
         default_documentation_settings(),
         default_call_root_settings(),
-        spacing)
+        spacing,
+        sqlite)
 end
 
 """Construct effective settings from later additive layouts."""
-function extended_effective_settings(prefix, trailing, spacing)
+function extended_effective_settings(prefix, trailing, spacing, sqlite)
     defaults = length(trailing) == 10 ? (
         default_duplicate_code_settings(),
         default_resource_lifetime_settings(),
@@ -1001,5 +1011,5 @@ function extended_effective_settings(prefix, trailing, spacing)
                 default_call_root_settings(),
                 spacing) : length(trailing) == 16 ? (spacing,) :
                 (default_call_root_settings(), spacing)
-    return EffectiveSettings(prefix..., trailing..., defaults...)
+    return EffectiveSettings(prefix..., trailing..., defaults..., sqlite)
 end

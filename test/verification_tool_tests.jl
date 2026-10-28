@@ -62,4 +62,34 @@
     captured = capture_command(command)
     @test captured.exit_code == 0
     @test captured.output == "42"
+
+    mktempdir() do root
+        path = joinpath(root, "query.sql")
+        write(path, "SELECT ?1 AS value;")
+        canonical = OdinJuliaAnalysis.check_repository(
+            root; configuration=sql_rule_configuration())
+        serialized = JSON.parse(JSON.json(canonical))
+        output = IOBuffer()
+        Verification.write_code_statistics(output, serialized, false)
+        summary = String(take!(output))
+        @test occursin("SQLite", summary)
+        @test occursin("Procedural total", summary)
+        @test !occursin("Shared source:", summary)
+        @test !occursin("SQLite inventory:", summary)
+        @test occursin("\u2014 (not applicable", summary)
+        @test !occursin("CC coverage:", summary)
+        @test !occursin("SQLite lexical coverage:", summary)
+        @test !occursin("SQLite runtime validation:", summary)
+        @test occursin(r"\+-+\+\nCOCOMO/LOCOMO:", summary)
+        @test Verification.code_statistics_row("SQLite",
+            serialized.statistics.code_by_language.sql)[3:4] == ["\u2014", "\u2014"]
+        write(path, "ALTER TABLE t RENAME TO u;")
+        partial = OdinJuliaAnalysis.check_repository(
+            root; configuration=sql_rule_configuration())
+        output = IOBuffer()
+        Verification.write_code_statistics(output, JSON.parse(JSON.json(partial)), false)
+        incomplete_summary = String(take!(output))
+        @test !occursin("SQLite inventory:", incomplete_summary)
+        @test !occursin("SQLite reason:", incomplete_summary)
+    end
 end

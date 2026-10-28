@@ -227,7 +227,8 @@ function nested_file(file, evidence, functions)
         evidence.security_paths,
         evidence.test_coverage,
         evidence.interop_signatures,
-        evidence.interop_pairs)
+        evidence.interop_pairs,
+        file.sql)
 end
 
 """Return every function nested under analyzed files."""

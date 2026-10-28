@@ -109,6 +109,7 @@ function validate_settings(
     validate_documentation_settings(settings.documentation)
     validate_call_root_settings(settings.call_roots)
     validate_odin_spacing_settings(settings.odin_spacing)
+    validate_sqlite_validation_settings(settings.sqlite_validation)
     validate_allocation_settings(settings.allocations)
     validate_report_settings(settings.report, rule_registry)
     return EffectiveSettings(selected_profile, settings.failure_threshold,
@@ -119,7 +120,7 @@ function validate_settings(
         settings.allocations, settings.report, extensions, rule_registry, rule_owners,
         settings.duplicate_code, settings.resource_lifetime, settings.security,
         settings.coverage, settings.documentation, settings.call_roots,
-        settings.odin_spacing)
+        settings.odin_spacing, settings.sqlite_validation)
 end
 
 """Validate all independently configurable Odin separator policies."""

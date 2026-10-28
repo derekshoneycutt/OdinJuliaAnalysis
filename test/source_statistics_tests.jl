@@ -18,7 +18,7 @@
             """)
 
         report = analyze_source_statistics(path)
-        @test report.schema_version == "1.0.0"
+        @test report.schema_version == "2.0.0"
         @test report.language == "julia"
         @test report.file.parsed
         @test report.file.function_count == 4
@@ -51,7 +51,7 @@
         @test issorted(item.start_line for item in overloads.functions)
 
         encoded = JSON.parse(JSON.json(overloads))
-        @test encoded.schema_version == "1.0.0"
+        @test encoded.schema_version == "2.0.0"
         @test length(encoded.functions) == 2
         @test !haskey(encoded.functions[1], :call_edges)
     end

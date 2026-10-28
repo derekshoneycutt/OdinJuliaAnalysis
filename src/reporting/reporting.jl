@@ -26,7 +26,13 @@ function write_text_statistics(io, report)
     println(io)
     write_file_statistics(io, report)
     println(io)
-    write_function_statistics(io, report)
+    if report.sql === nothing
+        write_function_statistics(io, report)
+    else
+        write_sql_statistics(io, report.sql)
+        write_sql_statements(io, report.statements)
+    end
+    write_metric_scope(io, report.metric_scope)
 end
 
 """Write scalar measurements for one source file."""
@@ -72,10 +78,13 @@ function write_function_statistics(io, report)
 end
 
 """Write one aligned scalar statistics field."""
-write_statistic(io, label, value) = println(io, rpad(label, 24), value)
+write_statistic(io, label, value) = println(io, rpad(label, 24), statistic_value(value))
+
+"""Render unavailable quantities distinctly from a measured zero."""
+statistic_value(value) = value === nothing ? "\u2014" : string(value)
 
 """Format a statistics ratio without excessive precision."""
-statistic_decimal(value) = string(round(value; digits=3))
+statistic_decimal(value) = value === nothing ? "\u2014" : string(round(value; digits=3))
 
 """Write an analysis report in the requested machine or human format."""
 function write_report(
@@ -113,7 +122,12 @@ function write_text_report(io, report, color, warning_limit, report_limit)
     println(io, "Files:   $(report.files_analyzed) total " *
         "($(report.files_by_language["julia"]) Julia, " *
         "$(report.files_by_language["odin"]) Odin, " *
-        "$(report.files_by_language["markdown"]) Markdown)")
+        "$(report.files_by_language["markdown"]) Markdown, " *
+        "$(get(report.files_by_language, "sql", 0)) SQLite)")
+    write_source_totals(io, report.statistics.sources)
+    write_sql_statistics(io, report.statistics.sql)
+    write_metric_scope(io, report.statistics.metric_scope)
+    write_sqlite_validation(io, report.sqlite_validation)
 
     write_engine_summary(io, report.engines)
     write_rule_summary(io, report.rules)
@@ -308,14 +322,16 @@ function write_ignored_summary(io, ignored_counts)
     end
 end
 
-"""Write diagnostic details for analysis engines that failed."""
+"""Write failures and incomplete capability reasons without treating either as success."""
 function write_engine_failures(io, engines, use_color)
-    failures = filter(engine -> engine.status == "failed", engines)
-    isempty(failures) && return
-    println(io)
-    println(io, styled("TOOL FAILURES ($(length(failures)))", "\e[1;31m", use_color))
-    for engine in failures
-        println(io, "  $(engine.name): $(something(engine.message, "unknown failure"))")
+    for (status, heading) in (("failed", "TOOL FAILURES"), ("incomplete", "INCOMPLETE ANALYSIS"))
+        failures = filter(engine -> engine.status == status, engines)
+        isempty(failures) && continue
+        println(io)
+        println(io, styled("$heading ($(length(failures)))", "\e[1;31m", use_color))
+        for engine in failures
+            println(io, "  $(engine.name): $(something(engine.message, "unknown reason"))")
+        end
     end
 end
 

@@ -47,26 +47,31 @@ function calculate_code_statistics(
     functions::Vector{FunctionAnalysis})
     file_count = length(files)
     function_count = length(functions)
-    struct_count = sum(file -> file.struct_count, files; init=0)
+    struct_count = sum(file -> something(file.struct_count, 0), files; init=0)
     lines = sum(file -> file.physical_lines, files; init=0)
     blank_lines = sum(file -> file.blank_lines, files; init=0)
     comment_lines = sum(file -> file.comment_lines, files; init=0)
     code_lines = sum(file -> file.code_lines, files; init=0)
     complexity = sum(item -> item.cyclomatic_complexity, functions; init=0)
-    density = code_lines == 0 ? 0.0 : complexity / code_lines
+    procedural = any(file -> file.language in ("julia", "odin"), files)
+    covered_lines = sum(file -> file.parsed && file.language in ("julia", "odin") ?
+        file.code_lines : 0, files; init=0)
+    covered = any(file -> file.parsed && file.language in ("julia", "odin"), files)
+    density = !covered ? nothing :
+        covered_lines == 0 ? 0.0 : complexity / covered_lines
     return CodeStatistics(
         file_count,
-        function_count,
-        struct_count,
+        procedural ? function_count : nothing,
+        procedural ? struct_count : nothing,
         lines,
         blank_lines,
         comment_lines,
         code_lines,
-        complexity,
+        covered ? complexity : nothing,
         density)
 end
 
-"""Aggregate canonical Julia, Odin, and combined programming-language metrics."""
+"""Aggregate all source sizes while retaining Odin/Julia-only procedural estimate inputs."""
 function calculate_repository_statistics(
     files::Vector{FileAnalysis},
     functions::Vector{FunctionAnalysis})
@@ -77,14 +82,22 @@ function calculate_repository_statistics(
     code_files = filter(file -> file.language in languages, files)
     code_functions = filter(item -> item.language in languages, functions)
     code = calculate_code_statistics(code_files, code_functions)
+    code_by_language["sql"] = calculate_code_statistics(
+        filter(file -> file.language == "sql", files), FunctionAnalysis[])
+    totals_by_language = Dict(language => source_totals(
+        filter(file -> file.language == language, files))
+        for language in ("julia", "odin", "sql", "markdown"))
     return RepositoryStatistics(
         code,
         code_by_language,
-        calculate_cocomo(code.code_lines),
-        calculate_locomo(code.code_lines, code.complexity))
+        isempty(code_files) ? nothing : calculate_cocomo(code.code_lines),
+        isempty(code_files) ? nothing : calculate_locomo(
+            code.code_lines, sum(item -> item.cyclomatic_complexity, code_functions; init=0)),
+        source_totals(files), totals_by_language, sql_statistics(files),
+        procedural_scope(files))
 end
 
-"""Measure one Julia or Odin source file without running repository policy."""
+"""Measure one Julia, Odin or SQL source without running repository policy."""
 function analyze_source_statistics(
     path::String;
     function_name::Union{Nothing, String}=nothing,
@@ -93,11 +106,13 @@ function analyze_source_statistics(
         "function and line selectors are mutually exclusive"))
     isfile(path) || throw(ArgumentError("source path is not a file: $path"))
     language = source_language(path)
-    language in ("julia", "odin") || throw(ArgumentError(
-        "source path must have a .jl or .odin extension: $path"))
+    language in ("julia", "odin", "sql") || throw(ArgumentError(
+        "source path must have a .jl, .odin or .sql extension: $path"))
 
     normalized_path = replace(normpath(path), '\\' => '/')
     source = read(path, String)
+    language == "sql" && return sql_source_statistics(
+        normalized_path, source, function_name, line)
     functions, struct_count = language == "julia" ?
         julia_source_metrics(normalized_path, source) :
         odin_source_metrics(path)
@@ -109,7 +124,7 @@ function analyze_source_statistics(
         compact_functions, function_name, line)
     code = calculate_code_statistics([file], functions)
     return SourceStatisticsReport(
-        "1.0.0",
+        "2.0.0",
         string(VERSION),
         normalized_path,
         language,

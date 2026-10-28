@@ -282,12 +282,13 @@ end
     @test with_rules(effective_spacing, Dict()).odin_spacing == custom_spacing
     historical_settings = AnalysisSettings(
         (getfield(custom_settings, name) for name in
-            fieldnames(AnalysisSettings)[1:(end - 1)])...)
+            fieldnames(AnalysisSettings) if name ∉ (:odin_spacing, :sqlite_validation))...)
     @test OdinJuliaAnalysis.validate_settings(
         historical_settings).odin_spacing == default_odin_spacing_settings()
     historical_effective = OdinJuliaAnalysis.EffectiveSettings(
         (getfield(effective_spacing, name) for name in
-            fieldnames(OdinJuliaAnalysis.EffectiveSettings)[1:(end - 1)])...)
+            fieldnames(OdinJuliaAnalysis.EffectiveSettings)
+            if name ∉ (:odin_spacing, :sqlite_validation))...)
     @test historical_effective.odin_spacing == default_odin_spacing_settings()
     @test_throws ArgumentError HorizontalSpacing(-1)
     @test_throws ArgumentError HorizontalSpacing(true)

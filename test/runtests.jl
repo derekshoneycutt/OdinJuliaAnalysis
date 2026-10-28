@@ -411,6 +411,10 @@ end
     @test OdinJuliaAnalysis.main(["unknown"]) == 2
 
     include("configuration_tests.jl")
+    include("sql_engine_tests.jl")
+    include("sql_structure_tests.jl")
+    include("sql_statistics_tests.jl")
+    include("sql_validation_tests.jl")
     include("repository_inventory_tests.jl")
     include("julia_analysis_tests.jl")
     include("odin_analysis_tests.jl")
@@ -424,4 +428,5 @@ end
     include("odin_compound_declaration_tests.jl")
     include("advanced_analysis_tests.jl")
     include("verification_tool_tests.jl")
+    include("verification_progress_tests.jl")
 end
