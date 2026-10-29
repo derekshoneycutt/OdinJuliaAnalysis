@@ -419,6 +419,7 @@ end
     include("repository_inventory_tests.jl")
     include("julia_analysis_tests.jl")
     include("odin_analysis_tests.jl")
+    include("odin_type_forward_tests.jl")
     include("source_statistics_tests.jl")
     include("reporting_tests.jl")
     include("odin_engine_tests.jl")

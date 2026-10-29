@@ -58,6 +58,12 @@ static test reachability without making the analyzer responsible for running tes
 | Reporting | Text, JSON, and Markdown | Human feedback, machine contract, and audit artifact |
 | Extensibility | Trusted in-process Julia extensions | Project rules without modifying analyzer internals |
 
+Odin type-forward classification is parser-based, not compiler type resolution.
+Mixed-case identifier and selector targets may include acronym suffixes such as
+`color.Color_RGBA8`; aliases to these targets are classified as types, including
+aliases to distinct array types. All-uppercase targets remain constant forwards.
+Naming policy is checked separately from this classification.
+
 | Project contract | Current value |
 | --- | --- |
 | Package | `OdinJuliaAnalysis` |

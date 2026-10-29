@@ -726,6 +726,49 @@ verify_test_analysis_findings :: proc(t: ^testing.T, summary: ^File_Summary) {
     testing.expect_value(t, mutable_global_count, 1)
 }
 
+// Verify acronym-bearing aliases remain types without reclassifying value declarations.
+@(test)
+odin_engine_test_array_type_aliases :: proc(t: ^testing.T) {
+    arena: vmem.Arena
+    arena_error := vmem.arena_init_static(&arena)
+    testing.expect(t, arena_error == nil)
+    if arena_error != nil {
+        return
+    }
+    defer vmem.arena_destroy(&arena)
+    context.allocator = vmem.arena_allocator(&arena)
+    source := `package fixture
+Color_RGBA8 :: distinct [4]u8
+Local_Color :: Color_RGBA8
+Particle_Color :: color.Color_RGBA8
+Wrapped_Color :: (color.Color_RGBA8)
+Alias_Color :: Particle_Color
+ARRAY_VALUES :: [4]u8{1, 2, 3, 4}
+FORWARDED_CONSTANT :: color.ARRAY_VALUES
+mutable_color := color.Color_RGBA8
+`
+    fixture := write_analysis_test_fixture(t, source, context.allocator)
+    defer if fixture.directory != "" {
+        _ = os.remove_all(fixture.directory)
+    }
+    summary := analyze_file(fixture.path, context.allocator)
+    testing.expect(t, summary.parsed)
+    testing.expect_value(t, summary.syntax_errors, 0)
+    type_names: []string = {"Color_RGBA8", "Local_Color", "Particle_Color",
+        "Wrapped_Color", "Alias_Color"}
+    for name in type_names {
+        _, found := find_test_symbol(&summary, name, "type")
+        testing.expect(t, found, name)
+    }
+    constant_names: []string = {"ARRAY_VALUES", "FORWARDED_CONSTANT"}
+    for name in constant_names {
+        _, found := find_test_symbol(&summary, name, "constant")
+        testing.expect(t, found, name)
+    }
+    _, found := find_test_symbol(&summary, "mutable_color", "variable")
+    testing.expect(t, found)
+}
+
 // Verify all declaration kinds emitted from the metrics fixture.
 verify_test_declaration_symbols :: proc(t: ^testing.T, summary: ^File_Summary) {
     _, type_found := find_test_symbol(summary, "Sample_Type", "type")

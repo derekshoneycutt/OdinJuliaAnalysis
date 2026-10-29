@@ -969,7 +969,7 @@ is_type_expression :: proc(expression: ^ast.Expr) -> bool {
     return false
 }
 
-// Return whether an immutable identifier or selector clearly names an Odin type.
+// Recognize mixed-case type forwards, including acronym suffixes, without treating all-caps constants as types.
 is_clear_type_forward :: proc(expression: ^ast.Expr) -> bool {
     name, named := identifier_name(expression)
     if !named || len(name) < 2 || name[0] < 'A' || name[0] > 'Z' {
@@ -990,7 +990,8 @@ is_clear_type_forward :: proc(expression: ^ast.Expr) -> bool {
             segment_start = false
         } else if character >= 'a' && character <= 'z' {
             has_lowercase = true
-        } else if character < '0' || character > '9' {
+        } else if (character < '0' || character > '9') &&
+            (character < 'A' || character > 'Z') {
             return false
         }
     }

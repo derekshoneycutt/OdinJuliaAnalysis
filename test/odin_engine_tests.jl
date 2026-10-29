@@ -500,5 +500,7 @@ end
     process = run(pipeline(ignorestatus(command), stdout=output, stderr=output))
     text = String(take!(output))
     @test process.exitcode == 0
-    @test occursin("Finished 10 tests", text)
+    @test occursin(
+        r"Finished [1-9][0-9]* tests in [^\r\n]+ All tests were successful\.",
+        text)
 end
