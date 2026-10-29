@@ -84,9 +84,11 @@ function calculate_repository_statistics(
     code = calculate_code_statistics(code_files, code_functions)
     code_by_language["sql"] = calculate_code_statistics(
         filter(file -> file.language == "sql", files), FunctionAnalysis[])
+    code_by_language["hlsl"] = calculate_code_statistics(
+        filter(file -> file.language == "hlsl", files), FunctionAnalysis[])
     totals_by_language = Dict(language => source_totals(
         filter(file -> file.language == language, files))
-        for language in ("julia", "odin", "sql", "markdown"))
+        for language in ("julia", "odin", "sql", "markdown", "hlsl"))
     return RepositoryStatistics(
         code,
         code_by_language,
@@ -97,7 +99,7 @@ function calculate_repository_statistics(
         procedural_scope(files))
 end
 
-"""Measure one Julia, Odin or SQL source without running repository policy."""
+"""Measure one supported code source without running repository policy."""
 function analyze_source_statistics(
     path::String;
     function_name::Union{Nothing, String}=nothing,
@@ -106,12 +108,14 @@ function analyze_source_statistics(
         "function and line selectors are mutually exclusive"))
     isfile(path) || throw(ArgumentError("source path is not a file: $path"))
     language = source_language(path)
-    language in ("julia", "odin", "sql") || throw(ArgumentError(
-        "source path must have a .jl, .odin or .sql extension: $path"))
+    language in ("julia", "odin", "sql", "hlsl") || throw(ArgumentError(
+        "source path must have a .jl, .odin, .sql, .hlsl or .hlsli extension: $path"))
 
     normalized_path = replace(normpath(path), '\\' => '/')
     source = read(path, String)
     language == "sql" && return sql_source_statistics(
+        normalized_path, source, function_name, line)
+    language == "hlsl" && return hlsl_source_statistics(
         normalized_path, source, function_name, line)
     functions, struct_count = language == "julia" ?
         julia_source_metrics(normalized_path, source) :
@@ -131,6 +135,26 @@ function analyze_source_statistics(
         file_statistics(file, functions, code),
         selected,
         selection)
+end
+
+"""Measure HLSL as whole-file lexical evidence, leaving structural quantities unavailable."""
+function hlsl_source_statistics(path, source, function_name, line)
+    function_name === nothing || throw(ArgumentError(
+        "--function is not applicable to HLSL; use whole-file stats without selectors"))
+    line === nothing || throw(ArgumentError(
+        "--line is not applicable to HLSL; use whole-file stats without selectors"))
+    evidence = HLSLEngine.analyze(source)
+    if !isempty(evidence.issues)
+        issue = first(evidence.issues)
+        throw(ArgumentError("$path:$(issue.line):$(issue.column): $(issue.message)"))
+    end
+    file = analyze_file(path, path, source, "hlsl", false, nothing; hlsl=evidence)
+    metrics = FileStatistics(false, file.physical_lines, file.source_lines,
+        file.code_lines, file.comment_lines, file.blank_lines,
+        nothing, nothing, nothing, nothing, nothing, nothing, nothing, nothing)
+    return SourceStatisticsReport("2.0.0", string(VERSION), path, "hlsl", metrics,
+        FunctionStatistics[], nothing, nothing, SQLStatementStatistics[],
+        procedural_scope([file]))
 end
 
 """Return a deterministic scalar source-order key for one function."""

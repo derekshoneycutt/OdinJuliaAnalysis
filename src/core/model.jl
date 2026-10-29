@@ -434,7 +434,7 @@ struct SourceTotals
     blank_lines::Int
 end
 
-"""Procedural metrics and estimates exclude SQL and documentation explicitly."""
+"""Procedural metrics and estimates disclose languages without structural measurements."""
 struct MetricScope
     status::String
     languages::Vector{String}
@@ -526,7 +526,7 @@ end
 """Preserve construction of procedural targeted reports with explicit scope defaults."""
 function SourceStatisticsReport(
     schema, version, path, language, file, functions, selection)
-    scope = MetricScope("applicable", ["julia", "odin"], ["sql", "markdown"],
+    scope = MetricScope("applicable", ["julia", "odin"], ["sql", "markdown", "hlsl"],
         1, file.code_lines, file.code_lines, nothing)
     return SourceStatisticsReport(schema, version, path, language, file,
         functions, selection, nothing, SQLStatementStatistics[], scope)

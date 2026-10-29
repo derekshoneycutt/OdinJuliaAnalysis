@@ -296,10 +296,19 @@ function write_code_statistics(io::IO, report, use_color::Bool)
         insert!(rows, 3, code_statistics_row("SQLite", statistics.code_by_language.sql))
         rows[end][1] = "Procedural total"
     end
+    if hasproperty(statistics.code_by_language, :hlsl)
+        insert!(rows, length(rows), code_statistics_row(
+            "HLSL", statistics.code_by_language.hlsl))
+        rows[end][1] = "Procedural total"
+    end
     println(io)
     println(io, styled("CODE STATISTICS", ANSI_BOLD, use_color))
     println(io)
     write_table(io, headers, rows)
+    if hasproperty(statistics.code_by_language, :hlsl)
+        println(io, "HLSL: lexical-only; no syntax or structural analysis. ",
+            "Procedural totals and estimates: Odin/Julia only.")
+    end
     write_estimates(io, statistics)
 end
 

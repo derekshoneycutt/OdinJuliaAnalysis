@@ -1,4 +1,4 @@
-const SUPPORTED_EXTENSIONS = Set([".jl", ".md", ".odin", ".sql"])
+const SUPPORTED_EXTENSIONS = Set([".jl", ".md", ".odin", ".sql", ".hlsl", ".hlsli"])
 const EXCLUDED_DIRECTORIES = Set([".git", ".build", "bin"])
 
 """Discover supported source files below a root directory."""

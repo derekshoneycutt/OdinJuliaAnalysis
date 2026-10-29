@@ -89,6 +89,7 @@ include("analysis/naming_policies.jl")
 include("analysis/reviewed_complexity.jl")
 include("analysis/reviewed_diagnostics.jl")
 include("core/discovery.jl")
+include("hlsl_engine/HLSLEngine.jl")
 include("analysis/common_rules.jl")
 include("markdown_engine/MarkdownEngine.jl")
 include("sql_engine/SQLEngine.jl")
@@ -132,7 +133,7 @@ function usage(io::IO)
     println(io)
     println(io, "Commands:")
     println(io, "    check [PATH]              Verify a repository (default PATH: current directory)")
-    println(io, "    stats FILE                Measure one Julia, Odin or SQL source file")
+    println(io, "    stats FILE                Measure one Julia, Odin, SQL or HLSL source file")
     println(io)
     println(io, "Check options:")
     println(io, "    --format=text|json         Select human or machine output")
@@ -145,8 +146,9 @@ function usage(io::IO)
     println(io, "    -h, --help                 Show this help")
     println(io)
     println(io, "Stats options:")
-    println(io, "    --function=NAME           Select exact functions (not applicable to SQL)")
+    println(io, "    --function=NAME           Select exact functions (Julia/Odin only)")
     println(io, "    --line=LINE               Select the innermost function or SQL statement")
+    println(io, "                                HLSL supports whole-file statistics only")
     println(io, "    --format=text|json        Select human or machine output")
     println(io, "    -h, --help                 Show this help")
     println(io)
@@ -424,8 +426,12 @@ function analyze_source_files!(
     for path in files
         source = read(path, String)
         relative_path = replace(relpath(path, root), '\\' => '/')
+        hlsl = source_language(path) == "hlsl" ?
+            get!(state.hlsl_sources, relative_path) do
+                HLSLEngine.analyze(source)
+            end : nothing
         append!(state.diagnostics, check_common_rules(
-            relative_path, source, configuration))
+            relative_path, source, configuration; hlsl))
 
         if endswith(path, ".jl")
             analyze_julia_source_file!(relative_path, source, configuration, state)
@@ -443,12 +449,25 @@ function analyze_source_files!(
             append!(state.diagnostics, SQLEngine.check(relative_path, evidence, configuration))
         end
     end
+    record_hlsl_engine_status!(state)
     record_sql_engine_status!(state)
     validation = analyze_sqlite_validation(
         root, state.sql_sources, configuration.sqlite_validation)
     state.sqlite_validation[] = validation
     push!(state.engines, EngineStatus("sqlite-validation", validation.status,
         sqlite_validation_message(validation)))
+end
+
+"""Disclose lexical HLSL coverage and source-located failures without claiming parsing."""
+function record_hlsl_engine_status!(state)
+    failures = sort!(["$path:$(issue.line):$(issue.column): $(issue.message)"
+        for (path, evidence) in state.hlsl_sources for issue in evidence.issues])
+    status = isempty(state.hlsl_sources) ? "not-applicable" :
+        isempty(failures) ? "complete" : "incomplete"
+    message = isempty(failures) ?
+        "Lexical accounting only; HLSL syntax and structural metrics are not analyzed." :
+        join(failures, "\n")
+    push!(state.engines, EngineStatus("hlsl-lexer", status, message))
 end
 
 """Expose lexical and structural completion independently, including per-rule coverage."""
@@ -581,7 +600,8 @@ function assemble_analysis_report(
     apply_reviewed_naming_policies!(state.diagnostics, root, files, configuration)
     cap_staging_responses!(state.diagnostics, configuration.report)
     files_analysis = analyze_files(
-        root, files, state.struct_counts, state.diagnostics, state.sql_sources)
+        root, files, state.struct_counts, state.diagnostics, state.sql_sources,
+        state.hlsl_sources)
     statistics = calculate_repository_statistics(files_analysis, state.functions)
     run_repository_extension_phase!(
         state, root, files, configuration, files_analysis, statistics)
@@ -727,6 +747,7 @@ function repository_analysis_state()
         interop_pairs=InteropBridgePair[],
         struct_counts=Dict{String, Int}(),
         sql_sources=Dict{String, SQLSourceEvidence}(),
+        hlsl_sources=Dict{String, HLSLEngine.SourceEvidence}(),
         sqlite_validation=Ref(empty_sqlite_validation()),
         extension_results=ExtensionResult[],
         odin_builds=OdinBuildAnalysis[],
@@ -756,7 +777,8 @@ function run_language_analysis!(state, root, files, configuration, progress)
     run_security_analysis!(state, configuration)
     run_test_coverage_analysis!(state, root, configuration)
     language_files = analyze_files(
-        root, files, state.struct_counts, state.diagnostics, state.sql_sources)
+        root, files, state.struct_counts, state.diagnostics, state.sql_sources,
+        state.hlsl_sources)
     language_statistics = calculate_repository_statistics(
         language_files, state.functions)
     run_language_extension_phase!(
@@ -884,7 +906,8 @@ end
 
 """Return line, function, and struct totals for every discovered source file."""
 function analyze_files(
-    root, files, struct_counts, diagnostics, sql_sources=Dict{String, SQLSourceEvidence}())
+    root, files, struct_counts, diagnostics, sql_sources=Dict{String, SQLSourceEvidence}(),
+    hlsl_sources=Dict{String, HLSLEngine.SourceEvidence}())
     return map(files) do path
         source = read(path, String)
         relative_path = replace(relpath(path, root), '\\' => '/')
@@ -893,18 +916,33 @@ function analyze_files(
             get!(sql_sources, relative_path) do
                 SQLEngine.analyze(source)
             end : nothing
+        hlsl = language == "hlsl" ?
+            get!(hlsl_sources, relative_path) do
+                HLSLEngine.analyze(source)
+            end : nothing
         parsed = source_parsed(relative_path, language, diagnostics)
         struct_count = language == "julia" && parsed ?
             JuliaEngine.struct_count(source) : get(struct_counts, relative_path, 0)
         analyze_file(
-            relative_path, path, source, language, parsed, struct_count; sql)
+            relative_path, path, source, language, parsed, struct_count; sql, hlsl)
     end
 end
 
 """Return line and declaration totals for one source file."""
 function analyze_file(
     path, filesystem_path, source, language, parsed, struct_count;
-    sql::Union{Nothing, SQLSourceEvidence}=nothing)
+    sql::Union{Nothing, SQLSourceEvidence}=nothing,
+    hlsl::Union{Nothing, HLSLEngine.SourceEvidence}=nothing)
+    if language == "hlsl"
+        evidence = hlsl === nothing ? HLSLEngine.analyze(source) : hlsl
+        return FileAnalysis(path, language;
+            physical_lines=length(evidence.line_kinds),
+            source_lines=count(!=(:blank), evidence.line_kinds),
+            code_lines=count(==(:code), evidence.line_kinds),
+            comment_lines=count(==(:comment), evidence.line_kinds),
+            blank_lines=count(==(:blank), evidence.line_kinds),
+            struct_count=nothing, parsed=false)
+    end
     if language == "sql"
         evidence = sql === nothing ? SQLEngine.analyze(source) : sql
         return FileAnalysis(path, language;
@@ -940,12 +978,13 @@ function source_language(path)
     endswith(path, ".jl") && return "julia"
     endswith(path, ".odin") && return "odin"
     endswith(path, ".sql") && return "sql"
+    splitext(path)[2] in (".hlsl", ".hlsli") && return "hlsl"
     return "markdown"
 end
 
 """Return whether one source file has no syntax diagnostic."""
 function source_parsed(path, language, diagnostics)
-    language == "sql" && return false
+    language in ("sql", "hlsl") && return false
     syntax_rule = language == "julia" ? "JULIA-SYNTAX" :
         language == "odin" ? "ODIN-SYNTAX" : nothing
     syntax_rule === nothing && return true
@@ -985,7 +1024,7 @@ end
 
 """Count discovered source files by supported language."""
 function count_files_by_language(files::Vector{String})
-    counts = Dict("julia" => 0, "odin" => 0, "markdown" => 0, "sql" => 0)
+    counts = Dict("julia" => 0, "odin" => 0, "markdown" => 0, "sql" => 0, "hlsl" => 0)
     for path in files
         language = source_language(path)
         counts[language] += 1

@@ -34,11 +34,13 @@ end
 
 """Disclose the exact CC denominator and unchanged Odin/Julia-only estimation scope."""
 function write_metric_scope(io, scope)
-    println(io, "\nProcedural metrics: ", scope.status, " (Odin/Julia only).")
+    included = join(uppercasefirst.(scope.languages), "/")
+    excluded = join(uppercase.(scope.excluded_languages), ", ")
+    println(io, "\nProcedural metrics: ", scope.status, " ($included only).")
     println(io, "CC coverage: ", scope.complexity_files, " parsed files, ",
-        scope.complexity_code_lines, " code lines. SQL and Markdown excluded.")
+        scope.complexity_code_lines, " code lines. Excluded: ", excluded, ".")
     println(io, "Estimate inputs: ", scope.estimate_code_lines,
-        " Odin/Julia code lines; SQL and Markdown excluded.")
+        " $included code lines; excluded: ", excluded, ".")
     scope.reason === nothing || println(io, "Reason: ", scope.reason)
 end
 
@@ -47,7 +49,7 @@ function write_markdown_source_totals(io, statistics)
     println(io, "\n### Shared Source Totals\n")
     println(io, "| Language | Files | Physical | Source | Code | Comment | Blank |")
     println(io, "| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
-    for language in ("odin", "julia", "sql", "markdown", "total")
+    for language in ("odin", "julia", "sql", "markdown", "hlsl", "total")
         totals = language == "total" ? statistics.sources :
             statistics.sources_by_language[language]
         println(io, "| $language | $(totals.files) | $(totals.physical_lines) | ",

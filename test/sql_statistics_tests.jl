@@ -151,7 +151,7 @@ end
             @test occursin("Shared Source Totals", text)
             @test occursin("SQLite Inventory", text)
             @test occursin("| triggers | 0 |", text)
-            @test occursin("SQL and Markdown excluded", text)
+            @test occursin("Excluded: SQL, MARKDOWN, HLSL", text)
             @test occursin("\u2014 (not applicable", text)
             @test occursin("SQLite Source Inventories", text) == comprehensive
         end

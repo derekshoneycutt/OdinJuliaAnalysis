@@ -584,7 +584,8 @@ end
         engine -> engine.status == "complete" ||
             (engine.name in (
                 "architecture", "duplicate-code", "resource-lifetime",
-                "security", "test-coverage", "sql", "sql-lexer", "sqlite-validation") &&
+                "security", "test-coverage", "sql", "sql-lexer", "sqlite-validation",
+                "hlsl-lexer") &&
                 engine.status == "not-applicable") ||
             (startswith(engine.name, "sql-rule:") && engine.status == "not-applicable"),
         report.engines)

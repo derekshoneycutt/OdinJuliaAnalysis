@@ -26,7 +26,9 @@ function write_text_statistics(io, report)
     println(io)
     write_file_statistics(io, report)
     println(io)
-    if report.sql === nothing
+    if report.language == "hlsl"
+        println(io, "HLSL coverage: lexical-only; syntax and structural metrics are not analyzed.")
+    elseif report.sql === nothing
         write_function_statistics(io, report)
     else
         write_sql_statistics(io, report.sql)
@@ -40,7 +42,8 @@ function write_file_statistics(io, report)
     file = report.file
     write_statistic(io, "Path", report.path)
     write_statistic(io, "Language", uppercasefirst(report.language))
-    write_statistic(io, "Parsed", file.parsed ? "yes" : "no")
+    write_statistic(io, "Parsed", report.language == "hlsl" ?
+        "not applicable (lexical-only)" : file.parsed ? "yes" : "no")
     write_statistic(io, "Physical lines", file.physical_lines)
     write_statistic(io, "Source lines", file.source_lines)
     write_statistic(io, "Code lines", file.code_lines)
@@ -123,8 +126,10 @@ function write_text_report(io, report, color, warning_limit, report_limit)
         "($(report.files_by_language["julia"]) Julia, " *
         "$(report.files_by_language["odin"]) Odin, " *
         "$(report.files_by_language["markdown"]) Markdown, " *
-        "$(get(report.files_by_language, "sql", 0)) SQLite)")
+        "$(get(report.files_by_language, "sql", 0)) SQLite, " *
+        "$(get(report.files_by_language, "hlsl", 0)) HLSL)")
     write_source_totals(io, report.statistics.sources)
+    write_hlsl_source_summary(io, report.statistics.sources_by_language["hlsl"])
     write_sql_statistics(io, report.statistics.sql)
     write_metric_scope(io, report.statistics.metric_scope)
     write_sqlite_validation(io, report.sqlite_validation)
@@ -157,6 +162,15 @@ function write_text_report(io, report, color, warning_limit, report_limit)
         status_style(report.exit_code),
         use_color)
     println(io, status)
+end
+
+"""Disclose HLSL source sizes without implying compiler or structural validation."""
+function write_hlsl_source_summary(io, totals)
+    totals.files == 0 && return
+    println(io, "\nHLSL SOURCE (lexical-only; syntax and structural metrics not analyzed)")
+    for field in fieldnames(SourceTotals)
+        write_statistic(io, replace(string(field), '_' => ' '), getfield(totals, field))
+    end
 end
 
 """Write a compact severity matrix at the end of text analysis output."""

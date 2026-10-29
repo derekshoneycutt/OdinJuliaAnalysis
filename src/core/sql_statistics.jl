@@ -17,7 +17,7 @@ function procedural_scope(files)
     reason = status == "not-applicable" ? "No Odin/Julia source in this scope." :
         status == "incomplete" ? "Some Odin/Julia source lacks parsed complexity evidence." :
         nothing
-    return MetricScope(status, ["julia", "odin"], ["sql", "markdown"],
+    return MetricScope(status, ["julia", "odin"], ["sql", "markdown", "hlsl"],
         length(covered), sum(file -> file.code_lines, covered; init=0),
         sum(file -> file.code_lines, procedural; init=0), reason)
 end

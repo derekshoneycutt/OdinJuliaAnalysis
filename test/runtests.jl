@@ -415,6 +415,7 @@ end
     include("sql_structure_tests.jl")
     include("sql_statistics_tests.jl")
     include("sql_validation_tests.jl")
+    include("hlsl_analysis_tests.jl")
     include("repository_inventory_tests.jl")
     include("julia_analysis_tests.jl")
     include("odin_analysis_tests.jl")

@@ -80,9 +80,12 @@
         @test !occursin("CC coverage:", summary)
         @test !occursin("SQLite lexical coverage:", summary)
         @test !occursin("SQLite runtime validation:", summary)
-        @test occursin(r"\+-+\+\nCOCOMO/LOCOMO:", summary)
+        @test occursin("HLSL: lexical-only", summary)
+        @test occursin("HLSL", summary)
         @test Verification.code_statistics_row("SQLite",
             serialized.statistics.code_by_language.sql)[3:4] == ["\u2014", "\u2014"]
+        @test Verification.code_statistics_row("HLSL",
+            serialized.statistics.code_by_language.hlsl)[3:4] == ["\u2014", "\u2014"]
         write(path, "ALTER TABLE t RENAME TO u;")
         partial = OdinJuliaAnalysis.check_repository(
             root; configuration=sql_rule_configuration())

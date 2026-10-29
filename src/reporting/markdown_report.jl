@@ -350,10 +350,12 @@ function write_markdown_statistics(io, statistics)
     write_markdown_code_statistics_row(io, "Odin", statistics.code_by_language["odin"])
     write_markdown_code_statistics_row(io, "Julia", statistics.code_by_language["julia"])
     write_markdown_code_statistics_row(io, "SQLite", statistics.code_by_language["sql"])
+    write_markdown_code_statistics_row(io, "HLSL", statistics.code_by_language["hlsl"])
     write_markdown_code_statistics_row(io, "Procedural total", statistics.code)
     println(io)
-    println(io, "Procedural totals and estimates cover Odin/Julia only; SQL and Markdown are excluded.")
+    println(io, "Procedural totals and estimates cover Odin/Julia only.")
     println(io, "Shared source totals below include every discovered language.")
+    println(io, "HLSL coverage is lexical-only; syntax and structural metrics are not analyzed.")
     println(io, "Functions includes parser-backed Julia functions and Odin procedures.")
     println(io, "Structs includes parser-backed named struct declarations.")
     println(io, "Complexity is the sum of parser-derived cyclomatic complexity for Julia")
@@ -370,7 +372,7 @@ function write_markdown_cocomo_statistics(io, cocomo)
     println(io)
     println(io, "### COCOMO Development Estimate")
     cocomo === nothing && return println(io,
-        "\n\u2014 (not applicable: no Odin/Julia source; SQL and Markdown excluded).")
+        "\n\u2014 (not applicable: no Odin/Julia source).")
     println(io)
     println(io, "| Measure | Estimate |")
     println(io, "| --- | ---: |")
@@ -392,7 +394,7 @@ function write_markdown_locomo_statistics(io, locomo)
     println(io)
     println(io, "### LOCOMO Regeneration Estimate")
     locomo === nothing && return println(io,
-        "\n\u2014 (not applicable: no Odin/Julia source; SQL and Markdown excluded).")
+        "\n\u2014 (not applicable: no Odin/Julia source).")
     println(io)
     println(io, "| Measure | Estimate |")
     println(io, "| --- | ---: |")
@@ -537,11 +539,13 @@ function write_markdown_files(io, report)
     for file in report.files
         findings = filter(item -> item.path == file.path, report.diagnostics)
         counts = severity_counts(findings)
-        parse_status = file.parsed ? "complete" : "failed"
+        parse_status = file.language == "hlsl" ? "lexical-only" :
+            file.parsed ? "complete" : "failed"
+        functions = file.language == "hlsl" ? nothing : length(file.functions)
         println(io, "| `$(markdown_cell(file.path))` | $(file.language) | ",
             "$parse_status | $(file.physical_lines) | $(file.code_lines) | ",
             "$(file.comment_lines) | $(file.blank_lines) | ",
-            "$(length(file.functions)) | $(counts[Report]) | $(counts[Warn]) | ",
+            "$(statistic_value(functions)) | $(counts[Report]) | $(counts[Warn]) | ",
             "$(counts[Fail]) |")
     end
 end

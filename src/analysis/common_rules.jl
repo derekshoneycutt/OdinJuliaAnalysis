@@ -118,11 +118,17 @@ end
 function check_common_rules(
     path::String,
     source::String,
-    configuration::EffectiveSettings=load_settings())
+    configuration::EffectiveSettings=load_settings();
+    hlsl::Union{Nothing, HLSLEngine.SourceEvidence}=nothing)
     diagnostics = Diagnostic[]
     normalized_source = replace(source, "\r\n" => "\n")
     lines = split(normalized_source, '\n'; keepempty=true)
-    line_length_exemptions = find_line_length_exemptions(path, lines)
+    if source_language(path) == "hlsl"
+        evidence = hlsl === nothing ? HLSLEngine.analyze(source) : hlsl
+        line_length_exemptions = Set(findall(==(:comment), evidence.line_kinds))
+    else
+        line_length_exemptions = find_line_length_exemptions(path, lines)
+    end
     line_length_widths = effective_line_length_widths(
         path, normalized_source, lines)
 

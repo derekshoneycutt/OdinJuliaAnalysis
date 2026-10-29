@@ -1,7 +1,7 @@
 # Odin/Julia Analysis
 
-Static analysis and policy enforcement for codebases that combine Odin, Julia, and their
-supporting Markdown documentation.
+Static analysis and policy enforcement for codebases that combine Odin, Julia,
+supporting SQL and HLSL sources, and Markdown documentation.
 
 `OdinJuliaAnalysis` provides one repository-level view across both programming languages:
 parser-backed source checks, function metrics, JET inference, analytical Odin builds,
@@ -21,6 +21,7 @@ static test reachability without making the analyzer responsible for running tes
   - [Project Layout](#project-layout)
 - [Analysis Capabilities](#analysis-capabilities)
   - [Rule Families](#rule-families)
+  - [HLSL Lexical Accounting](#hlsl-lexical-accounting)
   - [Repository Statistics](#repository-statistics)
   - [Targeted Source Statistics](#targeted-source-statistics)
   - [Analytical Odin Builds](#analytical-odin-builds)
@@ -50,6 +51,7 @@ static test reachability without making the analyzer responsible for running tes
 | Odin analysis | Native Odin AST helper | Syntax, declarations, metrics, naming, and allocation evidence |
 | Markdown analysis | MarkdownAST-backed Julia engine | Structure, links, and image accessibility policy |
 | SQLite analysis | Standalone Julia lexer and structural parser | Statements, query/declaration interfaces, six configurable conventions, explicit capability gaps |
+| HLSL accounting | Standalone Julia lexical scanner | Source line totals and common formatting checks; no syntax or structural analysis |
 | Cross-language policy | Canonical repository model and extensions | One rule registry, response model, report, and exit code |
 | Build validation | Configured analytical Odin builds | Compiler commands, streams, artifacts, and failure diagnostics |
 | Policy exceptions | Exact reviewed policies | Reasoned exceptions with bounded drift enforcement |
@@ -67,7 +69,7 @@ static test reachability without making the analyzer responsible for running tes
 | Native Odin engine | `0.22.0` |
 | Julia compatibility | `1.12` |
 | Built-in rules | 88 |
-| Source types | `.jl`, `.odin`, `.md`, `.sql` |
+| Source types | `.jl`, `.odin`, `.md`, `.sql`, `.hlsl`, `.hlsli` |
 | License | The Unlicense |
 
 ## Requirements
@@ -156,14 +158,15 @@ julia analyze.jl stats FILE [OPTIONS]
 
 | Option | Values | Default | Purpose |
 | --- | --- | --- | --- |
-| `--function` | Exact function name | None | Return every exact name match; rejected for SQL |
-| `--line` | Positive source line | None | Return the innermost function or executable SQL statement |
+| `--function` | Exact function name | None | Return every exact name match; Julia/Odin only |
+| `--line` | Positive source line | None | Return the innermost function or executable SQL statement; rejected for HLSL |
 | `--format` | `text`, `json` | `text` | Select human or versioned machine output |
 | `-h`, `--help` | - | - | Show command help |
 
 `--function` and `--line` are mutually exclusive. Without either selector, `stats`
 returns file measurements and every measured function, procedure or SQL statement in
 source order. SQL CTEs are query organization, not standalone executable statements.
+HLSL supports whole-file statistics only; both selectors are explicitly rejected.
 
 Progress always uses stderr. Text or JSON report data always uses stdout, so machine
 consumers can safely redirect stdout while retaining live progress.
@@ -263,6 +266,7 @@ flowchart TD
 | [`src/odin_engine/`](src/odin_engine/) | Julia adapter for the native Odin engine |
 | [`odin_engine/`](odin_engine/) | Native Odin parser, analyzer, and native tests |
 | [`src/markdown_engine/`](src/markdown_engine/) | Markdown structure checks |
+| [`src/hlsl_engine/`](src/hlsl_engine/) | Standalone HLSL lexical line accounting |
 | [`src/reporting/`](src/reporting/) | Text, JSON, and compact Markdown renderers |
 | [`test/`](test/) | Analyzer regression suite |
 | [`sample/`](sample/) | Standalone Odin/Julia consumer and integration example |
@@ -363,13 +367,42 @@ use `Report`; consuming repositories choose each rule's `Ignore`, `Report`,
 referenced storage remains mutable; the rule is `probable` because syntax alone cannot
 prove that an unqualified `Ref` name has not been shadowed.
 
+### HLSL Lexical Accounting
+
+`.hlsl` and `.hlsli` files share the `hlsl` language and ordinary discovery,
+profile exclusions, and common rule configuration. A small standalone scanner
+classifies physical lines as blank, comment-only, or code. Mixed code/comment
+lines count as code; whitespace-only lines remain blank, including inside block
+comments. Source lines are comment plus code lines. Empty files have zero lines,
+and a terminal newline does not create an extra physical line.
+
+The scanner recognizes `//`, non-nesting `/* ... */`, quoted text with escaped
+delimiters, LF/CRLF, and backslash-newline splicing before comment recognition.
+Preprocessor directives and inactive conditional branches count as authored code.
+Macros are not expanded, conditions are not evaluated, and includes are not
+resolved. Unterminated comments or quoted text produce located lexical failures:
+repository checks report an incomplete `hlsl-lexer` and exit 2; focused statistics
+reject the input with exit 2 rather than presenting complete measurements.
+
+The existing `COMMON-NO-TABS` and `COMMON-LINE-*` checks apply. Comment-only lines
+are exempt from line-width checks, but tabs are still checked everywhere.
+Other HLSL lines use physical character widths, including quoted text and inline
+comments; Odin/Julia-specific string-width exclusions do not apply.
+
+HLSL coverage is **lexical-only**, not a parser or compiler result. `parsed` is
+false; structural quantities are null, and structural inventories are empty
+because they are not measured. No shader compiler, SDL, graphics environment,
+consumer repository, or new package dependency is required. Shader compilation,
+reflection, resource layouts, and rendering correctness belong to the consumer's
+build and tests.
+
 ### Repository Statistics
 
-The report includes parser-backed totals rather than filename-only estimates.
+The report includes source accounting and explicitly scoped parser-backed totals.
 
 | Statistic | Scope |
 | --- | --- |
-| Files | Shared Julia, Odin, SQL and Markdown source counts by language |
+| Files | Shared Julia, Odin, SQL, HLSL and Markdown source counts by language |
 | Functions | Julia functions and Odin procedures |
 | Structs | Julia and Odin struct declarations |
 | Lines | Shared physical, source, blank, comment, and code lines |
@@ -385,9 +418,12 @@ reports authored inventories, not live database objects. Top-level statements ex
 trigger-body statements; the full statement count includes them. Structural counts
 are null if their required evidence is incomplete, while independently complete lexical
 bind evidence remains available. A measured absence (for example no triggers) is zero.
+`code_by_language.hlsl` likewise contains source sizes with null structural metrics.
+HLSL appears in text, JSON, compact/full Markdown, and verification summary tables
+with explicit lexical-only coverage.
 
 `metric_scope` explicitly records CC coverage and unchanged estimate NLOC inputs.
-SQL and Markdown never dilute procedural CC or enter COCOMO/LOCOMO. A SQL-only or
+SQL, HLSL and Markdown never dilute procedural CC or enter COCOMO/LOCOMO. A nonprocedural or
 empty scope has null procedural metrics and estimates, shown as an em dash in human
 output. Incomplete SQL measurements include status and located reasons.
 Bodyless Odin foreign procedures declared with `---` remain in interop signature evidence
@@ -395,8 +431,9 @@ but are excluded from function statistics and user-defined procedure rules.
 
 ### Targeted Source Statistics
 
-The `stats` command measures exactly one `.jl`, `.odin` or `.sql` file. It reuses
-JuliaSyntax, CodeComplexity, the native Odin AST helper or SQL source evidence,
+The `stats` command measures exactly one `.jl`, `.odin`, `.sql`, `.hlsl` or `.hlsli`
+file. It reuses JuliaSyntax, CodeComplexity, the native Odin AST helper, SQL source
+evidence or HLSL lexical accounting,
 and the same line classifier used by the
 repository report, but it does not run discovery, JET, configured Odin builds,
 extensions, coverage ingestion, call-graph analysis, or policy rules.
@@ -718,8 +755,8 @@ enforcement:
 ScanProfile(:default, ["vendor", "generated/api.jl"])
 ```
 
-Discovery recursively includes `.jl`, `.odin`, and `.md` files. The following directories
-are always skipped:
+Discovery recursively includes `.jl`, `.odin`, `.md`, `.sql`, `.hlsl`, and `.hlsli`
+files. The following directories are always skipped:
 
 | Directory | Reason |
 | --- | --- |
